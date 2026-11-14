@@ -1,0 +1,28 @@
+# Gradle / Android build outputs
+.gradle/
+build/
+app/build/
+local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# IDE / Android Studio
+.idea/
+*.iml
+.cxx/
+captures/
+.externalNativeBuild/
+
+# Context & temporary outputs
+repomix-context.xml
+tree_scan_result.json
+tree_scan_result.txt
+classify_result.json
+out/
+tmp/
+.kotlin/
+*.lnk
+text.md
+

@@ -1,0 +1,705 @@
+package com.timewallet.mvp.domain.usecase
+
+import com.timewallet.mvp.domain.model.ActivityProposal
+import java.text.Normalizer
+import java.time.LocalDate
+import java.time.LocalTime
+import java.util.Locale
+import java.util.UUID
+import kotlin.math.roundToInt
+
+data class ParseChatOutcome(
+    val proposals: List<ActivityProposal>,
+    val warnings: List<String>,
+    val source: OutcomeSource = OutcomeSource.LOCAL,
+    val fault: AiFault? = null,
+    val requestId: String? = null,
+    /** Lời đáp ngắn của AI (đã qua ReplyGuard); null nếu không có. */
+    val reply: String? = null,
+    /** Câu hỏi số liệu AI yêu cầu, đã kiểm tra tất định; app tự tính số từ sổ cái. */
+    val queries: List<QueryIntent> = emptyList(),
+    /** Số token/nhận trạng thái đệm do nhà cung cấp báo (null nếu không có usage). */
+    val usage: AiUsage? = null,
+    val retryCount: Int = 0,
+    val intent: WallyIntentKind? = null
+)
+
+/**
+ * Bộ phân tích ngôn ngữ tự nhiên tiếng Việt theo quy tắc (MVP Refinement 01):
+ * - Tách tới 12 hoạt động trong một câu để xác nhận hàng loạt (Batch Confirmation).
+ * - TUYỆT ĐỐI KHÔNG tự suy diễn giờ bắt đầu / kết thúc khi câu chỉ có thời lượng (ví dụ: "Học 45p, đọc sách 30p...").
+ * - Chỉ gắn startLocal / endLocal khi người dùng nêu rõ khoảng giờ ("13:00-18:00", "từ 14h đến 15h30")
+ *   hoặc nêu rõ mốc giờ cụ thể kèm thời lượng ("lúc 8h học 45p").
+ */
+object VietnameseChatParser {
+
+    private val categoryRules: List<Pair<String, Regex>> = listOf(
+        "sleep" to Rx.ascii("""ngủ|chợp mắt|\bnap\b""", RegexOption.IGNORE_CASE),
+        "health" to Rx.ascii("""tập thể dục|\bgym\b|đi bộ|chạy bộ|yoga|đạp xe|bơi|vận động|thể thao""", RegexOption.IGNORE_CASE),
+        "learn" to Rx.ascii("""học|đọc sách|đọc tài liệu|nghiên cứu|feynman|ôn bài|khóa học|python|tiếng anh|luyện đề""", RegexOption.IGNORE_CASE),
+        "fun" to Rx.ascii("""youtube|xem phim|lướt|\bgame\b|tiktok|facebook|giải trí|nghe nhạc|netflix|chơi""", RegexOption.IGNORE_CASE),
+        "rest" to Rx.ascii("""nghỉ|thư giãn|cà phê|coffee|thiền|uống trà|giải lao""", RegexOption.IGNORE_CASE),
+        "social" to Rx.ascii("""gia đình|bạn bè|hẹn hò|gọi điện|trò chuyện|gặp gỡ|ăn tối cùng""", RegexOption.IGNORE_CASE),
+        "life" to Rx.ascii("""ăn cơm|ăn sáng|ăn trưa|ăn tối|nấu|dọn dẹp|di chuyển|đi lại|tắm|mua sắm|sinh hoạt|giặt đồ""", RegexOption.IGNORE_CASE),
+        "work" to Rx.ascii("""làm việc|dự án|họp|báo cáo|\bcode\b|coding|đi làm|kiểm thử|debug|khách hàng""", RegexOption.IGNORE_CASE)
+    )
+
+    private val timeRangeRegex = Rx.ascii(
+        """(?:từ\s*)?(\d{1,2})\s*(?:h|:)\s*(\d{0,2})\s*(?:đến|tới|-|–)\s*(\d{1,2})\s*(?:h|:)\s*(\d{0,2})""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val explicitStartAtHourRegex = Rx.uni(
+        """(?:^|\s)lúc\s*(\d{1,2})\s*(?:h|:)\s*(\d{0,2})""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val hoursRegex = Rx.ascii(
+        """(\d+(?:[.,]\d+)?)\s*(?:h\s*tiếng|giờ|tiếng|h(?=\d|\s|$|[,.;]))""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val minutesRegex = Rx.ascii(
+        """(\d+)\s*(?:phút|p\b|min\b)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    // Tách mệnh đề liên kết bằng "và", "rồi", "sau đó", "tiếp theo" trong câu nhiều hoạt động
+    private val clauseConnectorRegex = Rx.uni(
+        """\s+(?:và|rồi|sau đó|tiếp theo)\s+""",
+        RegexOption.IGNORE_CASE
+    )
+
+    // AI-01 (Finding D): mệnh đề chốt tổng ("tổng cộng 5h") không phải hoạt động độc lập.
+    // Cố ý KHÔNG khớp từ "tổng" đơn lẻ để giữ các hoạt động như "họp tổng kết".
+    private val aggregateClauseRegex = Rx.uni(
+        """(?:^|\s)(?:tổng cộng|tổng thời gian|tổng số giờ|tổng số thời gian|cộng lại|tính chung|cả ngày hết|tất cả là)(?=\s|$|[,.;:])""",
+        RegexOption.IGNORE_CASE
+    )
+
+    fun isAggregateClause(text: String): Boolean = aggregateClauseRegex.containsMatchIn(text)
+
+    // AI-01 FINAL FIX (phủ định): "Hôm nay tôi không học 2 tiếng", "Đừng ghi nhận 3 giờ làm việc",
+    // "Tôi chưa code 1 tiếng hôm nay" KHÔNG được tạo proposal. Chỉ coi là phủ định khi từ phủ định đứng
+    // TRƯỚC thời lượng trong cùng mệnh đề; phủ định đứng sau ("Học 2h không nghỉ", "Học 2h chưa ghi vào sổ")
+    // chỉ bổ nghĩa cho phần đuôi nên giữ nguyên. Mệnh đề được tách bởi "nhưng/tuy nhiên/song".
+    private val negationCueRegex = Rx.uni(
+        """(?:^|\s)(?:không|chưa|chẳng|đừng|chớ)(?=\s|$|[,.;:!?])""",
+        RegexOption.IGNORE_CASE
+    )
+
+    // "không nghỉ / không ngừng ..." mô tả cách làm liên tục (khẳng định hoạt động), không phải phủ định hoạt động.
+    private val nonStopPhraseRegex = Rx.uni(
+        """(?:^|\s)(?:không|chẳng)\s+(?:nghỉ|ngừng|ngơi nghỉ|ngơi|ngắt quãng|gián đoạn)(?=\s|$|[,.;:!?])""",
+        RegexOption.IGNORE_CASE
+    )
+
+    // Từ đệm/mốc ngày đứng trước hoạt động; không tính là "hoạt động" khi xét cụm "không nghỉ".
+    private val leadingFillerRegex = Rx.uni(
+        """(?:^|\s)(?:tôi|mình|đã|vừa mới|vừa|mới|sẽ|bây giờ|giờ|hôm nay|hôm qua|đêm qua|hôm kia|ngày mai|mai|lúc|buổi|khoảng|trong)(?=\s|$|[,.!?;:])""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /**
+     * Bỏ cụm "không nghỉ/ngừng..." chỉ khi phía trước đã có một hoạt động ("Làm việc không nghỉ 3h").
+     * Nếu phía trước chỉ là đại từ/mốc ngày ("Hôm nay tôi không nghỉ 2h") thì "nghỉ" chính là hoạt động bị phủ định.
+     */
+    private fun stripNonStopPhrase(segment: String): String {
+        val m = nonStopPhraseRegex.find(segment) ?: return segment
+        val before = leadingFillerRegex.replace(segment.substring(0, m.range.first), " ")
+        val hasActivityBefore = before.any { it.isLetter() }
+        return if (hasActivityBefore) nonStopPhraseRegex.replace(segment, " ") else segment
+    }
+
+    private val contrastClauseRegex = Rx.uni(
+        """\s+(?:nhưng mà|nhưng|tuy nhiên|song)\s+""",
+        RegexOption.IGNORE_CASE
+    )
+
+    // Câu sửa lại thời lượng/hoạt động ("không phải 2 tiếng, 3 tiếng", "sửa lại thành 3h"): mơ hồ => hỏi lại.
+    private val correctionRegex = Rx.uni(
+        """(?:^|\s)(?:không phải|chứ không|sửa lại|sửa thành|sửa là|cập nhật lại|nhầm|ý tôi là|ý là|à không|thay vì|đúng ra)(?=\s|$|[,.;:!?])""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val singleViDigits = mapOf(
+        "một" to 1, "hai" to 2, "ba" to 3, "bốn" to 4, "năm" to 5,
+        "sáu" to 6, "bảy" to 7, "bẩy" to 7, "tám" to 8, "chín" to 9
+    )
+    private val allViUnitDigits = singleViDigits + mapOf(
+        "mốt" to 1, "tư" to 4, "lăm" to 5, "nhăm" to 5
+    )
+    private val ordinalGuardWords = setOf(
+        "thứ", "tháng", "quý", "lần", "bước", "mục", "phần", "chương",
+        "tập", "tầng", "nhóm", "loại", "câu", "điều", "khoản", "trang", "dòng"
+    )
+    private val nonDurationAfterTiengWords = setOf(
+        "anh", "việt", "pháp", "nhật", "hàn", "trung", "đức", "nga", "tây", "bồ",
+        "thái", "hoa", "nước", "mẹ", "lóng", "cười", "khóc", "hét", "kêu", "chuông", "vỗ", "thở"
+    )
+    private val viWordTokenPattern =
+        """(?:một|mốt|hai|ba|bốn|tư|năm|lăm|nhăm|sáu|bảy|bẩy|tám|chín|mười|mươi|trăm|linh|lẻ)"""
+    private val halfWordRegex = Rx.uni(
+        """(?:^|(?<=[\s,.;:!?()]))(?:một\s+)?nửa\s+(?:tiếng|giờ)(?:\s+đồng\s+hồ)?(?=$|[\s,.;:!?()])""",
+        RegexOption.IGNORE_CASE
+    )
+    private val hourRuoiRegex = Rx.uni(
+        """(?:^|(?<=[\s,.;:!?()]))(?:(\d+(?:[.,]\d+)?|$viWordTokenPattern(?:\s+$viWordTokenPattern){0,4})\s+)?(tiếng|giờ)(?:\s+đồng\s+hồ)?\s+rưỡi(?=$|[\s,.;:!?()])""",
+        RegexOption.IGNORE_CASE
+    )
+    private val decimalWordDurationRegex = Rx.uni(
+        """(?:^|(?<=[\s,.;:!?()]))($viWordTokenPattern(?:\s+$viWordTokenPattern){0,3})\s+phẩy\s+($viWordTokenPattern(?:\s+$viWordTokenPattern){0,2})\s+(tiếng|giờ|phút)(?=$|[\s,.;:!?()])""",
+        RegexOption.IGNORE_CASE
+    )
+    private val wordUnitDurationRegex = Rx.uni(
+        """(?:^|(?<=[\s,.;:!?()]))($viWordTokenPattern(?:\s+$viWordTokenPattern){0,5})\s+(tiếng\s+đồng\s+hồ|giờ\s+đồng\s+hồ|tiếng|giờ|phút)(?=$|[\s,.;:!?()])""",
+        RegexOption.IGNORE_CASE
+    )
+    private val trailingWordMinutesAfterHourRegex = Rx.uni(
+        """(?<=\b\d{1,2}\s?(?:giờ|tiếng|h)\s)((?:hai|ba|bốn|năm)\s+mươi(?:\s+(?:mốt|hai|ba|bốn|tư|lăm|nhăm|sáu|bảy|bẩy|tám|chín))?|mười(?:\s+(?:một|hai|ba|bốn|lăm|nhăm|sáu|bảy|bẩy|tám|chín))?|hai\s+lăm|hai\s+nhăm|ba\s+lăm|ba\s+nhăm|bốn\s+lăm|bốn\s+nhăm|năm\s+lăm)(?=$|[\s,.;:!?()])""",
+        RegexOption.IGNORE_CASE
+    )
+    private val vagueNegatedDurationRegex = Rx.uni(
+        """(?:^|\s)(?:vài|mấy|đôi|dăm(?:\s+ba)?|một\s+(?:vài|ít|chút)|chút|ít|tẹo|lát|cả\s+buổi|bao\s+nhiêu)\s+(?:tiếng(?:\s+đồng\s+hồ)?|giờ(?:\s+đồng\s+hồ)?|phút|h|p)(?=$|[\s,.;:!?()])""",
+        RegexOption.IGNORE_CASE
+    )
+    private val residualWordDurationRegex = Rx.uni(
+        """(?:^|(?<=[\s,.;:!?()]))(?:(?:$viWordTokenPattern|vài|mấy|đôi|dăm|chút|ít|rưỡi|nửa|chục|tá|ngót)\s+(?:tiếng|giờ|phút)|(?:tiếng|giờ)\s+(?:rưỡi|nửa))(?=$|[\s,.;:!?()])""",
+        RegexOption.IGNORE_CASE
+    )
+    private val coordConnectorRegex = Rx.uni(
+        """(?:^|\s)(?:và|hay|hoặc|với|cùng|lẫn|cũng\s+như)(?=\s|$)""",
+        RegexOption.IGNORE_CASE
+    )
+    private val clockPointPrefixRegex = Rx.uni("""(?:từ|đến|tới|lúc|khoảng|vào)\s+$""", RegexOption.IGNORE_CASE)
+
+    private fun prevWordBefore(text: String, start: Int): String =
+        text.substring(0, start)
+            .trimEnd()
+            .substringAfterLast(' ', "")
+            .trim(',', '.', ':', ';', '(', ')')
+            .lowercase(Locale("vi", "VN"))
+
+    private fun nextWordAfter(text: String, endExclusive: Int): String =
+        text.substring(endExclusive)
+            .trimStart()
+            .substringBefore(' ')
+            .trim(',', '.', ':', ';', '!', '?', '(', ')')
+            .lowercase(Locale("vi", "VN"))
+
+    private fun parseSubHundred(tokens: List<String>): Int? = when (tokens.size) {
+        1 -> when (tokens[0]) {
+            "mười" -> 10
+            else -> singleViDigits[tokens[0]]
+        }
+        2 -> {
+            val (a, b) = tokens
+            val da = singleViDigits[a]
+            when {
+                a == "mười" -> allViUnitDigits[b]?.takeIf { b !in setOf("mốt", "tư") }?.let { 10 + it }
+                b == "mươi" && da != null && da in 2..9 -> da * 10
+                da != null && da in 2..9 && b in setOf("mốt", "tư", "lăm", "nhăm") -> da * 10 + allViUnitDigits.getValue(b)
+                else -> null
+            }
+        }
+        3 -> {
+            val (a, mid, c) = tokens
+            val da = singleViDigits[a]
+            val dc = allViUnitDigits[c]
+            if (mid == "mươi" && da != null && da in 2..9 && dc != null) da * 10 + dc else null
+        }
+        else -> null
+    }
+
+    internal fun parseViNumberPhrase(rawPhrase: String): Int? {
+        val tokens = rawPhrase.lowercase(Locale("vi", "VN")).trim().split(Rx.ascii("""\s+""")).filter { it.isNotEmpty() }
+        if (tokens.isEmpty()) return null
+        if (tokens.size >= 2 && tokens[1] == "trăm") {
+            val h = singleViDigits[tokens[0]] ?: return null
+            val rem = tokens.drop(2)
+            if (rem.isEmpty()) return h * 100
+            if (rem.size == 2 && (rem[0] == "lẻ" || rem[0] == "linh")) {
+                val u = singleViDigits[rem[1]] ?: return null
+                return h * 100 + u
+            }
+            val sub = parseSubHundred(rem) ?: return null
+            return if (sub in 10..99) h * 100 + sub else null
+        }
+        return parseSubHundred(tokens)
+    }
+
+    internal fun normalizeSpelledDurations(input: String): String {
+        if (input.isBlank()) return input
+        var text = Normalizer.normalize(input, Normalizer.Form.NFC)
+
+        text = halfWordRegex.replace(text, "30 phút")
+
+        text = hourRuoiRegex.replace(text) { m ->
+            val rawNum = m.groupValues[1].trim()
+            if (rawNum.isNotEmpty() && prevWordBefore(text, m.range.first) in ordinalGuardWords) {
+                return@replace m.value
+            }
+            val prefix = text.substring(0, m.range.first)
+            val isClockPoint = clockPointPrefixRegex.containsMatchIn(prefix)
+            if (rawNum.isEmpty()) {
+                if (isClockPoint) "1 giờ 30" else "90 phút"
+            } else {
+                val numDouble = rawNum.replace(',', '.').toDoubleOrNull()
+                    ?: parseViNumberPhrase(rawNum)?.toDouble()
+                    ?: return@replace m.value
+                if (isClockPoint && numDouble == numDouble.toInt().toDouble()) {
+                    "${numDouble.toInt()} giờ 30"
+                } else {
+                    "${(numDouble * 60.0 + 30.0).roundToInt()} phút"
+                }
+            }
+        }
+
+        text = decimalWordDurationRegex.replace(text) { m ->
+            if (prevWordBefore(text, m.range.first) in ordinalGuardWords) return@replace m.value
+            val whole = parseViNumberPhrase(m.groupValues[1]) ?: return@replace m.value
+            val frac = parseViNumberPhrase(m.groupValues[2]) ?: return@replace m.value
+            if (frac !in 0..9) return@replace m.value
+            val unit = m.groupValues[3].lowercase(Locale("vi", "VN"))
+            "$whole.$frac $unit"
+        }
+
+        text = wordUnitDurationRegex.replace(text) { m ->
+            if (prevWordBefore(text, m.range.first) in ordinalGuardWords) return@replace m.value
+            val rawUnit = m.groupValues[2].lowercase(Locale("vi", "VN"))
+            if (rawUnit == "tiếng" && nextWordAfter(text, m.range.last + 1) in nonDurationAfterTiengWords) {
+                return@replace m.value
+            }
+            val value = parseViNumberPhrase(m.groupValues[1]) ?: return@replace m.value
+            if (value <= 0) return@replace m.value
+            val canonicalUnit = if (rawUnit.startsWith("phút")) "phút" else "giờ"
+            "$value $canonicalUnit"
+        }
+
+        text = trailingWordMinutesAfterHourRegex.replace(text) { m ->
+            val mins = parseViNumberPhrase(m.groupValues[1])
+            if (mins != null && mins in 10..59) "$mins phút" else m.value
+        }
+
+        return text
+    }
+
+    internal fun hasUnnormalizedWordDuration(raw: String): Boolean {
+        val norm = normalizeSpelledDurations(raw)
+        return residualWordDurationRegex.findAll(norm).any { m ->
+            !(m.value.lowercase(Locale("vi", "VN")).contains("tiếng") &&
+                nextWordAfter(norm, m.range.last + 1) in nonDurationAfterTiengWords)
+        }
+    }
+
+    internal fun unresolvableNegationReason(raw: String): String? {
+        val norm = normalizeSpelledDurations(raw).trim()
+        if (norm.isEmpty()) return null
+
+        for (seg in splitSegments(norm)) {
+            val stripped = stripNonStopPhrase(seg)
+            for (clause in contrastClauseRegex.split(stripped)) {
+                val cues = negationCueRegex.findAll(clause).toList()
+                if (cues.isEmpty()) continue
+                val vagueNegated = vagueNegatedDurationRegex.findAll(clause).any { vm ->
+                    cues.any { cue -> cue.range.first < vm.range.first }
+                }
+                val residualNegated = if (firstDurationIndex(clause) == null) {
+                    residualWordDurationRegex.findAll(clause).any { rm ->
+                        val isNonDurationTieng = rm.value.lowercase(Locale("vi", "VN")).contains("tiếng") &&
+                            nextWordAfter(clause, rm.range.last + 1) in nonDurationAfterTiengWords
+                        !isNonDurationTieng && cues.any { cue -> cue.range.first < rm.range.first }
+                    }
+                } else {
+                    false
+                }
+                if (vagueNegated || residualNegated) {
+                    return "Câu có phủ định với thời lượng chưa rõ ràng nên chưa tạo bản ghi. Hãy nêu rõ thời lượng hoặc từng hoạt động bạn muốn ghi."
+                }
+            }
+        }
+
+        for (sentence in norm.split(Rx.ascii("""[.;!?\n]+"""))) {
+            for (contrastChunk in contrastClauseRegex.split(sentence)) {
+                for (commaChunk in contrastChunk.split(',')) {
+                    val clean = stripNonStopPhrase(commaChunk).trim()
+                    if (clean.isEmpty() || !negationCueRegex.containsMatchIn(clean)) continue
+                    val connector = coordConnectorRegex.find(clean) ?: continue
+                    val before = clean.substring(0, connector.range.first).trim()
+                    val after = clean.substring(connector.range.last + 1).trim()
+                    val beforeCue = negationCueRegex.find(before)
+                    if (beforeCue != null && !hasDurationDirect(before) && hasDurationDirect(after)) {
+                        val hasAffirmativeShift = Rx.uni(
+                            """(?:^|\s)(?:hôm\s+nay|sáng\s+nay|trưa\s+nay|chiều\s+nay|tối\s+nay|sau\s+đó|rồi\s+thì|riêng|chỉ|vẫn|đã)(?=\s|$)""",
+                            RegexOption.IGNORE_CASE
+                        ).containsMatchIn(after)
+                        val endsWithNegParticle = Rx.uni("""(?:^|\s)(?:đâu|nữa|cả|hết|được)(?=$|\s)""", RegexOption.IGNORE_CASE)
+                            .containsMatchIn(after)
+                        if (!hasAffirmativeShift || endsWithNegParticle) {
+                            return "Câu có từ phủ định nối chung thời lượng bằng \"và\"/\"hay\" nên chưa rõ phần nào được ghi. Hãy tách thành câu riêng hoặc dùng \"nhưng\" để làm rõ."
+                        }
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    private fun hasDurationDirect(text: String): Boolean =
+        extractTimeRangeDirect(text) != null || extractDurationMinutesDirect(text) != null
+
+    private fun firstDurationIndex(clause: String): Int? = listOfNotNull(
+        timeRangeRegex.find(clause)?.range?.first,
+        hoursRegex.find(clause)?.range?.first,
+        minutesRegex.find(clause)?.range?.first
+    ).minOrNull()
+
+    private fun hasDuration(text: String): Boolean =
+        hasDurationDirect(normalizeSpelledDurations(text))
+
+    /** Đoạn có từ phủ định đứng trước thời lượng trong cùng một mệnh đề. */
+    internal fun isNegatedDurationSegment(segment: String): Boolean {
+        val s = stripNonStopPhrase(normalizeSpelledDurations(segment))
+        return contrastClauseRegex.split(s).any { clause ->
+            val dIdx = firstDurationIndex(clause)
+            val cue = negationCueRegex.find(clause)
+            dIdx != null && cue != null && cue.range.first < dIdx
+        }
+    }
+
+    internal fun isCorrectionWithDuration(text: String): Boolean =
+        correctionRegex.containsMatchIn(text) && hasDuration(text)
+
+    /** Mệnh đề phủ định mang thời lượng (category + phút), dùng cho guard đề xuất của AI. */
+    data class NegatedClause(val category: String, val minutes: Int)
+
+    internal fun negatedClauses(text: String): List<NegatedClause> =
+        durationClauses(text).filter { it.negated }.map { NegatedClause(classifyCategory(it.text), it.minutes) }
+
+    /**
+     * WALLY v1.0.6 (F-V105-03): mọi mệnh đề mang thời lượng, kèm cực (phủ định/khẳng định) và nguyên văn mệnh đề,
+     * để guard đối chiếu đề xuất của AI theo BẰNG CHỨNG VĂN BẢN chứ không chỉ theo nhãn danh mục.
+     */
+    data class DurationClause(val minutes: Int, val negated: Boolean, val text: String)
+
+    internal fun durationClauses(text: String): List<DurationClause> {
+        val out = mutableListOf<DurationClause>()
+        val trimmed = normalizeSpelledDurations(text).trim()
+        if (trimmed.isEmpty()) return out
+        for (segment in splitSegments(trimmed).flatMap { expandContrastSegment(it) }) {
+            val stripped = stripNonStopPhrase(segment)
+            for (clause in contrastClauseRegex.split(stripped)) {
+                val dIdx = firstDurationIndex(clause) ?: continue
+                val minutes = extractTimeRangeDirect(clause)?.durationMinutes ?: extractDurationMinutesDirect(clause) ?: continue
+                val cue = negationCueRegex.find(clause)
+                out += DurationClause(minutes, negated = cue != null && cue.range.first < dIdx, text = clause.trim())
+            }
+        }
+        return out
+    }
+
+    /** Mọi thời lượng (phút) xuất hiện trong câu, theo từng mệnh đề. */
+    internal fun allDurationMinutes(text: String): List<Int> {
+        val trimmed = normalizeSpelledDurations(text).trim()
+        if (trimmed.isEmpty()) return emptyList()
+        return splitSegments(trimmed).flatMap { expandContrastSegment(it) }
+            .flatMap { contrastClauseRegex.split(it) }
+            .mapNotNull { extractTimeRangeDirect(it)?.durationMinutes ?: extractDurationMinutesDirect(it) }
+    }
+
+    /** Dùng cho đường cloud: câu có phủ định/sửa lại kèm thời lượng thì không tin đề xuất của AI. */
+    fun hasNegatedOrCorrectedDuration(text: String): Boolean {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return false
+        if (isCorrectionWithDuration(trimmed)) return true
+        if (CancelCommandParser.parse(trimmed) != null) return true
+        return splitSegments(trimmed).any { isNegatedDurationSegment(it) }
+    }
+
+    /** Đoạn có mệnh đề tương phản ("Không học nhưng code 2h"): chỉ dùng mệnh đề mang thời lượng làm tiêu đề/danh mục. */
+    private fun durationClauseOf(raw: String): String {
+        val withDuration = contrastClauseRegex.split(raw).filter { hasDuration(it) }
+        return if (withDuration.size == 1) withDuration[0].trim() else raw
+    }
+
+    /**
+     * AI-01 CLOSURE (F4): "Không học 2h nhưng code 1h" có hai mệnh đề đều mang thời lượng; tách ra để mệnh đề
+     * phủ định bị bỏ riêng và mệnh đề hợp lệ vẫn được giữ (không im lặng bỏ cả đoạn).
+     */
+    private fun expandContrastSegment(segment: String): List<String> {
+        val withDuration = contrastClauseRegex.split(segment).map { it.trim() }.filter { it.isNotEmpty() && hasDuration(it) }
+        return if (withDuration.size >= 2) withDuration else listOf(segment)
+    }
+
+    /** Bỏ các cụm thời lượng/giờ khỏi chuỗi (dùng để lấy phần mô tả hoạt động). */
+    internal fun stripDurationText(text: String): String {
+        var t = timeRangeRegex.replace(normalizeSpelledDurations(text), " ")
+        t = explicitStartAtHourRegex.replace(t, " ")
+        t = Rx.ascii("""\d+(?:[.,]\d+)?\s*(?:h\s*tiếng|giờ|tiếng|h\d{0,2}\b)""", RegexOption.IGNORE_CASE).replace(t, " ")
+        t = minutesRegex.replace(t, " ")
+        return t.replace(Rx.ascii("""\s+"""), " ").trim()
+    }
+
+    private fun splitSegments(trimmed: String): List<String> = trimmed
+        .replace(clauseConnectorRegex, ", ")
+        .split(Rx.ascii("""[,;\n]+"""))
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+
+    // AI-01 (Finding C): dấu ':' kết thúc tiền tố ngữ cảnh — bỏ qua ':' nằm giữa hai chữ số (giờ 13:00).
+    private val headerColonRegex = Rx.ascii("""(?<!\d):|:(?!\d)""")
+
+    /**
+     * Tiền tố ngữ cảnh ngày của cả câu: phần trước dấu ':' đầu tiên nếu phần đó không chứa dấu tách mệnh đề
+     * (ví dụ "Nhật ký ngày hôm qua: ..."); nếu không có tiền tố hợp lệ thì dùng 25 ký tự đầu như cũ
+     * (để "Hôm qua học 1h, đọc 30p" vẫn áp dụng cho mọi đoạn).
+     */
+    internal fun dateContextPrefix(trimmed: String): String {
+        val colon = headerColonRegex.find(trimmed)
+        if (colon != null) {
+            val header = trimmed.substring(0, colon.range.first)
+            if (header.isNotBlank() && !header.contains(Rx.ascii("""[,;
+]"""))) return header
+        }
+        return trimmed.take(25)
+    }
+
+    // AI-01 (AM/PM): buổi trong ngày đi kèm giờ ("2h chiều", "10h tối"). "đêm qua" là mốc ngày, không phải buổi.
+    private val dayPeriodRegex = Rx.uni(
+        """(?:^|\s)(sáng|trưa|chiều|tối|đêm)(?!\s+qua)(?=\s|$|[,.;:])""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private fun detectDayPeriod(segment: String): String? =
+        dayPeriodRegex.find(segment)?.groupValues?.get(1)?.lowercase(Locale("vi", "VN"))
+
+    /** Quy đổi giờ 12h theo buổi sang 24h. Chỉ đổi khi giờ nằm trong khoảng mơ hồ hợp lý; còn lại giữ nguyên. */
+    internal fun shiftHourForPeriod(hour: Int, period: String?): Int = when (period) {
+        "chiều", "tối" -> if (hour in 1..11) hour + 12 else hour
+        "trưa" -> if (hour in 1..4) hour + 12 else hour
+        "đêm" -> when (hour) {
+            in 6..11 -> hour + 12
+            12 -> 0
+            else -> hour
+        }
+        else -> hour
+    }
+
+    fun classifyCategory(text: String): String {
+        val normalized = text.lowercase(Locale("vi", "VN"))
+        for ((key, regex) in categoryRules) {
+            if (regex.containsMatchIn(normalized)) {
+                return key
+            }
+        }
+        return "other"
+    }
+
+    data class ExtractedRange(
+        val startLocal: String,
+        val endLocal: String,
+        val durationMinutes: Int
+    )
+
+    fun extractTimeRange(segment: String): ExtractedRange? =
+        extractTimeRangeDirect(normalizeSpelledDurations(segment))
+
+    private fun extractTimeRangeDirect(segment: String): ExtractedRange? {
+        val match = timeRangeRegex.find(segment) ?: return null
+        val h1 = match.groupValues[1].toIntOrNull() ?: return null
+        val m1 = match.groupValues[2].ifBlank { "0" }.toIntOrNull() ?: return null
+        val h2 = match.groupValues[3].toIntOrNull() ?: return null
+        val m2 = match.groupValues[4].ifBlank { "0" }.toIntOrNull() ?: return null
+
+        if (h1 !in 0..23 || h2 !in 0..23 || m1 !in 0..59 || m2 !in 0..59) return null
+        val period = detectDayPeriod(segment)
+        val shiftedEnd = shiftHourForPeriod(h2, period)
+        val startHour = run {
+            val shiftedStart = shiftHourForPeriod(h1, period)
+            // Chỉ đổi giờ bắt đầu khi giờ kết thúc đã đổi và khoảng vẫn tăng dần ("2h-4h chiều" => 14-16, "10h-2h chiều" => 10-14)
+            if (shiftedEnd != h2 && shiftedStart < shiftedEnd) shiftedStart else h1
+        }
+        val endHour = shiftedEnd
+        val startTotal = startHour * 60 + m1
+        val endTotal = endHour * 60 + m2
+        var diff = endTotal - startTotal
+        if (diff <= 0) diff += 1440
+
+        return ExtractedRange(
+            startLocal = "${startHour.toString().padStart(2, '0')}:${m1.toString().padStart(2, '0')}",
+            endLocal = "${endHour.toString().padStart(2, '0')}:${m2.toString().padStart(2, '0')}",
+            durationMinutes = diff
+        )
+    }
+
+    private fun extractExplicitPointStartRange(segment: String, durationMinutes: Int): ExtractedRange? {
+        val norm = normalizeSpelledDurations(segment)
+        val match = explicitStartAtHourRegex.find(norm) ?: return null
+        val rawHour = match.groupValues[1].toIntOrNull() ?: return null
+        val m1 = match.groupValues[2].ifBlank { "0" }.toIntOrNull() ?: return null
+        if (rawHour !in 0..23 || m1 !in 0..59) return null
+        val h1 = shiftHourForPeriod(rawHour, detectDayPeriod(norm))
+
+        val startTime = LocalTime.of(h1, m1)
+        val endTime = startTime.plusMinutes(durationMinutes.toLong())
+        return ExtractedRange(
+            startLocal = "${startTime.hour.toString().padStart(2, '0')}:${startTime.minute.toString().padStart(2, '0')}",
+            endLocal = "${endTime.hour.toString().padStart(2, '0')}:${endTime.minute.toString().padStart(2, '0')}",
+            durationMinutes = durationMinutes
+        )
+    }
+
+    fun extractDurationMinutes(segment: String): Int? =
+        extractDurationMinutesDirect(normalizeSpelledDurations(segment))
+
+    private fun extractDurationMinutesDirect(segment: String): Int? {
+        val cleaned = explicitStartAtHourRegex.replace(segment, " ")
+        val hoursMatch = hoursRegex.find(cleaned)
+        val minsMatch = minutesRegex.find(cleaned)
+        if (hoursMatch == null && minsMatch == null) return null
+
+        var extraMinutesAfterH = 0
+        if (hoursMatch != null && minsMatch == null && hoursMatch.value.trim().endsWith("h", ignoreCase = true)) {
+            val afterIndex = hoursMatch.range.last + 1
+            if (afterIndex < cleaned.length) {
+                val remainder = cleaned.substring(afterIndex)
+                val trailingDigits = Rx.ascii("""^(\d{1,2})(?!\d)""").find(remainder)
+                if (trailingDigits != null) {
+                    extraMinutesAfterH = trailingDigits.groupValues[1].toIntOrNull() ?: 0
+                }
+            }
+        }
+
+        val hoursVal = hoursMatch?.groupValues?.get(1)?.replace(',', '.')?.toDoubleOrNull() ?: 0.0
+        val minsVal = minsMatch?.groupValues?.get(1)?.toIntOrNull() ?: extraMinutesAfterH
+
+        val total = (hoursVal * 60.0 + minsVal).roundToInt()
+        return if (total in 1..1440) total else null
+    }
+
+    fun parse(
+        inputText: String,
+        today: LocalDate = LocalDate.now(),
+        nowTime: LocalTime = LocalTime.now()
+    ): ParseChatOutcome {
+        val trimmed = inputText.trim()
+        if (trimmed.isEmpty()) {
+            return ParseChatOutcome(emptyList(), listOf("Hãy nhập hoạt động và thời lượng."))
+        }
+
+        // Tách theo dấu phẩy, chấm phẩy, xuống dòng, hoặc liên từ nối giữa các mệnh đề có thời lượng
+        val rawSegments = splitSegments(trimmed)
+
+        val warnings = mutableListOf<String>()
+        if (rawSegments.size > 15) {
+            warnings.add("Tối đa 15 hoạt động mỗi lần phân tích.")
+            return ParseChatOutcome(emptyList(), warnings)
+        }
+
+        // Kiểm tra ngữ cảnh ngày ở cấp toàn câu (ví dụ "Hôm qua: học 45p, chạy bộ 30p...")
+        val contextPrefix = dateContextPrefix(trimmed)
+        val globalTomorrow = Rx.uni("""(?:^|\s)(?:ngày mai|mai)(?=\s|$|:|,)""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(contextPrefix)
+        val globalYesterday = Rx.uni("""(?:^|\s)(?:hôm qua|đêm qua|yesterday)(?=\s|$|:|,)""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(contextPrefix)
+
+        val proposals = mutableListOf<ActivityProposal>()
+
+        // AI-01 CLOSURE (F1): lệnh hủy ("Hủy ghi nhận 30 phút đọc sách") không phải hoạt động mới.
+        if (CancelCommandParser.parse(trimmed) != null) {
+            warnings.add("Đây là lệnh hủy đề xuất, không phải hoạt động mới nên không tạo bản ghi.")
+            return ParseChatOutcome(emptyList(), warnings)
+        }
+
+        // AI-01 FINAL FIX: câu sửa lại thời lượng => hỏi lại, không tạo proposal nào.
+        if (isCorrectionWithDuration(trimmed)) {
+            warnings.add(
+                "Câu có vẻ đang sửa lại thời lượng hoặc hoạt động trước đó nên chưa tạo bản ghi nào. " +
+                    "Hãy nhập lại một câu rõ ràng, ví dụ \"Học 3h\"."
+            )
+            return ParseChatOutcome(emptyList(), warnings)
+        }
+
+        for (segment in rawSegments.flatMap { expandContrastSegment(it) }) {
+            if (isNegatedDurationSegment(segment)) {
+                warnings.add("Đã bỏ qua mệnh đề phủ định / yêu cầu không ghi (không tạo bản ghi): \"${segment.take(35)}\"")
+                continue
+            }
+            val raw = durationClauseOf(segment)
+            if (isAggregateClause(raw)) {
+                warnings.add("Đã bỏ qua mệnh đề tổng hợp (không ghi như một hoạt động): \"${raw.take(35)}\"")
+                continue
+            }
+            val explicitRange = extractTimeRange(raw)
+            val explicitMinutes = extractDurationMinutes(raw)
+            val durationMinutes = explicitRange?.durationMinutes ?: explicitMinutes
+
+            if (durationMinutes == null || durationMinutes !in 1..1440) {
+                warnings.add("Bỏ qua đoạn thiếu thời lượng: \"${raw.take(35)}\"")
+                continue
+            }
+
+            val isTomorrow = globalTomorrow || Rx.uni("""(?:^|\s)(?:ngày mai|mai)(?=\s|$)""", RegexOption.IGNORE_CASE).containsMatchIn(raw)
+            val isYesterday = globalYesterday || Rx.uni("""(?:^|\s)(?:hôm qua|đêm qua|yesterday)(?=\s|$)""", RegexOption.IGNORE_CASE).containsMatchIn(raw)
+            val isDayBeforeYesterday = Rx.uni("""(?:^|\s)hôm kia(?=\s|$)""", RegexOption.IGNORE_CASE).containsMatchIn(raw)
+
+            val targetDate = when {
+                isTomorrow -> today.plusDays(1)
+                isYesterday -> today.minusDays(1)
+                isDayBeforeYesterday -> today.minusDays(2)
+                else -> today
+            }
+
+            val resolvedRange = explicitRange ?: extractExplicitPointStartRange(raw, durationMinutes)
+            val hasRange = resolvedRange != null
+
+            val isFutureTimeToday = if (!isTomorrow && !isYesterday && !isDayBeforeYesterday && resolvedRange != null) {
+                try {
+                    LocalTime.parse(resolvedRange.startLocal).isAfter(nowTime)
+                } catch (_: Exception) {
+                    false
+                }
+            } else {
+                false
+            }
+
+            val cleanedTitle = cleanTitle(raw)
+
+            proposals.add(
+                ActivityProposal(
+                    id = "prop_${UUID.randomUUID()}",
+                    rawInput = raw,
+                    title = cleanedTitle,
+                    category = classifyCategory(stripNonStopPhrase(raw)),
+                    durationSeconds = durationMinutes * 60L,
+                    dateLocal = targetDate.toString(),
+                    startLocal = resolvedRange?.startLocal,
+                    endLocal = resolvedRange?.endLocal,
+                    timeEvidence = if (hasRange) "explicit_range" else "duration_only",
+                    missingFields = if (hasRange) emptyList() else listOf("startLocal", "endLocal"),
+                    needsConfirmation = true,
+                    isFuturePlanned = isTomorrow || isFutureTimeToday
+                )
+            )
+        }
+
+        return ParseChatOutcome(proposals = proposals, warnings = warnings)
+    }
+
+    private fun cleanTitle(raw: String): String {
+        var text = normalizeSpelledDurations(raw)
+        text = timeRangeRegex.replace(text, " ")
+        text = explicitStartAtHourRegex.replace(text, " ")
+        text = Rx.ascii("""\d+(?:[.,]\d+)?\s*(?:h\s*tiếng|giờ|tiếng|h\d{0,2}\b)""", RegexOption.IGNORE_CASE).replace(text, " ")
+        text = minutesRegex.replace(text, " ")
+        text = Rx.uni(
+            """(?:^|\s)(?:tôi|mình|đã|vừa mới|vừa|mới|xong|sẽ|bây giờ|ngay bây giờ|giờ|hôm nay|hôm qua|đêm qua|hôm kia|ngày mai|mai|lúc|buổi|khoảng|trong)(?=\s|$|[,.!?;:])""",
+            RegexOption.IGNORE_CASE
+        ).replace(text, " ")
+        text = text.replace(Rx.ascii("""\s+"""), " ").trim()
+        text = text.trim(',', '.', ':', '-', '–', ';', ' ')
+        if (text.isEmpty()) return "Hoạt động"
+        val firstChar = text.substring(0, 1).uppercase(Locale("vi", "VN"))
+        return firstChar + text.substring(1)
+    }
+}
