@@ -41,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,6 +60,22 @@ import com.timewallet.mvp.ui.theme.WalletMicroText
 import com.timewallet.mvp.ui.theme.WalletMint
 import com.timewallet.mvp.ui.theme.WalletMuted
 import com.timewallet.mvp.ui.theme.WalletStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.painterResource
+import com.timewallet.mvp.R
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -84,235 +101,335 @@ fun ChatScreen(
     onDiscardProposal: (String) -> Unit,
     onClearAllProposals: () -> Unit,
     onConfirmSingleProposal: (String) -> Unit,
-    onConfirmAllProposals: () -> Unit
+    onConfirmAllProposals: () -> Unit,
+    lastUserMessage: String?,
+    onLastUserMessageChange: (String?) -> Unit
 ) {
+    // v1.0.11: ba gợi ý ngắn thay cho năm chip; câu đầy đủ vẫn được điền vào ô nhập để người dùng xem/sửa trước khi gửi.
     val examples = listOf(
-        "Ghi 5 hoạt động" to "Từ 8h đến 9h30 làm dự án, đọc sách 45 phút, chạy bộ 30 phút, ăn trưa 30 phút, nghỉ ngơi 20 phút",
-        "13:00–18:00 làm việc" to "Từ 13:00 đến 18:00 làm việc tập trung",
-        "Học 45p (chưa gắn giờ)" to "Hôm nay học kỹ thuật Feynman 45 phút",
-        "❓ Hôm nay dùng bao nhiêu?" to "Hôm nay tôi đã dùng bao nhiêu giờ?",
-        "❓ Tuần này vs tuần trước" to "So sánh tuần này với tuần trước"
+        "Ghi hoạt động" to "Từ 8h đến 9h30 làm dự án, đọc sách 45 phút, chạy bộ 30 phút, ăn trưa 30 phút, nghỉ ngơi 20 phút",
+        "Hôm nay dùng bao nhiêu?" to "Hôm nay tôi đã dùng bao nhiêu giờ?",
+        "So với tuần trước" to "So sánh tuần này với tuần trước"
     )
 
-    Column(modifier = Modifier.fillMaxWidth()) {
-        PageIntroHeader(
-            eyebrow = "WALLY · TRỢ LÝ THỜI GIAN",
-            title = "Kể lại ngày của bạn.",
-            subtitle = "Kể lại ngày của bạn hoặc hỏi số liệu. Wally dùng AI để hiểu; mọi bản ghi vẫn cần bạn xác nhận."
-        )
+    // Tin nhắn vừa gửi chỉ để hiển thị bong bóng (do MainActivity giữ, không lưu, không đổi nghiệp vụ); tự xóa khi không còn gì để hiển thị.
+    val scroll = rememberScrollState()
+    // Màn thấp (xoay ngang): ẩn đầu trang và gợi ý nhanh để vùng hội thoại còn đủ chỗ đọc và ô nhập luôn thấy được.
+    val compactHeight = LocalConfiguration.current.screenHeightDp < 480
+    val hasReply = isAnalyzing || chatAnswer != null || chatFault != null || proposals.isNotEmpty()
+    LaunchedEffect(hasReply) { if (!hasReply) onLastUserMessageChange(null) }
+    val scrollTrigger = listOf(proposals.size, chatAnswer?.headline, chatFault, isAnalyzing, lastUserMessage)
+    LaunchedEffect(scrollTrigger) {
+        withFrameNanos { }
+        if (hasReply) scroll.animateScrollTo(scroll.maxValue) else scroll.scrollTo(0)
+    }
 
-        // Example Chips
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (!compactHeight) {
+        // Đầu trang: Wally + trạng thái AI (chạm để cấu hình). FlowRow: khi hẹp/chữ lớn, nhãn trạng thái tự xuống dòng thay vì bóp tên.
         FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            examples.forEach { (label, fullSentence) ->
-                Box(
+            Row(
+                modifier = Modifier.padding(end = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Image(
+                    painter = painterResource(id = R.drawable.ic_wally),
+                    contentDescription = "Wally",
+                    modifier = Modifier.size(42.dp)
+                )
+                Column {
+                    Text(text = "Wally", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk, maxLines = 1, softWrap = false)
+                    Text(text = "Trợ lý thời gian", fontSize = 12.5.sp, color = WalletMuted, maxLines = 1, softWrap = false)
+                }
+            }
+            val modeText = if (aiPreferences.optInEnabled && aiPreferences.apiKey.isNotBlank()) {
+                "✦ AI đã bật · ⚙"
+            } else {
+                "✦ Chưa cấu hình AI · ⚙"
+            }
+            Box(
+                modifier = Modifier
+                    .widthIn(max = 190.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFFEFF3EE))
+                    .walletClickable(onClickLabel = "Mở cấu hình AI", onClick = onOpenAiSettings)
+                    .padding(horizontal = 11.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = modeText,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF5D7064),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        }
+
+        // Hội thoại (cuộn); ô nhập luôn ghim ở dưới.
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(scroll),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (!hasReply) {
+                // Màn chào: Wally lớn ở giữa, lời hỏi ngắn; gợi ý nhanh nằm ngay phía dưới.
+                Column(
                     modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .clip(RoundedCornerShape(100.dp))
-                        .background(Color.White)
-                        .border(1.dp, Color(0xFFDBE8DD), RoundedCornerShape(100.dp))
-                        .semantics { role = Role.Button }
-                        .clickable { onApplyExample(fullSentence) }
-                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                        .fillMaxWidth()
+                        .padding(top = 20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.ic_wally),
+                        contentDescription = null,
+                        modifier = Modifier.size(76.dp)
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = label,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF3E6B56)
+                        text = "Hôm nay của bạn thế nào?",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = WalletInk,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        text = "Kể tôi nghe, tôi sẽ giúp bạn ghi lại.",
+                        fontSize = 14.sp,
+                        color = WalletMuted,
+                        textAlign = TextAlign.Center
                     )
                 }
+            } else {
+                lastUserMessage?.let { UserBubble(it) }
             }
-        }
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Input Composer Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            border = BorderStroke(1.dp, Color(0xFFE1E9E0)),
-            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-        ) {
-            Column(modifier = Modifier.padding(11.dp)) {
-                OutlinedTextField(
-                    value = chatInputText,
-                    onValueChange = onChatInputChange,
-                    placeholder = {
-                        Text(
-                            "Nhập 1 hoặc nhiều hoạt động (VD: 8h-9h30 làm dự án, đọc sách 45p, chạy bộ 30p...)",
-                            fontSize = 12.sp
-                        )
-                    },
-                    minLines = 2,
-                    maxLines = 4,
-                    shape = RoundedCornerShape(11.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val modeText = if (aiPreferences.optInEnabled && aiPreferences.apiKey.isNotBlank()) {
-                        "✦ AI (${aiPreferences.trustedHost}) · ⚙"
-                    } else {
-                        "✦ Chưa cấu hình AI · ⚙"
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color(0xFFF4F5F2))
-                            .semantics { role = Role.Button }
-                            .clickable(onClickLabel = "Mở cấu hình AI", onClick = onOpenAiSettings)
-                            .padding(horizontal = 9.dp, vertical = 5.dp)
-                    ) {
-                        Text(
-                            text = modeText,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF5D7064)
-                        )
-                    }
-
-                    if (isAnalyzing && !GuardHealth.isCancelCommand(chatInputText)) {
-                        OutlinedButton(
-                            onClick = onCancelAnalysis,
-                            shape = RoundedCornerShape(11.dp),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
-                            modifier = Modifier.heightIn(min = 48.dp)
-                        ) {
-                            Text(text = "Đang hỏi Wally… Hủy ✕", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            if (isAnalyzing) {
+                WallyBubble {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(text = "Wally đang trả lời…", fontSize = 13.5.sp, color = WalletMuted, modifier = Modifier.weight(1f))
+                        TextButton(onClick = onCancelAnalysis, modifier = Modifier.heightIn(min = 48.dp)) {
+                            Text("Hủy", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
-                    } else Button(
-                        onClick = onAnalyzeClick,
-                        modifier = Modifier.heightIn(min = 48.dp),
-                        // AI-01 CLOSURE: cho phép gửi lệnh hủy khi đang phân tích (nút vẫn khóa với câu thường).
-                        enabled = !isAnalyzing || GuardHealth.isCancelCommand(chatInputText),
-                        shape = RoundedCornerShape(11.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp)
-                    ) {
-                        Text(
-                            text = "Tách đề xuất ↗",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
                     }
                 }
             }
-        }
 
-        // WALLY: lỗi AI không được im lặng; luôn có Thử lại và đường ghi thủ công. Nội dung đã nhập được giữ.
-        if (chatFault != null) {
-            Spacer(modifier = Modifier.height(12.dp))
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E8)),
-                border = BorderStroke(1.dp, Color(0xFFF0DFB4))
-            ) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            // WALLY: lỗi AI không được im lặng; luôn có Thử lại và đường ghi thủ công. Nội dung đã nhập được giữ.
+            if (chatFault != null) {
+                WallyBubble(tint = Color(0xFFFFF8E8)) {
                     val needsSetup = chatFault == AiFault.NOT_CONFIGURED || chatFault == AiFault.CONFIG || chatFault == AiFault.AUTH
                     Text(
                         text = if (lastAnalysisSource == OutcomeSource.NOT_CONFIGURED) "Wally chưa được cấu hình AI" else "Wally chưa trả lời được",
-                        fontSize = 11.sp, fontWeight = FontWeight.Bold, color = WalletMuted
+                        fontSize = 12.sp, fontWeight = FontWeight.Bold, color = WalletMuted
                     )
-                    Text(text = chatFault.messageVi, fontSize = 12.sp, color = WalletInk, lineHeight = 17.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(text = chatFault.messageVi, fontSize = 13.5.sp, color = WalletInk, lineHeight = 19.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Nội dung bạn nhập được giữ nguyên. Không có đề xuất nào được tạo và không có bản ghi nào bị thay đổi.",
-                        fontSize = 10.5.sp, color = WalletMuted, lineHeight = 15.sp
+                        text = "Nội dung bạn nhập được giữ nguyên; không có bản ghi nào bị thay đổi.",
+                        fontSize = 12.sp, color = WalletMuted, lineHeight = 17.sp
                     )
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (needsSetup) {
-                            TextButton(onClick = onOpenAiSettings, modifier = Modifier.heightIn(min = 48.dp)) { Text("Mở cấu hình ⚙", fontSize = 12.sp) }
+                            TextButton(onClick = onOpenAiSettings, modifier = Modifier.heightIn(min = 48.dp)) { Text("Mở cấu hình ⚙", fontSize = 13.sp) }
                         }
                         if (chatFault.retryable) {
-                            TextButton(onClick = onAnalyzeClick, modifier = Modifier.heightIn(min = 48.dp)) { Text("Thử lại", fontSize = 12.sp) }
+                            TextButton(
+                                onClick = {
+                                    if (chatInputText.isNotBlank() && !GuardHealth.isCancelCommand(chatInputText)) {
+                                        onLastUserMessageChange(chatInputText.trim())
+                                        if (chatAnswer != null) onDismissAnswer()
+                                    }
+                                    onAnalyzeClick()
+                                },
+                                modifier = Modifier.heightIn(min = 48.dp)
+                            ) { Text("Thử lại", fontSize = 13.sp) }
                         }
-                        TextButton(onClick = onManualEntry, modifier = Modifier.heightIn(min = 48.dp)) { Text("Ghi thủ công", fontSize = 12.sp) }
-                        TextButton(onClick = onDismissError, modifier = Modifier.heightIn(min = 48.dp)) { Text("Đóng", fontSize = 12.sp) }
+                        TextButton(onClick = onManualEntry, modifier = Modifier.heightIn(min = 48.dp)) { Text("Ghi thủ công", fontSize = 13.sp) }
+                        TextButton(onClick = onDismissError, modifier = Modifier.heightIn(min = 48.dp)) { Text("Đóng", fontSize = 13.sp) }
                     }
                 }
             }
+
+            if (aiPreferences.keyUnavailable) {
+                WallyBubble(tint = Color(0xFFFFF8E8)) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .walletClickable(onClickLabel = "Nhập lại khóa API trong cấu hình", onClick = onOpenAiSettings)
+                    ) {
+                        Text(
+                            text = "Khóa API đã lưu không đọc được trên thiết bị này. Chạm để nhập lại trong ⚙. Các tính năng còn lại vẫn dùng bình thường.",
+                            fontSize = 12.5.sp, color = WalletMicroText, lineHeight = 18.sp
+                        )
+                    }
+                }
+            }
+
+            // AI-01: câu trả lời số liệu (chỉ-đọc, tính cục bộ)
+            if (chatAnswer != null) {
+                WallyBubble(tint = if (chatAnswer.isClarification) Color(0xFFFFF8E8) else Color.White) {
+                    ChatAnswerContent(
+                        answer = chatAnswer,
+                        onDismiss = onDismissAnswer,
+                        onUseSuggestion = onApplyExample
+                    )
+                }
+            }
+
+            // Thẻ đề xuất: người dùng sửa/xác nhận/bỏ; không có gì được lưu trước khi bấm Xác nhận.
+            if (proposals.isNotEmpty()) {
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    CompactProposalBatchCard(
+                        proposals = proposals,
+                        expandedProposalId = expandedProposalId,
+                        onToggleExpand = onToggleExpandProposal,
+                        onUpdateProposal = onUpdateProposal,
+                        onDiscardProposal = onDiscardProposal,
+                        onClearAll = onClearAllProposals,
+                        onConfirmSingle = onConfirmSingleProposal,
+                        onConfirmAll = onConfirmAllProposals
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
         }
 
-        if (aiPreferences.keyUnavailable) {
-            Spacer(modifier = Modifier.height(12.dp))
-            Box(
+        // Gợi ý nhanh + ô nhập gọn ghim dưới đáy. Khi đang có đề xuất chờ xác nhận thì ẩn gợi ý để nhường chỗ cho thẻ đề xuất.
+        if (proposals.isEmpty() && !compactHeight) {
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(11.dp))
-                    .background(Color(0xFFFFF8E8))
-                    .semantics { role = Role.Button }
-                    .heightIn(min = 48.dp)
-                    .clickable(onClickLabel = "Nhập lại khóa API trong cấu hình", onClick = onOpenAiSettings)
-                    .padding(11.dp)
+                    .padding(top = 8.dp)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    text = "Khóa API đã lưu không đọc được trên thiết bị này. Chạm để nhập lại trong ⚙. Ghi thủ công, Đồng hồ, Nhật ký và Ngân sách vẫn dùng bình thường.",
-                    fontSize = 10.5.sp, color = WalletMicroText, lineHeight = 15.sp
-                )
+                examples.forEach { (label, fullSentence) ->
+                    SuggestionChip(text = label) { onApplyExample(fullSentence) }
+                }
+                SuggestionChip(text = "＋ Ghi thủ công", onClick = onManualEntry)
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-        TextButton(onClick = onManualEntry, modifier = Modifier.heightIn(min = 48.dp)) {
-            Text("＋ Ghi giờ thủ công (không cần AI)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-        }
-
-        // AI-01: thẻ trả lời câu hỏi số liệu (chỉ-đọc, tính cục bộ)
-        if (chatAnswer != null) {
-            Spacer(modifier = Modifier.height(12.dp))
-            ChatAnswerCard(
-                answer = chatAnswer,
-                onDismiss = onDismissAnswer,
-                onUseSuggestion = onApplyExample
-            )
-        }
-
-        // COMPACT BATCH PROPOSAL CARD (Yêu cầu 3)
-        if (proposals.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(12.dp))
-            CompactProposalBatchCard(
-                proposals = proposals,
-                expandedProposalId = expandedProposalId,
-                onToggleExpand = onToggleExpandProposal,
-                onUpdateProposal = onUpdateProposal,
-                onDiscardProposal = onDiscardProposal,
-                onClearAll = onClearAllProposals,
-                onConfirmSingle = onConfirmSingleProposal,
-                onConfirmAll = onConfirmAllProposals
-            )
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-        Box(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(11.dp))
-                .background(WalletMicroBg)
-                .padding(11.dp)
+                .padding(top = 8.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(
-                text = "Không tự suy diễn giờ bắt đầu/kết thúc khi thiếu thông tin. Hoạt động chỉ có thời lượng sẽ lưu ở trạng thái \"Chưa gắn giờ\".",
-                fontSize = 10.5.sp,
-                color = WalletMicroText,
-                lineHeight = 15.sp
+            OutlinedTextField(
+                value = chatInputText,
+                onValueChange = onChatInputChange,
+                placeholder = { Text("Kể tiếp ngày của bạn…", fontSize = 14.sp) },
+                minLines = 1,
+                maxLines = 4,
+                shape = RoundedCornerShape(26.dp),
+                modifier = Modifier.weight(1f)
             )
+            if (isAnalyzing && !GuardHealth.isCancelCommand(chatInputText)) {
+                Button(
+                    onClick = onCancelAnalysis,
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5D7064)),
+                    contentPadding = PaddingValues(0.dp),
+                    modifier = Modifier
+                        .size(54.dp)
+                        .semantics { contentDescription = "Hủy yêu cầu đang gửi" }
+                ) {
+                    GlyphIcon(WalletGlyph.STOP, color = Color.White, size = 24.dp)
+                }
+            } else Button(
+                onClick = {
+                    // lệnh hủy không ghi đè tin nhắn gốc đang được phân tích
+                    if (chatInputText.isNotBlank() && !GuardHealth.isCancelCommand(chatInputText)) {
+                        onLastUserMessageChange(chatInputText.trim())
+                        if (chatAnswer != null) onDismissAnswer()
+                    }
+                    onAnalyzeClick()
+                },
+                // AI-01 CLOSURE: cho phép gửi lệnh hủy khi đang phân tích (nút vẫn khóa với câu thường).
+                enabled = !isAnalyzing || GuardHealth.isCancelCommand(chatInputText),
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(containerColor = if (chatInputText.isBlank()) WalletMint.copy(alpha = 0.45f) else WalletMint),
+                contentPadding = PaddingValues(0.dp),
+                modifier = Modifier
+                    .size(54.dp)
+                    .semantics { contentDescription = "Gửi cho Wally" }
+            ) {
+                GlyphIcon(WalletGlyph.SEND, color = Color.White, size = 24.dp)
+            }
         }
     }
 }
 
+/** Bong bóng của Wally: avatar + nội dung (nền trắng hoặc nền cảnh báo). */
+@Composable
+private fun WallyBubble(tint: Color = Color.White, content: @Composable () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.ic_wally),
+            contentDescription = null,
+            modifier = Modifier.size(30.dp)
+        )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 20.dp, bottomEnd = 20.dp, bottomStart = 20.dp))
+                .background(tint)
+                .padding(14.dp)
+        ) { content() }
+    }
+}
+
+/** Bong bóng của người dùng (căn phải, màu thương hiệu). */
+@Composable
+private fun UserBubble(text: String) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Box(
+            modifier = Modifier
+                .widthIn(max = 300.dp)
+                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 6.dp, bottomEnd = 20.dp, bottomStart = 20.dp))
+                .background(WalletMint)
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+        ) {
+            Text(text = text, fontSize = 14.sp, color = Color.White, lineHeight = 20.sp)
+        }
+    }
+}
+
+@Composable
+private fun SuggestionChip(text: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(100.dp))
+            .background(Color.White)
+            .border(1.dp, Color(0xFFDBE8DD), RoundedCornerShape(100.dp))
+            .walletClickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+    ) {
+        Text(text = text, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF3E6B56), maxLines = 1, softWrap = false)
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CompactProposalBatchCard(
     proposals: List<EditableProposalDraft>,
@@ -337,10 +454,10 @@ private fun CompactProposalBatchCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         border = BorderStroke(1.dp, Color(0xFFBCD9CA)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(13.dp)) {
             // Batch Header
@@ -349,19 +466,15 @@ private fun CompactProposalBatchCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "✦ ${proposals.size} hoạt động đề xuất · chờ bạn xác nhận",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = WalletInk
-                    )
-                    Text(
-                        text = "Chưa lưu vào sổ cho tới khi bạn bấm Xác nhận.",
-                        fontSize = 10.5.sp,
-                        color = WalletMuted
-                    )
-                }
+                Text(
+                    text = "✦ ${proposals.size} hoạt động đề xuất · chờ bạn xác nhận",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = WalletInk,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 4.dp)
+                )
 
                 Text(
                     text = "Bỏ hết",
@@ -377,11 +490,16 @@ private fun CompactProposalBatchCard(
                 )
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(
+            Text(
+                text = "Chưa lưu vào sổ cho tới khi bạn bấm Xác nhận.",
+                fontSize = 12.sp,
+                color = WalletMuted
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 if (timedMinutes > 0) {
                     Box(
@@ -392,7 +510,7 @@ private fun CompactProposalBatchCard(
                     ) {
                         Text(
                             text = "Có giờ: ${LedgerAnalyticsCalculator.formatCompactDurationSeconds(timedMinutes * 60L)}",
-                            fontSize = 9.5.sp,
+                            fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = WalletMint
                         )
@@ -407,7 +525,7 @@ private fun CompactProposalBatchCard(
                     ) {
                         Text(
                             text = "Chưa gắn giờ: ${LedgerAnalyticsCalculator.formatCompactDurationSeconds(untimedMinutes * 60L)}",
-                            fontSize = 9.5.sp,
+                            fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF5A6B62)
                         )
@@ -422,7 +540,7 @@ private fun CompactProposalBatchCard(
                     ) {
                         Text(
                             text = "Dự kiến: ${LedgerAnalyticsCalculator.formatCompactDurationSeconds(plannedMinutes * 60L)}",
-                            fontSize = 9.5.sp,
+                            fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF9C5D16)
                         )
@@ -430,12 +548,6 @@ private fun CompactProposalBatchCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Bấm vào dòng hoặc biểu tượng ✎ nếu cần sửa chi tiết từng mục.",
-                fontSize = 10.sp,
-                color = WalletMuted
-            )
 
             Spacer(modifier = Modifier.height(8.dp))
             HorizontalDivider(color = WalletStroke)
@@ -454,76 +566,87 @@ private fun CompactProposalBatchCard(
                 }
 
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
+                    // Hàng đề xuất 2 tầng (hợp với màn hẹp/chữ lớn): tầng 1 = biểu tượng + tên + thời lượng; tầng 2 = chi tiết + sửa/bỏ.
+                    Column(
                         modifier = Modifier
-                            .minimumInteractiveComponentSize()
                             .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
                             .semantics { role = Role.Button }
+                            .heightIn(min = 48.dp)
                             .clickable { onToggleExpand(item.id) }
-                            .padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            .padding(top = 8.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(30.dp)
-                                .clip(RoundedCornerShape(9.dp))
-                                .background(catColor.copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center
+                        Row(
+                            verticalAlignment = Alignment.Top,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Text(text = cat.emoji, fontSize = 14.sp)
-                        }
-
-                        Column(modifier = Modifier.weight(1f)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(catColor.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(text = cat.emoji, fontSize = 16.sp)
+                            }
                             Text(
                                 text = item.title,
-                                fontSize = 12.sp,
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = WalletInk,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(top = 6.dp)
                             )
                             Text(
-                                text = "${cat.displayName} · $timeBadgeText",
-                                fontSize = 10.sp,
-                                color = if (hasTime) Color(0xFF287356) else WalletMuted,
+                                text = LedgerAnalyticsCalculator.formatCompactDurationSeconds(item.durationMinutes * 60L),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = WalletInk,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                softWrap = false,
+                                modifier = Modifier.padding(top = 6.dp)
                             )
                         }
-
-                        Text(
-                            text = LedgerAnalyticsCalculator.formatCompactDurationSeconds(item.durationMinutes * 60L),
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = WalletInk
-                        )
-
-                        Text(
-                            text = if (isExpanded) "▲" else "✎",
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = WalletMint,
-                            modifier = Modifier
-                                .minimumInteractiveComponentSize()
-                                .clip(RoundedCornerShape(6.dp))
-                                .semantics { contentDescription = "Chỉnh sửa hoặc thu gọn đề xuất"; role = Role.Button }
-                                .clickable { onToggleExpand(item.id) }
-                                .padding(horizontal = 5.dp, vertical = 3.dp)
-                        )
-
-                        Text(
-                            text = "×",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFA8B0AA),
-                            modifier = Modifier
-                                .minimumInteractiveComponentSize()
-                                .clip(RoundedCornerShape(6.dp))
-                                .semantics { contentDescription = "Bỏ đề xuất này"; role = Role.Button }
-                                .clickable { onDiscardProposal(item.id) }
-                                .padding(horizontal = 5.dp, vertical = 2.dp)
-                        )
+                        Row(
+                            modifier = Modifier.padding(start = 44.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${cat.displayName} · $timeBadgeText",
+                                fontSize = 12.sp,
+                                color = if (hasTime) Color(0xFF287356) else WalletMuted,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .semantics { contentDescription = "Chỉnh sửa hoặc thu gọn đề xuất"; role = Role.Button }
+                                    .clickable { onToggleExpand(item.id) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isExpanded) {
+                                    Text(text = "▲", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = WalletMint)
+                                } else {
+                                    GlyphIcon(WalletGlyph.EDIT, color = WalletMint, size = 20.dp)
+                                }
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .semantics { contentDescription = "Bỏ đề xuất này"; role = Role.Button }
+                                    .clickable { onDiscardProposal(item.id) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                GlyphIcon(WalletGlyph.CLOSE, color = Color(0xFF8E9A93), size = 20.dp)
+                            }
+                        }
                     }
 
                     // On-demand Detail Editor (chỉ xuất hiện khi người dùng yêu cầu)
@@ -664,9 +787,9 @@ private fun CompactProposalBatchCard(
             Button(
                 onClick = onConfirmAll,
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
-                contentPadding = PaddingValues(vertical = 12.dp)
+                contentPadding = PaddingValues(vertical = 14.dp)
             ) {
                 Text(
                     text = "✓ Xác nhận toàn bộ (${proposals.size} hoạt động)",
@@ -680,77 +803,59 @@ private fun CompactProposalBatchCard(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ChatAnswerCard(
+private fun ChatAnswerContent(
     answer: ChatAnswer,
     onDismiss: () -> Unit,
     onUseSuggestion: (String) -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = if (answer.isClarification) Color(0xFFFFF8E8) else Color(0xFFF1F8F3)),
-        border = BorderStroke(1.dp, if (answer.isClarification) Color(0xFFF0DFB4) else Color(0xFFD3E6D8)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
-            ) {
-                Text(
-                    text = answer.label ?: if (answer.isClarification) "Cần hỏi lại" else "Wally",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = WalletMuted
-                )
-                Text(
-                    text = "Đóng ✕",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = WalletMuted,
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .semantics { role = Role.Button }
-                        .clickable(onClickLabel = "Đóng câu trả lời", onClick = onDismiss)
-                )
-            }
-            Spacer(modifier = Modifier.height(4.dp))
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
-                text = answer.headline,
-                fontSize = 13.sp,
+                text = answer.label ?: if (answer.isClarification) "Cần hỏi lại" else "Wally",
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                color = WalletInk,
-                lineHeight = 18.sp
+                color = WalletMuted,
+                modifier = Modifier.weight(1f)
             )
-            answer.lines.forEach { line ->
-                Spacer(modifier = Modifier.height(3.dp))
-                Text(text = line, fontSize = 12.sp, color = WalletInk, lineHeight = 17.sp)
-            }
-            answer.notes.forEach { note ->
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(text = note, fontSize = 10.5.sp, color = WalletMuted, lineHeight = 15.sp)
-            }
-            if (answer.suggestions.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    answer.suggestions.forEach { suggestion ->
-                        Box(
-                            modifier = Modifier
-                                .minimumInteractiveComponentSize()
-                                .clip(RoundedCornerShape(100.dp))
-                                .background(Color.White)
-                                .border(1.dp, Color(0xFFDBE8DD), RoundedCornerShape(100.dp))
-                                .semantics { role = Role.Button }
-                                .clickable { onUseSuggestion(suggestion) }
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
-                        ) {
-                            Text(text = suggestion, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF3E6B56))
-                        }
-                    }
+            Text(
+                text = "Đóng ✕",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = WalletMuted,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .walletClickable(onClickLabel = "Đóng câu trả lời", onClick = onDismiss)
+                    .padding(horizontal = 6.dp, vertical = 4.dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = answer.headline,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = WalletInk,
+            lineHeight = 22.sp
+        )
+        answer.lines.forEach { line ->
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(text = line, fontSize = 13.5.sp, color = WalletInk, lineHeight = 19.sp)
+        }
+        answer.notes.forEach { note ->
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(text = note, fontSize = 12.sp, color = WalletMuted, lineHeight = 17.sp)
+        }
+        if (answer.suggestions.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                answer.suggestions.forEach { suggestion ->
+                    SuggestionChip(text = suggestion) { onUseSuggestion(suggestion) }
                 }
             }
         }

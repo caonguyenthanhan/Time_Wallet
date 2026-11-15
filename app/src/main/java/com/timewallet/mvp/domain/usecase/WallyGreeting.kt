@@ -10,8 +10,11 @@ object WallyGreeting {
         in 5..10 -> "buổi sáng"
         in 11..12 -> "buổi trưa"
         in 13..17 -> "buổi chiều"
-        else -> "buổi tối"
+        in 18..23 -> "buổi tối"
+        else -> "buổi khuya"
     }
 
-    fun dashboardLine(hour: Int): String = "Chào ${partOfDay(hour)}! Wally đang giữ sổ thời gian giúp bạn."
+    // v1.0.11: một câu ngắn; 0-4h không chào "buổi tối".
+    fun dashboardLine(hour: Int): String =
+        if (hour in 0..4) "Khuya rồi, nhớ nghỉ ngơi nhé!" else "Chào ${partOfDay(hour)}!"
 }

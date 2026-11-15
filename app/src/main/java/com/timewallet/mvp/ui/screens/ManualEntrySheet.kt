@@ -96,10 +96,10 @@ fun ManualEntrySheet(
                 .padding(horizontal = 16.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text("Thêm giờ đã dùng", fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk)
+            Text("Thêm giờ đã dùng", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk)
             Text(
-                "Chỉ ghi thời lượng. Ứng dụng không tự suy ra giờ bắt đầu hay kết thúc.",
-                fontSize = 11.sp,
+                "Chỉ ghi thời lượng, không tự gán giờ bắt đầu hay kết thúc.",
+                fontSize = 12.sp,
                 color = WalletMuted
             )
 
@@ -194,13 +194,15 @@ fun ManualEntrySheet(
                 OutlinedButton(
                     onClick = onDismiss,
                     enabled = !state.saving,
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.weight(1f).heightIn(min = 52.dp)
                 ) { Text("Hủy") }
                 Button(
                     onClick = onSave,
                     enabled = !state.saving,
+                    shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                    modifier = Modifier.weight(1f).heightIn(min = 52.dp)
                 ) { Text(if (state.saving) "Đang lưu…" else "Lưu", fontWeight = FontWeight.Bold) }
             }
             Spacer(modifier = Modifier.height(12.dp))
@@ -233,7 +235,7 @@ fun ManualEntrySheet(
 
 @Composable
 private fun SectionLabel(text: String) {
-    Text(text, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = WalletMuted)
+    Text(text, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = WalletMuted)
 }
 
 /** Chip có vùng chạm tối thiểu 48dp, có mô tả và trạng thái chọn cho TalkBack (không chỉ dựa vào màu). */
@@ -242,7 +244,7 @@ private fun SheetChip(text: String, selected: Boolean, description: String, onCl
     Box48(selected = selected, description = description, onClick = onClick) {
         Text(
             text = if (selected) "✓ $text" else text,
-            fontSize = 12.sp,
+            fontSize = 13.5.sp,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             color = if (selected) Color.White else WalletInk
         )
@@ -254,16 +256,16 @@ private fun Box48(selected: Boolean, description: String, onClick: () -> Unit, c
     Row(
         modifier = Modifier
             .minimumInteractiveComponentSize()
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(if (selected) WalletMint else Color(0xFFF3F6F3))
-            .border(BorderStroke(1.dp, if (selected) WalletMint else WalletStroke), RoundedCornerShape(10.dp))
+            .border(BorderStroke(1.dp, if (selected) WalletMint else WalletStroke), RoundedCornerShape(14.dp))
             .semantics {
                 contentDescription = description
                 role = Role.RadioButton
                 this.selected = selected
             }
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically
     ) { content() }
 }

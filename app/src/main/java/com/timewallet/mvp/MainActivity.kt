@@ -16,8 +16,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -36,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,8 +58,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.timewallet.mvp.ui.AppTab
 import com.timewallet.mvp.ui.TimeWalletViewModel
 import com.timewallet.mvp.ui.screens.AiSettingsDialog
+import com.timewallet.mvp.ui.screens.BudgetDeleteConfirmDialog
+import com.timewallet.mvp.ui.screens.BudgetEditorDraft
 import com.timewallet.mvp.ui.screens.ChatScreen
 import com.timewallet.mvp.ui.screens.DailyReviewScreen
+import com.timewallet.mvp.ui.screens.DataManagementDialog
 import com.timewallet.mvp.ui.screens.EditRecordDialog
 import com.timewallet.mvp.ui.screens.ExportJsonDialog
 import com.timewallet.mvp.ui.screens.HistoryScreen
@@ -81,12 +88,14 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scrollState = rememberScrollState()
+    val imeVisible = WindowInsets.isImeVisible
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -107,6 +116,16 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
     }
 
     var pendingJsonToWrite by remember { mutableStateOf<String?>(null) }
+    var pendingBudgetDelete by remember { mutableStateOf<String?>(null) }
+    var showDataDialog by remember { mutableStateOf(false) }
+    // Tin nhắn vừa gửi ở Wally (chỉ để hiển thị bong bóng): sống qua đổi tab và xoay màn hình.
+    var lastChatUserMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    var preservedBudgetDraft by remember { mutableStateOf<BudgetEditorDraft?>(null) }
+    LaunchedEffect(state.showBudgetDialog) {
+        if (!state.showBudgetDialog) {
+            preservedBudgetDraft = null
+        }
+    }
     val createDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
     ) { uri: Uri? ->
@@ -129,9 +148,8 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
         scrollState.scrollTo(0)
     }
 
-    // WALLY: nút thêm giờ nhanh ở Tổng quan và Nhật ký (không hiện trong Daily Review để không che nội dung).
-    val showFab = (state.currentTab == AppTab.OVERVIEW && !state.isShowingDailyReview) ||
-        state.currentTab == AppTab.HISTORY
+    // v1.0.11: nút ＋ nổi chỉ ở Nhật ký; Tổng quan đã có ô "Thêm giờ" ở màn hình đầu nên không để nút nổi che nội dung.
+    val showFab = state.currentTab == AppTab.HISTORY
 
     Box(
         modifier = Modifier
@@ -150,7 +168,8 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
                     isTimerRunning = state.activeTimer != null,
                     timerSeconds = state.timerElapsedSeconds,
                     onTimerBadgeClick = { viewModel.selectTab(AppTab.TIMER) },
-                    onExportClick = { viewModel.prepareExportJson() },
+                    onDataClick = { showDataDialog = true },
+                    onAiSettingsClick = { viewModel.toggleAiSettingsDialog(true) },
                     onInfoClick = { viewModel.toggleProductInfoDialog(true) }
                 )
             },
@@ -167,18 +186,23 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
                 }
             },
             bottomBar = {
-                TimeWalletBottomBar(
-                    currentTab = state.currentTab,
-                    isTimerRunning = state.activeTimer != null,
-                    onSelectTab = { viewModel.selectTab(it) }
-                )
+                // v1.0.11: khi gõ ở Wally, ẩn thanh tab để nhường chỗ cho hội thoại.
+                if (!(imeVisible && state.currentTab == AppTab.CHAT)) {
+                    TimeWalletBottomBar(
+                        currentTab = state.currentTab,
+                        isTimerRunning = state.activeTimer != null,
+                        onSelectTab = { viewModel.selectTab(it) }
+                    )
+                }
             }
         ) { innerPadding ->
+            // v1.0.11: Wally là màn hình hội thoại với ô nhập ghim đáy nên không nằm trong khối cuộn chung.
+            val isChatTab = state.currentTab == AppTab.CHAT
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .verticalScroll(scrollState)
+                    .then(if (isChatTab) Modifier else Modifier.verticalScroll(scrollState))
                     .padding(horizontal = 16.dp, vertical = 4.dp)
             ) {
                 when (state.currentTab) {
@@ -254,7 +278,9 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
                         onDiscardProposal = viewModel::discardProposal,
                         onClearAllProposals = viewModel::clearAllProposals,
                         onConfirmSingleProposal = viewModel::confirmSingleProposal,
-                        onConfirmAllProposals = viewModel::confirmAllProposals
+                        onConfirmAllProposals = viewModel::confirmAllProposals,
+                        lastUserMessage = lastChatUserMessage,
+                        onLastUserMessageChange = { lastChatUserMessage = it }
                     )
 
                     AppTab.HISTORY -> HistoryScreen(
@@ -265,18 +291,16 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
                         onConfirmPlannedOrActiveRecord = viewModel::confirmPlannedOrActiveRecord,
                         onEditRecord = viewModel::openEditRecord,
                         onDeleteRecord = viewModel::deleteRecord,
-                        onLoadSampleData = viewModel::loadSampleData,
-                        onExportJsonClick = viewModel::prepareExportJson,
-                        onClearAllData = viewModel::clearAllData
+                        onAddManual = { viewModel.openManualEntry() }
                     )
 
                     AppTab.INSIGHTS -> InsightsScreen(
                         weeklyInsights = state.weeklyInsights,
                         onOpenBudgetEditor = viewModel::openBudgetEditor,
-                        onDeleteBudget = viewModel::deleteCategoryBudget
+                        onDeleteBudget = { pendingBudgetDelete = it }
                     )
                 }
-                Spacer(modifier = Modifier.height(if (showFab) 88.dp else 16.dp))
+                if (!isChatTab) Spacer(modifier = Modifier.height(if (showFab) 88.dp else 16.dp))
             }
         }
 
@@ -286,8 +310,8 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = if (showFab) 148.dp else 72.dp, start = 16.dp, end = 16.dp)
+                .align(Alignment.TopCenter)
+                .padding(top = 64.dp, start = 16.dp, end = 16.dp)
         ) {
             state.toastMessage?.let { msg ->
                 Box(
@@ -368,6 +392,15 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
         )
     }
 
+    if (showDataDialog) {
+        DataManagementDialog(
+            onDismiss = { showDataDialog = false },
+            onExportJson = { viewModel.prepareExportJson() },
+            onLoadSampleData = viewModel::loadSampleData,
+            onClearAllData = viewModel::clearAllData
+        )
+    }
+
     if (state.showProductInfoDialog) {
         ProductInfoDialog(
             onDismiss = { viewModel.toggleProductInfoDialog(false) },
@@ -376,13 +409,40 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
         )
     }
 
-    if (state.showBudgetDialog) {
+    // v1.0.10: chỉ một dialog ngân sách hiển thị tại một thời điểm; hủy xác nhận quay lại đúng trạng thái sửa Budget.
+    val activeDeleteKey = pendingBudgetDelete
+    if (activeDeleteKey != null) {
+        BudgetDeleteConfirmDialog(
+            categoryKey = activeDeleteKey,
+            onConfirm = {
+                viewModel.deleteCategoryBudget(activeDeleteKey)
+                pendingBudgetDelete = null
+                preservedBudgetDraft = null
+            },
+            onDismiss = {
+                pendingBudgetDelete = null
+            }
+        )
+    } else if (state.showBudgetDialog) {
         TimeBudgetEditorDialog(
             initialCategory = state.editingBudgetCategory,
             existingBudgets = state.budgets,
-            onDismiss = viewModel::closeBudgetEditor,
-            onSave = viewModel::saveCategoryBudget,
-            onDelete = viewModel::deleteCategoryBudget
+            preservedDraft = preservedBudgetDraft,
+            onDismiss = {
+                preservedBudgetDraft = null
+                viewModel.closeBudgetEditor()
+            },
+            onSave = { categoryKey, period, hoursText, minutesText, isPriority ->
+                preservedBudgetDraft = null
+                viewModel.saveCategoryBudget(categoryKey, period, hoursText, minutesText, isPriority)
+            },
+            onDelete = { categoryKey ->
+                pendingBudgetDelete = categoryKey
+            },
+            onDeleteWithDraft = { draft ->
+                preservedBudgetDraft = draft
+                pendingBudgetDelete = draft.categoryKey
+            }
         )
     }
 }

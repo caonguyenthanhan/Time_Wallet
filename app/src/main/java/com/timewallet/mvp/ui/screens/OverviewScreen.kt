@@ -1,40 +1,22 @@
 package com.timewallet.mvp.ui.screens
 
-import androidx.compose.material3.minimumInteractiveComponentSize
-import androidx.compose.foundation.BorderStroke
-import com.timewallet.mvp.domain.usecase.WallyGreeting
-import com.timewallet.mvp.domain.usecase.DonutSlice
-import com.timewallet.mvp.domain.usecase.DashboardSummary
-import com.timewallet.mvp.R
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -44,30 +26,36 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.timewallet.mvp.R
 import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.model.TimeBudgetProgress
 import com.timewallet.mvp.domain.model.TimeCategory
+import com.timewallet.mvp.domain.usecase.DashboardSummary
 import com.timewallet.mvp.domain.usecase.DayLedgerStats
 import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
+import com.timewallet.mvp.domain.usecase.WallyGreeting
 import com.timewallet.mvp.ui.AppTab
 import com.timewallet.mvp.ui.theme.WalletInk
 import com.timewallet.mvp.ui.theme.WalletMint
 import com.timewallet.mvp.ui.theme.WalletMintBright
 import com.timewallet.mvp.ui.theme.WalletMintDark
 import com.timewallet.mvp.ui.theme.WalletMintMid
+import com.timewallet.mvp.ui.theme.WalletMintTint
 import com.timewallet.mvp.ui.theme.WalletMuted
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun OverviewScreen(
     todayDateLocal: String,
@@ -80,406 +68,263 @@ fun OverviewScreen(
     onAddManual: () -> Unit = {},
     onNavigateToTab: (AppTab) -> Unit
 ) {
-    val formattedTodayHeader = remember(todayDateLocal) {
+    val dateHeader = remember(todayDateLocal) {
         try {
-            val d = LocalDate.parse(todayDateLocal)
-            val fmt = DateTimeFormatter.ofPattern("EEEE, dd/MM", Locale("vi", "VN"))
-            d.format(fmt).uppercase(Locale("vi", "VN"))
+            LocalDate.parse(todayDateLocal)
+                .format(DateTimeFormatter.ofPattern("EEEE, dd/MM", Locale("vi", "VN")))
+                .replaceFirstChar { it.uppercase() }
         } catch (_: Exception) {
-            "HÔM NAY"
+            "Hôm nay"
         }
     }
-
-    val remainingFormatted = LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(todayStats.remainingDaySeconds)
-    val elapsedFormatted = LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(todayStats.elapsedDaySeconds)
-    val recordedTimedFormatted = LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(todayStats.timedSeconds)
-    val untrackedPastFormatted = LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(todayStats.untrackedPastSeconds)
-    val untimedFormatted = LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(todayStats.untimedSeconds)
-    val plannedFormatted = LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(todayStats.plannedSeconds)
-    val totalDayHoursLabel = "${(todayStats.calendarDaySeconds / 3600L)}h"
-
     val summary = remember(todayStats) { DashboardSummary.from(todayStats) }
-    val greetingHour = remember(todayDateLocal) { java.time.LocalTime.now().hour }
-    val recordedFormatted = LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(summary.recordedSeconds)
-    val unrecordedFormatted = LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(summary.unrecordedSeconds)
+    val greetingHour = remember(todayDateLocal) { LocalTime.now().hour }
+    val fmt = LedgerAnalyticsCalculator::formatHoursMinutesFromSeconds
+    val recordedFormatted = fmt(summary.recordedSeconds)
+    val totalDayHoursLabel = "${todayStats.calendarDaySeconds / 3600L}h"
 
-    Column(modifier = Modifier.fillMaxWidth()) {
-        // Wally: lời chào cục bộ một câu (không gọi API).
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        // Lời chào một câu (cục bộ, không gọi API) + ngày.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 6.dp, bottom = 10.dp),
+                .padding(top = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Image(
                 painter = painterResource(id = R.drawable.ic_wally),
                 contentDescription = "Wally, trợ lý thời gian",
-                modifier = Modifier.size(40.dp)
+                modifier = Modifier.size(44.dp)
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = WallyGreeting.dashboardLine(greetingHour),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = WalletInk,
-                    lineHeight = 17.sp
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = WalletInk
                 )
-                Text(text = formattedTodayHeader, fontSize = 10.sp, color = WalletMuted)
+                Text(text = dateHeader, fontSize = 13.sp, color = WalletMuted)
             }
         }
 
         // Hero: ví thời gian của ngày. Số lớn = đã ghi nhận; "chưa ghi nhận" là phần còn lại của 24h theo quy ước, không phải giờ rảnh.
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(28.dp))
+                .background(Brush.linearGradient(listOf(WalletMintDark, WalletMintMid, WalletMintBright)))
+                .padding(22.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        brush = Brush.linearGradient(
-                            colors = listOf(WalletMintDark, WalletMintMid, WalletMintBright)
+            Column {
+                Text(
+                    text = "VÍ THỜI GIAN HÔM NAY",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 1.4.sp,
+                    color = Color(0xFFCDEBDD)
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = recordedFormatted,
+                    fontSize = 52.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White,
+                    maxLines = 1,
+                    softWrap = false
+                )
+                Text(text = "đã ghi nhận", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.85f))
+                Spacer(modifier = Modifier.height(14.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(10.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.White.copy(alpha = 0.22f))
+                        .describe("Đã ghi nhận $recordedFormatted trên $totalDayHoursLabel của ngày")
+                ) {
+                    if (summary.progressFraction > 0f) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(summary.progressFraction.coerceIn(0.02f, 1f))
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color.White)
                         )
-                    )
-                    .padding(16.dp)
-            ) {
-                Column {
-                    Text(
-                        text = "VÍ THỜI GIAN HÔM NAY",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        letterSpacing = 1.1.sp,
-                        color = Color(0xFFD3EDE2)
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = buildAnnotatedString {
-                            withStyle(SpanStyle(fontSize = 34.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)) {
-                                append(recordedFormatted)
-                            }
-                            withStyle(SpanStyle(fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.85f))) {
-                                append(" đã ghi nhận / $totalDayHoursLabel")
-                            }
-                        }
-                    )
+                    }
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(text = "trên $totalDayHoursLabel của ngày", fontSize = 12.sp, color = Color(0xFFCDEBDD))
+                if (summary.untimedSeconds > 0L) {
                     Spacer(modifier = Modifier.height(10.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(8.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color.White.copy(alpha = 0.22f))
-                            .semantics {
-                                contentDescription = "Đã ghi nhận $recordedFormatted trên $totalDayHoursLabel của ngày"
-                            }
-                    ) {
-                        if (summary.progressFraction > 0f) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth(summary.progressFraction.coerceIn(0.02f, 1f))
-                                    .fillMaxHeight()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color.White)
-                            )
-                        }
-                    }
+                    Text(
+                        text = "Trong đó chưa gắn giờ ${fmt(summary.untimedSeconds)}",
+                        fontSize = 13.sp,
+                        color = Color(0xFFCDEBDD)
+                    )
+                }
+                if (summary.plannedSeconds > 0L) {
                     Spacer(modifier = Modifier.height(10.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(text = unrecordedFormatted, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
-                            Text(text = "Chưa ghi nhận", fontSize = 10.5.sp, color = Color(0xFFD3EDE2))
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(summary.untimedSeconds),
-                                fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = Color.White
-                            )
-                            Text(text = "Trong đó chưa gắn giờ", fontSize = 10.5.sp, color = Color(0xFFD3EDE2))
-                        }
-                    }
-                    if (summary.plannedSeconds > 0L) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Dự kiến ${LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(summary.plannedSeconds)} (chưa tính vào đã ghi nhận)",
-                            fontSize = 10.sp,
-                            color = Color(0xFFD3EDE2)
-                        )
-                    }
-                    if (summary.recordedExceedsDay) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Tổng đã ghi nhận (có mốc giờ + chưa gắn giờ) vượt quá độ dài của ngày. Phần chưa gắn giờ có thể trùng với phần có mốc giờ; hãy kiểm tra lại các bản ghi.",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFFFE9B8)
-                        )
-                    }
+                    Text(
+                        text = "Dự kiến ${fmt(summary.plannedSeconds)} · chưa tính vào đã ghi nhận",
+                        fontSize = 12.sp,
+                        color = Color(0xFFCDEBDD)
+                    )
+                }
+                if (summary.recordedExceedsDay) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Tổng đã ghi nhận vượt quá độ dài của ngày. Phần chưa gắn giờ có thể trùng phần có mốc giờ; hãy kiểm tra lại các bản ghi.",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFFFE9B8)
+                    )
                 }
             }
         }
 
-        // Thao tác nhanh: Đồng hồ / Thêm giờ / Hỏi Wally. (FAB là đường thêm giờ nhanh nhất.)
-        Spacer(modifier = Modifier.height(10.dp))
+        // Thao tác nhanh: Đồng hồ / Thêm giờ / Hỏi Wally.
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            QuickActionTile("◴", "Đồng hồ", "Mở tab Đồng hồ", Modifier.weight(1f)) { onNavigateToTab(AppTab.TIMER) }
-            QuickActionTile("＋", "Thêm giờ", "Nhập giờ thủ công", Modifier.weight(1f), onAddManual)
-            QuickActionTile("✦", "Hỏi Wally", "Mở tab Wally", Modifier.weight(1f)) { onNavigateToTab(AppTab.CHAT) }
+            QuickActionTile(WalletGlyph.CLOCK, "Đồng hồ", "Mở tab Đồng hồ", Modifier.weight(1f)) { onNavigateToTab(AppTab.TIMER) }
+            QuickActionTile(WalletGlyph.PLUS, "Thêm giờ", "Nhập giờ thủ công", Modifier.weight(1f), onAddManual)
+            QuickActionTile(WalletGlyph.SPARK, "Hỏi Wally", "Mở tab Wally", Modifier.weight(1f)) { onNavigateToTab(AppTab.CHAT) }
         }
 
         // Donut phân bổ theo danh mục (tỷ lệ trên tổng đã ghi nhận).
-        SectionHeader(title = "Phân bổ theo danh mục", subtitleOrRightText = "Tỷ lệ trên tổng đã ghi nhận")
-        WalletSurfaceCard {
-            if (summary.isEmpty) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 10.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "Chưa có giờ nào được ghi hôm nay.",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = WalletInk
-                    )
-                    Text(
-                        text = "Bật đồng hồ, bấm ＋ để thêm giờ, hoặc hỏi Wally.",
-                        fontSize = 10.5.sp,
-                        color = WalletMuted,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            } else {
-                val donutDescription = summary.slices.joinToString(", ") { "${it.category.displayName} ${it.percent}%" }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    DonutChart(
-                        slices = summary.slices,
-                        centerLabel = recordedFormatted,
-                        modifier = Modifier
-                            .size(112.dp)
-                            .semantics { contentDescription = "Biểu đồ phân bổ theo danh mục: $donutDescription" }
-                    )
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        summary.slices.forEach { slice ->
-                            Column {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                                    Box(modifier = Modifier.size(9.dp).clip(CircleShape).background(Color(slice.category.colorHex)))
-                                    Text(
-                                        text = "${slice.category.emoji} ${slice.category.displayName}",
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = WalletInk,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                Text(
-                                    text = "${LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(slice.seconds)} · ${slice.percent}%",
-                                    fontSize = 10.5.sp,
-                                    color = WalletMuted,
-                                    modifier = Modifier.padding(start = 14.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 24-hour Allocation Card (Tách 3 miền: Đã ghi nhận | Chưa ghi nhận quá khứ | Quỹ còn lại)
-        SectionHeader(
-            title = "Trục 24 giờ hôm nay",
-            subtitleOrRightText = "Quá khứ đã qua vs Quỹ còn lại"
-        )
-
-        WalletSurfaceCard {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(14.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFFEDF0ED)),
-                horizontalArrangement = Arrangement.spacedBy(1.5.dp)
-            ) {
-                val totalDaySecs = todayStats.calendarDaySeconds.coerceAtLeast(1L).toFloat()
-                todayStats.categoryBreakdown.forEach { catStat ->
-                    val weight = (catStat.durationSeconds.toFloat() / totalDaySecs).coerceIn(0.01f, 1f)
-                    Box(
-                        modifier = Modifier
-                            .weight(weight)
-                            .fillMaxHeight()
-                            .background(Color(catStat.category.colorHex))
-                    )
-                }
-                if (todayStats.untrackedPastSeconds > 0L) {
-                    val untrackedPastWeight =
-                        (todayStats.untrackedPastSeconds.toFloat() / totalDaySecs).coerceAtLeast(0.015f)
-                    Box(
-                        modifier = Modifier
-                            .weight(untrackedPastWeight)
-                            .fillMaxHeight()
-                            .background(Color(0xFFC5CFC9))
-                    )
-                }
-                if (todayStats.remainingDaySeconds > 0L) {
-                    val remainingWeight =
-                        (todayStats.remainingDaySeconds.toFloat() / totalDaySecs).coerceAtLeast(0.015f)
-                    Box(
-                        modifier = Modifier
-                            .weight(remainingWeight)
-                            .fillMaxHeight()
-                            .background(Color(0xFFDFF0E6))
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            val legendItems = buildList {
-                todayStats.categoryBreakdown.forEach { stat ->
-                    add(
-                        Triple(
-                            Color(stat.category.colorHex),
-                            stat.category.displayName,
-                            LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(stat.durationSeconds)
-                        )
-                    )
-                }
-                add(
-                    Triple(
-                        Color(0xFFC5CFC9),
-                        "Chưa ghi nhận (quá khứ)",
-                        untrackedPastFormatted
-                    )
-                )
-                add(
-                    Triple(
-                        Color(0xFF96CEB0),
-                        "Quỹ còn lại hôm nay",
-                        remainingFormatted
-                    )
-                )
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                legendItems.chunked(2).forEach { pair ->
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SectionTitle("Phân bổ theo danh mục")
+            SoftCard {
+                if (summary.isEmpty) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        pair.forEach { (dotColor, label, valueText) ->
-                            Row(
-                                modifier = Modifier.weight(1f),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(dotColor)
-                                )
-                                Text(
-                                    text = label,
-                                    fontSize = 10.5.sp,
-                                    color = Color(0xFF5D6D66),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Text(
-                                    text = valueText,
-                                    fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = WalletInk
-                                )
-                            }
+                        DonutChart(
+                            slices = emptyList(),
+                            centerTop = "0h",
+                            modifier = Modifier.size(104.dp)
+                        )
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "Chưa có giờ nào được ghi hôm nay.",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = WalletInk
+                            )
+                            Text(text = "Bật đồng hồ, bấm Thêm giờ hoặc hỏi Wally.", fontSize = 12.5.sp, color = WalletMuted)
                         }
-                        if (pair.size == 1) {
-                            Spacer(modifier = Modifier.weight(1f))
+                    }
+                } else {
+                    val donutDescription = summary.slices.joinToString(", ") { "${it.category.displayName} ${it.percent}%" }
+                    DonutWithLegend(
+                        slices = summary.slices,
+                        centerTop = recordedFormatted,
+                        centerBottom = "đã ghi nhận",
+                        description = "Biểu đồ phân bổ theo danh mục: $donutDescription"
+                    ) {
+                        summary.slices.take(5).forEach { slice ->
+                            LegendRow(
+                                label = "${slice.category.emoji} ${slice.category.displayName}",
+                                value = fmt(slice.seconds),
+                                dot = Color(slice.category.colorHex),
+                                percentText = "${slice.percent}%"
+                            )
+                        }
+                        if (summary.slices.size > 5) {
+                            Text(text = "+${summary.slices.size - 5} danh mục khác", fontSize = 12.sp, color = WalletMuted)
                         }
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(10.dp))
-            HorizontalDivider(color = Color(0xFFEAF0E9))
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Chưa ghi nhận (quá khứ) là khoảng đã trôi qua chưa có bản ghi; tách biệt với Quỹ thời gian còn lại trong ngày.",
-                fontSize = 10.5.sp,
-                color = Color(0xFF738479),
-                lineHeight = 15.sp
-            )
         }
 
-        // Priority Time Budgets on Dashboard (Max 3, Editable)
-        val budgetsArePriority = priorityBudgets.any { it.budget.isPriority }
-        SectionHeader(
-            title = if (budgetsArePriority) "Ngân sách ưu tiên (${priorityBudgets.take(3).size}/3)" else "Ngân sách (${priorityBudgets.take(3).size})",
-            actionText = if (priorityBudgets.isEmpty()) "Đặt ngân sách ✎" else "Xem tất cả →",
-            onActionClick = {
-                if (priorityBudgets.isEmpty()) onOpenBudgetEditor(null) else onNavigateToTab(AppTab.INSIGHTS)
-            }
-        )
-
-        WalletSurfaceCard {
-            if (priorityBudgets.isEmpty()) {
-                Column(
+        // Trục 24 giờ: chỉ thời gian có mốc giờ (đúng quy ước), cộng phần đã qua chưa ghi và phần còn lại trong ngày.
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SectionTitle("Trục 24 giờ hôm nay")
+            SoftCard {
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .semantics { role = Role.Button }
-                        .heightIn(min = 48.dp)
-                        .clickable { onOpenBudgetEditor(null) }
-                        .padding(vertical = 8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .height(18.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(Color(0xFFEDF0ED)),
+                    horizontalArrangement = Arrangement.spacedBy(1.5.dp)
                 ) {
-                    Text(
-                        text = "Chưa có ngân sách thời gian nào được đặt.",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = WalletInk
-                    )
-                    Spacer(modifier = Modifier.height(3.dp))
-                    Text(
-                        text = "Hệ thống không tự đặt mục tiêu thay bạn. Bấm vào đây để tự đặt số giờ/ngày hoặc tuần cho danh mục ưu tiên.",
-                        fontSize = 10.5.sp,
-                        color = WalletMuted,
-                        textAlign = TextAlign.Center,
-                        lineHeight = 15.sp
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(9.dp))
-                            .background(Color(0xFFE6F4EC))
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = "+ Đặt ngân sách ưu tiên",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = WalletMint
+                    val totalDaySecs = todayStats.calendarDaySeconds.coerceAtLeast(1L).toFloat()
+                    todayStats.categoryBreakdown.forEach { catStat ->
+                        val weight = (catStat.durationSeconds.toFloat() / totalDaySecs).coerceIn(0.01f, 1f)
+                        Box(
+                            modifier = Modifier
+                                .weight(weight)
+                                .fillMaxHeight()
+                                .background(Color(catStat.category.colorHex))
+                        )
+                    }
+                    if (todayStats.untrackedPastSeconds > 0L) {
+                        Box(
+                            modifier = Modifier
+                                .weight((todayStats.untrackedPastSeconds.toFloat() / totalDaySecs).coerceAtLeast(0.015f))
+                                .fillMaxHeight()
+                                .background(Color(0xFFC5CFC9))
+                        )
+                    }
+                    if (todayStats.remainingDaySeconds > 0L) {
+                        Box(
+                            modifier = Modifier
+                                .weight((todayStats.remainingDaySeconds.toFloat() / totalDaySecs).coerceAtLeast(0.015f))
+                                .fillMaxHeight()
+                                .background(Color(0xFFDFF0E6))
                         )
                     }
                 }
+                Spacer(modifier = Modifier.height(14.dp))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    AxisKey(WalletMint, "Có mốc giờ", fmt(todayStats.timedSeconds))
+                    AxisKey(Color(0xFFC5CFC9), "Đã qua, chưa ghi", fmt(todayStats.untrackedPastSeconds))
+                    AxisKey(Color(0xFF96CEB0), "Còn lại", fmt(todayStats.remainingDaySeconds))
+                }
+            }
+        }
+
+        // Ngân sách ưu tiên (tối đa 3).
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SectionTitle(
+                text = "Ngân sách",
+                actionText = if (priorityBudgets.isEmpty()) null else "Xem tất cả",
+                onAction = { onNavigateToTab(AppTab.INSIGHTS) }
+            )
+            if (priorityBudgets.isEmpty()) {
+                SoftCard(padding = 4.dp) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(18.dp))
+                            .walletClickable(onClickLabel = "Đặt ngân sách đầu tiên") { onOpenBudgetEditor(null) }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        IconDisc(WalletGlyph.BARS)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(text = "Đặt mục tiêu đầu tiên", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk)
+                            Text(text = "Bạn muốn dành thời gian cho điều gì?", fontSize = 12.5.sp, color = WalletMuted)
+                        }
+                        GlyphIcon(WalletGlyph.CHEVRON, color = WalletMuted, size = 20.dp)
+                    }
+                }
             } else {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     priorityBudgets.take(3).forEach { progress ->
                         TimeBudgetItemCard(
                             progress = progress,
@@ -491,206 +336,110 @@ fun OverviewScreen(
             }
         }
 
-        // Daily Review Entry Card on Dashboard (Refinement 03)
-        SectionHeader(
-            title = "Phản tư cuối ngày (Daily Review)",
-            actionText = if (hasSavedTodayReview) "Xem / Sửa lại →" else "Mở Daily Review →",
-            onActionClick = onOpenDailyReview
-        )
-
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .semantics { role = Role.Button }
-                .heightIn(min = 48.dp)
-                .clickable(onClick = onOpenDailyReview),
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFF3F9F5)),
-            border = BorderStroke(1.dp, Color(0xFFCDE5D7)),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-        ) {
+        // Nhìn lại cuối ngày: một dòng, không đoạn mô tả.
+        SoftCard(padding = 4.dp, tint = WalletMintTint) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                    .clip(RoundedCornerShape(18.dp))
+                    .walletClickable(onClickLabel = "Mở nhìn lại cuối ngày", onClick = onOpenDailyReview)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(RoundedCornerShape(11.dp))
-                        .background(WalletMintDark),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "✦",
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                }
+                IconDisc(WalletGlyph.BOOK, solid = true)
                 Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = "Nhìn lại trong ngày & Phản tư Feynman",
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = WalletInk
+                    Text(text = "Nhìn lại ngày hôm nay", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk)
+                    Text(
+                        text = if (hasSavedTodayReview) "Đã lưu · chạm để xem hoặc sửa" else "Ghi lại điều đáng nhớ",
+                        fontSize = 12.5.sp,
+                        color = WalletMuted
+                    )
+                }
+                GlyphIcon(WalletGlyph.CHEVRON, color = WalletMuted, size = 20.dp)
+            }
+        }
+
+        // Hoạt động gần đây.
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SectionTitle(
+                text = "Hoạt động gần đây",
+                actionText = "Xem tất cả",
+                onAction = { onNavigateToTab(AppTab.HISTORY) }
+            )
+            SoftCard(padding = 14.dp) {
+                if (recentRecords.isEmpty()) {
+                    EmptyState(
+                        glyph = WalletGlyph.LIST,
+                        title = "Chưa có hoạt động nào",
+                        hint = "Hoạt động bạn ghi sẽ hiện ở đây."
+                    )
+                } else {
+                    val nowMs = System.currentTimeMillis()
+                    val shown = recentRecords.take(3)
+                    shown.forEachIndexed { idx, record ->
+                        ActivityRecordRow(
+                            record = record,
+                            nowEpochMs = nowMs,
+                            todayDateLocal = todayDateLocal,
+                            showEditAndDelete = false
                         )
-                        if (hasSavedTodayReview) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(5.dp))
-                                    .background(Color(0xFFDCF2E5))
-                                    .padding(horizontal = 5.dp, vertical = 1.5.dp)
-                            ) {
-                                Text(
-                                    text = "Đã lưu",
-                                    fontSize = 8.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = WalletMint
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "Xem theo ngày từ Ledger thật, ghi kết quả từng việc, trả lời tối đa 2 câu hỏi phản tư và giải thích bài học Feynman.",
-                        fontSize = 10.sp,
-                        color = WalletMuted,
-                        lineHeight = 14.sp
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(WalletMint)
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = "Mở →",
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                }
-            }
-        }
-
-        // Recent Activities
-        SectionHeader(
-            title = "Hoạt động gần đây",
-            actionText = "Xem tất cả →",
-            onActionClick = { onNavigateToTab(AppTab.HISTORY) }
-        )
-
-        WalletSurfaceCard(paddingValues = PaddingValues(horizontal = 14.dp, vertical = 6.dp)) {
-            if (recentRecords.isEmpty()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 18.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "Chưa có hoạt động nào. Bật đồng hồ, bấm ＋ để thêm giờ, hoặc hỏi Wally.",
-                        fontSize = 11.5.sp,
-                        color = Color(0xFF7D9086),
-                        textAlign = TextAlign.Center,
-                        lineHeight = 16.sp
-                    )
-                }
-            } else {
-                val nowMs = System.currentTimeMillis()
-                recentRecords.take(3).forEachIndexed { idx, record ->
-                    ActivityRecordRow(
-                        record = record,
-                        nowEpochMs = nowMs,
-                        todayDateLocal = todayDateLocal,
-                        showEditAndDelete = false
-                    )
-                    if (idx < minOf(recentRecords.size, 3) - 1) {
-                        HorizontalDivider(color = Color(0xFFEFF2EE))
+                        if (idx < shown.lastIndex) HorizontalDivider(color = Color(0xFFEFF2EE))
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AxisKey(dot: Color, label: String, value: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(dot))
+        Text(text = label, fontSize = 12.5.sp, color = WalletMuted)
+        Text(text = value, fontSize = 12.5.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk)
+    }
+}
+
+@Composable
+private fun IconDisc(glyph: WalletGlyph, solid: Boolean = false) {
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(if (solid) WalletMintDark else WalletMintTint),
+        contentAlignment = Alignment.Center
+    ) {
+        GlyphIcon(glyph, color = if (solid) Color.White else WalletMint, size = 22.dp)
     }
 }
 
 @Composable
 private fun QuickActionTile(
-    icon: String,
+    glyph: WalletGlyph,
     title: String,
     description: String,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    Card(
+    Column(
         modifier = modifier
-            .heightIn(min = 56.dp)
-            .semantics { contentDescription = description; role = Role.Button }
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, Color(0xFFDFEAE3)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White)
+            .describe(description)
+            .walletClickable(onClick = onClick)
+            .padding(vertical = 14.dp, horizontal = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(text = icon, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = WalletMint)
-            Text(
-                text = title,
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.Bold,
-                color = WalletInk,
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
-
-/** Donut vẽ bằng Canvas; không có dữ liệu thì không vẽ phần nào (không chart giả). */
-@Composable
-private fun DonutChart(slices: List<DonutSlice>, centerLabel: String, modifier: Modifier = Modifier) {
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val strokePx = 16.dp.toPx()
-            val inset = strokePx / 2f
-            val arcSize = Size(size.width - strokePx, size.height - strokePx)
-            val topLeft = Offset(inset, inset)
-            drawArc(
-                color = Color(0xFFEDF0ED), startAngle = 0f, sweepAngle = 360f, useCenter = false,
-                topLeft = topLeft, size = arcSize, style = Stroke(width = strokePx)
-            )
-            var start = -90f
-            slices.forEach { slice ->
-                val sweep = 360f * slice.fraction
-                drawArc(
-                    color = Color(slice.category.colorHex), startAngle = start,
-                    sweepAngle = (sweep - 1.5f).coerceAtLeast(0.5f), useCenter = false,
-                    topLeft = topLeft, size = arcSize, style = Stroke(width = strokePx)
-                )
-                start += sweep
-            }
-        }
+        IconDisc(glyph)
         Text(
-            text = centerLabel,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.ExtraBold,
+            text = title,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
             color = WalletInk,
-            textAlign = TextAlign.Center,
-            maxLines = 2
+            maxLines = 2,
+            textAlign = TextAlign.Center
         )
     }
 }
