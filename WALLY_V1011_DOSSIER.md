@@ -70,6 +70,7 @@ Từ **kiểm toán vòng 3** (đã sửa): hai nút sau khi lắc xúc xắc n�
 - Thông báo lỗi AI lần đầu ("Wally cần khóa API…") dùng chuỗi của tầng nghiệp vụ, không đổi.
 - Các chip cuộn ngang bị cắt cứng ở lề trang thay vì tràn ra mép màn hình; một số nhãn dùng cỡ chữ có giới hạn phóng nên nhỏ hơn mức tối đa mà người dùng chọn ở cỡ chữ rất lớn (đánh đổi có chủ đích để không vỡ bố cục).
 - Chưa kiểm chế độ tối và TalkBack.
+- **Phát hiện mới sau khi đóng gói (chụp LDPlayer `WallyQA`, Android 9, 2026-11-15, chưa sửa):** trên instance này thanh tab dưới cùng **biến mất ngay khi mở tab Wally** dù không có bàn phím (`mInputShown=false`); phím Back thoát hẳn ra launcher nên chỉ rời Wally bằng cách mở lại app. Nguyên nhân khả dĩ: điều kiện ẩn thanh tab khi `WindowInsets.isImeVisible` (mới ở v1.0.11) trả về đúng sai trên môi trường này; trên AVD Android 16 không xảy ra. Chưa kiểm trên điện thoại thật. APK `af50d6cc…` không đổi; cần quyết định của Owner/Manager có sửa và build lại hay không. Ảnh: `docs/screenshots/ldplayer-android9/`.
 - `AEHD` (trình ảo hoá của emulator Android) có thể xung đột với LDPlayer nếu Owner mở LDPlayer khi AVD đang chạy; AVD được tắt khi xong.
 - `.prev` log rotation vẫn chỉ có unit test (từ v1.0.10).
 - Repo có file CRLF lẫn LF (đã giữ nguyên kiểu của từng file).

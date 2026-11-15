@@ -34,6 +34,7 @@ Nút `＋` nổi chỉ ở Nhật ký (Tổng quan có ô "Thêm giờ"); quản
 - **Reviewer độc lập chưa xác nhận các sửa cuối** (không mở vòng 6 theo quyết định của Manager); các sửa đó chỉ có bằng chứng runtime + test của chính tác giả.
 - Hộp thoại Thông tin / Cấu hình AI giữ văn bản kỹ thuật cũ (không thuộc 5 màn hình).
 - Chưa kiểm chế độ tối và TalkBack.
+- **Phát hiện mới sau khi đóng gói (chụp LDPlayer `WallyQA`, Android 9, 2026-11-15, chưa sửa):** trên instance này thanh tab dưới cùng **biến mất ngay khi mở tab Wally** dù không có bàn phím (`mInputShown=false`); phím Back thoát hẳn ra launcher nên chỉ rời Wally bằng cách mở lại app. Nguyên nhân khả dĩ: điều kiện ẩn thanh tab khi `WindowInsets.isImeVisible` (mới ở v1.0.11) trả về đúng sai trên môi trường này; trên AVD Android 16 không xảy ra. Chưa kiểm trên điện thoại thật. APK `af50d6cc…` không đổi; cần quyết định của Owner/Manager có sửa và build lại hay không. Ảnh: `docs/screenshots/ldplayer-android9/`.
 - Emulator Android dùng AEHD: nếu Owner mở LDPlayer khi AVD đang chạy có thể xung đột — AVD sẽ được tắt khi xong.
 
 ## Chưa tuyên bố (Owner chưa nghiệm thu)
