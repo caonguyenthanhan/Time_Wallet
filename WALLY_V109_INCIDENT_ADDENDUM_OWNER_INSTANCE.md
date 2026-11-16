@@ -97,7 +97,7 @@ Tại thời điểm tôi tạo `WallyQA` (`add` rồi `list2`), instance 0 vẫ
 
 ### 7.1. Phản hồi audit trực tiếp từ agent đã thực hiện thao tác (`conversation-id`: `6f992ac1-c3ef-4d2e-92f4-7fcdc3b55426`, 2026-11-15)
 
-**Nguồn bằng chứng:** trích xuất nguyên văn 100% từ nhật ký hệ thống có sẵn của chính phiên đã thực thi thao tác (`C:\Users\LIGHTKING\.gemini\antigravity\brain\6f992ac1-c3ef-4d2e-92f4-7fcdc3b55426\.system_generated\logs\transcript.jsonl`, `transcript_full.jsonl` và `tasks\task-458.log`). Tuân thủ tuyệt đối yêu cầu audit: **không chạy lại bất kỳ lệnh nào**, không truy cập instance của Owner (`index 0`), không sửa cấu hình Windows hoặc LDPlayer.
+**Nguồn bằng chứng:** trích xuất nguyên văn 100% từ nhật ký hệ thống có sẵn của chính phiên đã thực thi thao tác (`<USER_HOME>\.gemini\antigravity\brain\6f992ac1-c3ef-4d2e-92f4-7fcdc3b55426\.system_generated\logs\transcript.jsonl`, `transcript_full.jsonl` và `tasks\task-458.log`). Tuân thủ tuyệt đối yêu cầu audit: **không chạy lại bất kỳ lệnh nào**, không truy cập instance của Owner (`index 0`), không sửa cấu hình Windows hoặc LDPlayer.
 
 #### Bảng tổng hợp 5 mục Audit từ phiên thực thi (`6f992ac1-c3ef-4d2e-92f4-7fcdc3b55426`)
 
@@ -107,7 +107,7 @@ Tại thời điểm tôi tạo `WallyQA` (`add` rồi `list2`), instance 0 vẫ
 | **2. Thời điểm** | **VERIFIED** —<br>- Kiểm tra bảng tiến trình trước lệnh (`step_index: 447..448`): `2026-11-14T17:56:17Z` (`2026-11-15T00:56:17+07:00` – `00:56:18+07:00`).<br>- Đọc `VBox.log` & `VBoxSVC.log` (`step_index: 451..454`): `2026-11-15T00:56:33+07:00` – `00:56:41+07:00`.<br>- Phát lệnh `run_command` dừng `Ld9BoxSVC` (`step_index: 457`): `2026-11-14T17:56:51Z` (`2026-11-15T00:56:51+07:00`).<br>- Chuyển sang background `task-458` (`step_index: 458`): `2026-11-14T17:57:03Z` (`2026-11-15T00:57:03+07:00`).<br>- Hoàn tất `task-458` (`step_index: 460`): `2026-11-14T17:57:34Z` (`2026-11-15T00:57:34+07:00`).<br>- Tiến trình `Ld9BoxSVC.exe` bị dừng (`PID=15260`) có `StartTime = 11/15/2026 00:50:51` (`12:50:51 AM` `+07:00`). | `transcript.jsonl` dòng `448–461`; `tasks/task-458.log` dòng `3` |
 | **3. Lý do** | **VERIFIED** — Ở `step_index: 423` / `task-424` (`00:50:47`–`00:51:48+07:00`), script Python gọi `qa.ensure_wallyqa_booted()` mở `WallyQA` (`index 1`) nhưng **không** gọi `ldconsole quit --index 1` trước khi phiên `run_command` kết thúc. Khi `task-424` đóng lúc `00:51:50+07:00`, cơ chế dọn tiến trình con của phiên lệnh đã kết thúc đột ngột `dnplayer.exe` và `VBoxHeadless.exe` của `leidian1` (`VBox.log`: `00:00:58.250100 VBoxHeadless: processEventQueue: VERR_INTERRUPTED, termination requested`). Tiến trình COM server `Ld9BoxSVC.exe` (`PID=15260`, khởi chạy lúc `00:50:51` khi `task-424` mở `WallyQA`) vẫn tồn tại và giữ khóa phiên của `leidian1` (`VBoxSVC.log`: `00:00:29.949071 ERROR [COM]: aRC=VBOX_E_INVALID_OBJECT_STATE (0x80bb0007) ... aComponent={MachineWrap} aText={The given session is busy}`). Hệ quả: 3 lần thử khởi động `WallyQA` tiếp theo (`task-434` lúc `00:52:09`, `task-440` lúc `00:53:57`, `task-444` lúc `00:54:50`) chỉ mở được cửa sổ GUI `dnplayer.exe` (`list2`: `1,WallyQA,7406752,2624362,2,26880,-1,780,1688,320` với `vboxPid=-1`), không bật được `Ld9BoxHeadless` và không có thiết bị `emulator-5556` trên ADB (`ld_adb=error: device 'emulator-5556' not found`). | `transcript.jsonl` dòng `424–456`; `tasks/task-424.log`, `task-434.log`, `task-440.log`, `task-444.log` |
 | **4. Trạng thái tiến trình / instance trước và sau** | **VERIFIED** —<br>- **Tiến trình trước lệnh (`00:56:18+07:00`, `step_index: 448`):** chỉ có **02** tiến trình khớp `^(dn\|Ld\|LD\|VBox\|adb)`: `adb.exe` (`PID=12044`, `StartTime=11/14/2026 10:43:44 PM`) và `Ld9BoxSVC.exe` (`PID=15260`, `StartTime=11/15/2026 12:50:51 AM`). Không có `dnplayer.exe` hay `Ld9BoxHeadless.exe` nào đang chạy.<br>- **Instance trước lệnh (`00:56:51+07:00`, dòng 1–2 của `task-458.log`):** `list2` in `0,LDPlayer,0,0,0,-1,-1,1080,1920,480` và `1,WallyQA,0,0,0,-1,-1,780,1688,320`; `runninglist` rỗng (`""`). Cả `index 0` lẫn `index 1` đều đang tắt hoàn toàn.<br>- **Trong và sau lệnh (`00:56:51`–`00:57:34+07:00`, `task-458.log`):** dừng duy nhất `Ld9BoxSVC PID=15260 StartTime=11/15/2026 00:50:51`; sau đó `WallyQA` (`index 1`) được khởi chạy lại, lên `BOOTED_CLEANLY` (`emulator-5556`), kiểm tra xong APK `v1.0.9` và thoát sạch bằng `ldconsole quit --index 1` (`CLEAN_QUIT_DONE`, `runninglist` rỗng). `index 0` (`LDPlayer`) giữ nguyên trạng thái dừng `0,0,0,-1,-1` trước, trong và sau thao tác. | `transcript.jsonl` dòng `449`, `458–461`; `tasks/task-458.log` dòng `1–10`, `80` |
-| **5. Phạm vi ảnh hưởng thực tế & Evidence còn lưu** | - **Phạm vi ảnh hưởng xác minh được (VERIFIED):** chỉ **01** tiến trình `Ld9BoxSVC.exe` (`PID=15260`, vốn được khởi tạo lúc `00:50:51` bởi chính phiên QA `WallyQA` ở `task-424`, không phải `PID=20804` của ngày 11-14) bị dừng bằng `Stop-Process -Id 15260 -Force` khi không có bất kỳ VM nào đang chạy (`runninglist` rỗng). Tiến trình `adb.exe` (`PID=12044`) không bị dừng. Trong `VBoxSVC.log` của phiên `PID=15260` (đọc lúc `00:56:41+07:00`), chỉ có tệp `D:\LDPlayer\LDPlayer9\vms\leidian1\leidian.vbox` được nạp/ghi; không có truy cập nào tới `leidian0`.<br>- **Phạm vi không thể xác minh (`UNVERIFIABLE`):** trạng thái nội bộ bên trong máy ảo hoặc tệp đĩa/cấu hình riêng của `index 0` (`LDPlayer`) được phân loại là **`UNVERIFIABLE`** do tuân thủ quy tắc tuyệt đối không khởi chạy hay đọc dữ liệu của `index 0`.<br>- **Evidence còn lưu (VERIFIED):** còn lưu nguyên văn trong `transcript.jsonl`, `transcript_full.jsonl` và `tasks/task-458.log` (xem mục **7.1.2 – 7.1.4**). Lưu ý: hai tệp log gốc của LDPlayer trên đĩa (`D:\LDPlayer\LDPlayer9\vms\leidian1\Logs\VBox.log` và `C:\Users\LIGHTKING\.Ld9VirtualBox\VBoxSVC.log`) về sau đã bị các lượt chạy `WallyQA` tiếp theo (`00:57`–`01:41`) ghi đè, nhưng nội dung chụp lúc `00:56:33`–`00:56:41+07:00` vẫn còn nguyên văn trong `transcript.jsonl` dòng `453` và `455`. | Xem nguyên văn tại mục **7.1.1 – 7.1.4** |
+| **5. Phạm vi ảnh hưởng thực tế & Evidence còn lưu** | - **Phạm vi ảnh hưởng xác minh được (VERIFIED):** chỉ **01** tiến trình `Ld9BoxSVC.exe` (`PID=15260`, vốn được khởi tạo lúc `00:50:51` bởi chính phiên QA `WallyQA` ở `task-424`, không phải `PID=20804` của ngày 11-14) bị dừng bằng `Stop-Process -Id 15260 -Force` khi không có bất kỳ VM nào đang chạy (`runninglist` rỗng). Tiến trình `adb.exe` (`PID=12044`) không bị dừng. Trong `VBoxSVC.log` của phiên `PID=15260` (đọc lúc `00:56:41+07:00`), chỉ có tệp `D:\LDPlayer\LDPlayer9\vms\leidian1\leidian.vbox` được nạp/ghi; không có truy cập nào tới `leidian0`.<br>- **Phạm vi không thể xác minh (`UNVERIFIABLE`):** trạng thái nội bộ bên trong máy ảo hoặc tệp đĩa/cấu hình riêng của `index 0` (`LDPlayer`) được phân loại là **`UNVERIFIABLE`** do tuân thủ quy tắc tuyệt đối không khởi chạy hay đọc dữ liệu của `index 0`.<br>- **Evidence còn lưu (VERIFIED):** còn lưu nguyên văn trong `transcript.jsonl`, `transcript_full.jsonl` và `tasks/task-458.log` (xem mục **7.1.2 – 7.1.4**). Lưu ý: hai tệp log gốc của LDPlayer trên đĩa (`D:\LDPlayer\LDPlayer9\vms\leidian1\Logs\VBox.log` và `C:\Users\<OWNER>\.Ld9VirtualBox\VBoxSVC.log`) về sau đã bị các lượt chạy `WallyQA` tiếp theo (`00:57`–`01:41`) ghi đè, nhưng nội dung chụp lúc `00:56:33`–`00:56:41+07:00` vẫn còn nguyên văn trong `transcript.jsonl` dòng `453` và `455`. | Xem nguyên văn tại mục **7.1.1 – 7.1.4** |
 
 #### 7.1.1. Nguyên văn lệnh đã thực thi (`step_index: 457` / `task-458`)
 
@@ -127,7 +127,7 @@ if ($svc) {
 
 python -c "
 import sys, subprocess, time
-sys.path.insert(0, r'C:\Users\LIGHTKING\.gemini\antigravity\brain\6f992ac1-c3ef-4d2e-92f4-7fcdc3b55426\scratch')
+sys.path.insert(0, r'<USER_HOME>\.gemini\antigravity\brain\6f992ac1-c3ef-4d2e-92f4-7fcdc3b55426\scratch')
 import wallyqa_qa as qa
 qa.assert_wallyqa_safety()
 try:
@@ -188,7 +188,7 @@ finally:
    00:00:58.250100 VBoxHeadless: processEventQueue: VERR_INTERRUPTED, termination requested
    00:00:58.510298 VBoxHeadless: exiting
    ```
-3. **Đoạn cuối `C:\Users\LIGHTKING\.Ld9VirtualBox\VBoxSVC.log` (`LastWriteTime: 11/15/2026 12:51:50 AM`, đọc tại `step_index: 453..454` lúc `00:56:41+07:00`, `transcript.jsonl` dòng `454–455`):**
+3. **Đoạn cuối `C:\Users\<OWNER>\.Ld9VirtualBox\VBoxSVC.log` (`LastWriteTime: 11/15/2026 12:51:50 AM`, đọc tại `step_index: 453..454` lúc `00:56:41+07:00`, `transcript.jsonl` dòng `454–455`):**
    ```text
    00:00:00.502199 Launched VM: 48906848 pid: 18484 (0x4834) frontend: headless name: leidian1
    00:00:29.949071 ERROR [COM]: aRC=VBOX_E_INVALID_OBJECT_STATE (0x80bb0007) aIID={20191216-b5bb-4316-a900-5eb28d3413df} aComponent={MachineWrap} aText={The given session is busy}, preserve=false aResultDetail=0
@@ -198,7 +198,7 @@ finally:
 
 #### 7.1.3. Nguyên văn đầu ra thực thi `task-458` (`00:56:51` – `00:57:34+07:00`)
 
-Trích từ `C:\Users\LIGHTKING\.gemini\antigravity\brain\6f992ac1-c3ef-4d2e-92f4-7fcdc3b55426\.system_generated\tasks\task-458.log` (dòng `1–10` và dòng `80`):
+Trích từ `<USER_HOME>\.gemini\antigravity\brain\6f992ac1-c3ef-4d2e-92f4-7fcdc3b55426\.system_generated\tasks\task-458.log` (dòng `1–10` và dòng `80`):
 
 ```text
 0,LDPlayer,0,0,0,-1,-1,1080,1920,480
@@ -217,10 +217,10 @@ CLEAN_QUIT_DONE
 
 #### 7.1.4. Danh mục tệp bằng chứng còn lưu trên đĩa
 
-1. `C:\Users\LIGHTKING\.gemini\antigravity\brain\6f992ac1-c3ef-4d2e-92f4-7fcdc3b55426\.system_generated\logs\transcript.jsonl` (dòng `424–461`, tương ứng `step_index: 423..460`).
-2. `C:\Users\LIGHTKING\.gemini\antigravity\brain\6f992ac1-c3ef-4d2e-92f4-7fcdc3b55426\.system_generated\logs\transcript_full.jsonl` (dòng `458–461`, lưu nguyên văn toàn bộ lệnh và kết quả `step_index: 457..460`).
-3. `C:\Users\LIGHTKING\.gemini\antigravity\brain\6f992ac1-c3ef-4d2e-92f4-7fcdc3b55426\.system_generated\tasks\task-458.log` (80 dòng log đầy đủ của `task-458`).
-4. `C:\Users\LIGHTKING\.gemini\antigravity\brain\6f992ac1-c3ef-4d2e-92f4-7fcdc3b55426\.system_generated\tasks\task-424.log`, `task-434.log`, `task-440.log`, `task-444.log` (log của chuỗi task trước khi dừng `Ld9BoxSVC`).
+1. `<USER_HOME>\.gemini\antigravity\brain\6f992ac1-c3ef-4d2e-92f4-7fcdc3b55426\.system_generated\logs\transcript.jsonl` (dòng `424–461`, tương ứng `step_index: 423..460`).
+2. `<USER_HOME>\.gemini\antigravity\brain\6f992ac1-c3ef-4d2e-92f4-7fcdc3b55426\.system_generated\logs\transcript_full.jsonl` (dòng `458–461`, lưu nguyên văn toàn bộ lệnh và kết quả `step_index: 457..460`).
+3. `<USER_HOME>\.gemini\antigravity\brain\6f992ac1-c3ef-4d2e-92f4-7fcdc3b55426\.system_generated\tasks\task-458.log` (80 dòng log đầy đủ của `task-458`).
+4. `<USER_HOME>\.gemini\antigravity\brain\6f992ac1-c3ef-4d2e-92f4-7fcdc3b55426\.system_generated\tasks\task-424.log`, `task-434.log`, `task-440.log`, `task-444.log` (log của chuỗi task trước khi dừng `Ld9BoxSVC`).
 
 **Quy tắc đã áp dụng (Manager chấp nhận):** `.agents/AGENTS.md` nay cấm stop/kill/restart tiến trình hoặc service LDPlayer dùng chung (kể cả `Ld9BoxSVC`), cấm `adb kill-server` toàn cục; nếu host service treo thì báo Owner và dừng riêng QA bị ảnh hưởng.
 

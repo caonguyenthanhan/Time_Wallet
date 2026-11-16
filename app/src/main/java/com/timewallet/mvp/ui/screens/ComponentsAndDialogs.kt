@@ -80,6 +80,7 @@ import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.model.TimeBudgetProgress
 import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.model.TimeLayer
+import com.timewallet.mvp.domain.usecase.ApiKeyHygiene
 import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
 import com.timewallet.mvp.ui.AppTab
 import com.timewallet.mvp.ui.theme.WalletCardBg
@@ -977,6 +978,8 @@ fun AiSettingsDialog(
     val currentValidatedHost = remember(baseUrl) {
         AiPreferences.extractValidatedHttpsHost(baseUrl)
     }
+    // v1.0.12 (P1-AI): báo NGAY trong hộp thoại (thông báo dạng toast nằm sau hộp thoại nên người dùng không thấy) và không cho lưu/kiểm tra khóa hỏng.
+    val keyProblem = remember(apiKey) { ApiKeyHygiene.check(ApiKeyHygiene.normalize(apiKey)) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1065,6 +1068,13 @@ fun AiSettingsDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
                     modifier = Modifier.fillMaxWidth()
                 )
+                if (keyProblem != null) {
+                    Text(
+                        text = "Khóa API có ký tự không hợp lệ ở vị trí ${keyProblem.position} (${keyProblem.kindVi}). Hãy dán lại khóa.",
+                        fontSize = 11.sp, color = Color(0xFFB3261E), lineHeight = 15.sp,
+                        modifier = Modifier.semantics { contentDescription = "Lỗi khóa API" }
+                    )
+                }
                 if (initialPreferences.keyUnavailable && apiKey.isEmpty()) {
                     Text(
                         text = "Khóa đã lưu không đọc được trên thiết bị này. Hãy nhập lại. Sổ cái và nhập thủ công không bị ảnh hưởng.",
@@ -1084,7 +1094,7 @@ fun AiSettingsDialog(
                 // WALLY: kiểm tra kết nối bằng payload tổng hợp "ping"; không gửi nhật ký của bạn.
                 OutlinedButton(
                     onClick = { onTestConnection(baseUrl, apiKey, modelName) },
-                    enabled = !connectionTesting && currentValidatedHost != null && apiKey.isNotBlank(),
+                    enabled = !connectionTesting && currentValidatedHost != null && apiKey.isNotBlank() && keyProblem == null,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                 ) {
                     Text(if (connectionTesting) "Đang kiểm tra…" else "Kiểm tra kết nối", fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -1105,7 +1115,7 @@ fun AiSettingsDialog(
         confirmButton = {
             Button(
                 onClick = { onSave(optIn, baseUrl, apiKey, modelName) },
-                enabled = !optIn || currentValidatedHost != null,
+                enabled = (!optIn || currentValidatedHost != null) && keyProblem == null,
                 colors = ButtonDefaults.buttonColors(containerColor = WalletMint)
             ) {
                 Text("Xác nhận & Lưu", fontWeight = FontWeight.Bold)

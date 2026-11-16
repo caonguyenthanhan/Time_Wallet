@@ -28,6 +28,7 @@ import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.model.TimeBudgetProgress
 import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.model.TimeLayer
+import com.timewallet.mvp.domain.usecase.ApiKeyHygiene
 import com.timewallet.mvp.domain.usecase.BatchRecordInput
 import com.timewallet.mvp.domain.usecase.BatchValidationResult
 import com.timewallet.mvp.domain.usecase.CognitiveState
@@ -46,6 +47,7 @@ import com.timewallet.mvp.domain.usecase.ChatPhaseMachine
 import com.timewallet.mvp.domain.usecase.OutcomeSource
 import com.timewallet.mvp.domain.usecase.BudgetPolicy
 import com.timewallet.mvp.domain.usecase.DerivedStatsCalculator
+import com.timewallet.mvp.domain.usecase.CancelArming
 import com.timewallet.mvp.domain.usecase.CancelCommandParser
 import com.timewallet.mvp.domain.usecase.CancelOutcome
 import com.timewallet.mvp.domain.usecase.DraftRef
@@ -266,7 +268,9 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             _uiState.update { it.copy(lastCrashReport = CrashRecorder.readLast()) }
             showToast("Có lỗi không mong muốn. Dữ liệu đã lưu không bị ảnh hưởng; xem \"Nhật ký lỗi\" trong mục Thông tin.")
         },
-        launchContext = safeHandler
+        launchContext = safeHandler,
+        // v1.0.13 (F4): nút Hủy chỉ có hiệu lực sau CancelArming.DEFAULT_ARM_MS kể từ lúc gửi (bấm đúp Gửi không tự hủy).
+        cancelArming = CancelArming()
     )
 
     // v1.0.9: khởi tạo guard NGOÀI luồng chính ngay khi mở app (không bao giờ ném); lần gửi đầu không phải biên dịch regex trên Main.
@@ -757,13 +761,15 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
 
         // AI-01 CLOSURE cancel branch begin
         // Lệnh hủy chỉ tác động draft chưa lưu trong RAM (không Ledger/DB) và hủy cả kết quả phân tích đang chạy khi cần.
-        val cancelCommand = CancelCommandParser.parse(text)
+        // v1.0.13 (C1): "xóa X <thời lượng>" với X ngoài ứng dụng chỉ là lệnh khi X khớp một đề xuất đang chờ; còn lại đi lên cloud như mô tả hoạt động.
+        val toDraftRef = { p: EditableProposalDraft -> DraftRef(p.id, p.title, p.rawInput, p.durationMinutes) }
+        val cancelCommand = CancelCommandParser.parse(text) ?: CancelCommandParser.parseDraftReference(text, _uiState.value.proposals.map(toDraftRef))
         if (cancelCommand != null) {
             var outcome: CancelOutcome? = null
             _uiState.update { state ->
                 val (o, remaining) = ProposalLifecycle.applyCancel(
                     drafts = state.proposals,
-                    toRef = { DraftRef(it.id, it.title, it.rawInput, it.durationMinutes) },
+                    toRef = toDraftRef,
                     command = cancelCommand,
                     analysisInFlight = state.isAnalyzingChat,
                     epoch = chatRunner.epoch
@@ -1470,7 +1476,11 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         _uiState.update { it.copy(showProductInfoDialog = show) }
     }
 
+    // v1.0.13 (U2): kết quả của một lần kiểm tra thuộc về đúng phiên hộp thoại/khóa/URL đã bấm; đóng hộp thoại thì hủy lượt đang chạy để kết quả muộn không hiện vào phiên sau.
+    private var aiTestJob: Job? = null
+
     fun toggleAiSettingsDialog(show: Boolean) {
+        aiTestJob?.cancel()
         _uiState.update {
             it.copy(
                 showAiSettingsDialog = show,
@@ -1490,7 +1500,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
     fun testAiConnection(baseUrl: String, apiKey: String, modelName: String) {
         if (_uiState.value.aiConnectionTesting) return
         _uiState.update { it.copy(aiConnectionTesting = true, aiConnectionTestMessage = null) }
-        viewModelScope.launch(safeHandler) {
+        aiTestJob = viewModelScope.launch(safeHandler) {
             val result = try {
                 GeminiProposalClient.testConnection(baseUrl = baseUrl, apiKey = apiKey, modelName = modelName)
             } finally {
@@ -1518,7 +1528,13 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         val isHostChanged = currentPrefs.trustedHost.isNotBlank() &&
             !validatedHost.equals(currentPrefs.trustedHost, ignoreCase = true)
 
-        if (isHostChanged && apiKey.trim().isNotEmpty() && apiKey.trim() == currentPrefs.apiKey) {
+        // v1.0.12 (P1-AI): chuẩn hóa khóa dán vào và báo rõ nếu còn ký tự ngoài ASCII in được (quy tắc sản phẩm: khóa nhà cung cấp là ASCII; không lưu khóa hỏng).
+        val cleanKey = ApiKeyHygiene.normalize(apiKey)
+        ApiKeyHygiene.check(cleanKey)?.let { p ->
+            showToast("Khóa API có ký tự không hợp lệ ở vị trí ${p.position} (${p.kindVi}). Hãy dán lại khóa.")
+            return
+        }
+        if (isHostChanged && cleanKey.isNotEmpty() && cleanKey == currentPrefs.apiKey) {
             showToast("Bạn vừa đổi sang host mới ($validatedHost). Hãy nhập lại khóa API dành cho host này.")
             return
         }
@@ -1526,7 +1542,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         val candidate = AiPreferences(
             optInEnabled = optInEnabled,
             baseUrl = cleanUrl,
-            apiKey = apiKey.trim(),
+            apiKey = cleanKey,
             modelName = modelName.trim().ifEmpty { AiPreferences.DEFAULT_AI_MODEL },
             trustedHost = validatedHost
         )

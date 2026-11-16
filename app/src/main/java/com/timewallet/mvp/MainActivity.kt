@@ -20,7 +20,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -46,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -88,6 +89,13 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * v1.0.12 (P1-NAV): thanh tab chỉ ẩn khi bàn phím THẬT (ime inset ở đáy > 0) đang hiện ở Wally. Mọi trường hợp khác — kể cả khi hệ thống
+ * không chuyển inset cho Compose (Android trước 15, LDPlayer Android 9) — thanh tab luôn hiện để người dùng không bị kẹt trong Wally.
+ */
+internal fun shouldShowBottomBar(currentTab: AppTab, imeBottomPx: Int): Boolean =
+    !(imeBottomPx > 0 && currentTab == AppTab.CHAT)
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
@@ -95,7 +103,10 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scrollState = rememberScrollState()
-    val imeVisible = WindowInsets.isImeVisible
+    // v1.0.12 (P1-NAV): KHÔNG dùng `WindowInsets.isImeVisible`. Đo trên Android 9 (WallyQA): isImeVisible = true ngay cả ở tab Tổng quan trong khi
+    // ime inset = 0 và không có bàn phím (mInputShown=false): khi hệ thống không chuyển inset cho Compose (app chưa edge-to-edge trước Android 15)
+    // cờ đó đứng yên ở giá trị khởi tạo `true`. Chỉ coi bàn phím là đang hiện khi có phần inset THẬT ở đáy.
+    val imeBottomPx = WindowInsets.ime.getBottom(LocalDensity.current)
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -186,8 +197,8 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
                 }
             },
             bottomBar = {
-                // v1.0.11: khi gõ ở Wally, ẩn thanh tab để nhường chỗ cho hội thoại.
-                if (!(imeVisible && state.currentTab == AppTab.CHAT)) {
+                // Khi bàn phím THẬT đang hiện ở Wally, ẩn thanh tab để nhường chỗ cho hội thoại; mọi trường hợp khác thanh tab luôn hiện.
+                if (shouldShowBottomBar(state.currentTab, imeBottomPx)) {
                     TimeWalletBottomBar(
                         currentTab = state.currentTab,
                         isTimerRunning = state.activeTimer != null,

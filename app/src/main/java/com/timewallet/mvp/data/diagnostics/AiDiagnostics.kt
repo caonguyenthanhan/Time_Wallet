@@ -22,7 +22,11 @@ data class AiEvent(
     val completionTokens: Int? = null,
     val cachedTokens: Int? = null,
     val cacheStatus: CacheStatus? = null,
-    val intent: WallyIntentKind? = null
+    val intent: WallyIntentKind? = null,
+    /** Tên lớp ngoại lệ (không có thông điệp/nội dung/khóa) để lỗi tự nhận diện được; null nếu không có. */
+    val errorClass: String? = null,
+    /** v1.0.13: true cho nút "Kiểm tra kết nối" (yêu cầu "ping"); không phải yêu cầu chat nên không vào số liệu chat. */
+    val connectionTest: Boolean = false
 )
 
 /** Số liệu cộng dồn từ khi mở app (RAM, không lưu đĩa). */
@@ -43,7 +47,10 @@ data class AiMetricsSummary(
     val cacheMiss: Int,
     val cacheNotReported: Int,
     val cacheNoUsage: Int,
-    val byIntent: Map<WallyIntentKind, Int>
+    val byIntent: Map<WallyIntentKind, Int>,
+    /** v1.0.13: số lần bấm "Kiểm tra kết nối" đã mở kết nối thật và số lần trong đó lỗi (tách khỏi yêu cầu chat). */
+    val connectionTests: Int = 0,
+    val connectionTestFailures: Int = 0
 ) {
     val averageLatencyMs: Long get() = if (cloudRequests == 0) 0L else totalLatencyMs / cloudRequests
 }
@@ -69,6 +76,8 @@ object AiDiagnostics {
     private var cacheNotReported = 0
     private var cacheNoUsage = 0
     private val byIntent = HashMap<WallyIntentKind, Int>()
+    private var connectionTests = 0
+    private var connectionTestFailures = 0
 
     fun newRequestId(): String = "req-" + UUID.randomUUID().toString().take(8)
 
@@ -81,7 +90,11 @@ object AiDiagnostics {
         when (event.source) {
             OutcomeSource.LOCAL -> localControl++
             OutcomeSource.NOT_CONFIGURED -> notConfigured++
-            OutcomeSource.CLOUD -> {
+            OutcomeSource.CLOUD -> if (event.connectionTest) {
+                // Kiểm tra kết nối có mở kết nối thật nhưng KHÔNG phải yêu cầu chat: không đụng vào số yêu cầu/độ trễ/token/bộ nhớ đệm của chat.
+                connectionTests++
+                if (event.fault != null) connectionTestFailures++
+            } else {
                 cloudRequests++
                 retries += event.retryCount
                 totalLatencyMs += event.latencyMs
@@ -112,7 +125,7 @@ object AiDiagnostics {
     fun summary(): AiMetricsSummary = AiMetricsSummary(
         cloudRequests, cloudFailures, failuresByFault.toMap(), retries, localControl, notConfigured,
         totalLatencyMs, maxLatencyMs, promptTokens, completionTokens, requestsWithUsage, cachedTokens,
-        cacheHit, cacheMiss, cacheNotReported, cacheNoUsage, byIntent.toMap()
+        cacheHit, cacheMiss, cacheNotReported, cacheNoUsage, byIntent.toMap(), connectionTests, connectionTestFailures
     )
 
     @Synchronized
@@ -121,6 +134,7 @@ object AiDiagnostics {
         cloudRequests = 0; cloudFailures = 0; failuresByFault.clear(); retries = 0; localControl = 0; notConfigured = 0
         totalLatencyMs = 0; maxLatencyMs = 0; promptTokens = 0; completionTokens = 0; requestsWithUsage = 0; cachedTokens = 0
         cacheHit = 0; cacheMiss = 0; cacheNotReported = 0; cacheNoUsage = 0; byIntent.clear()
+        connectionTests = 0; connectionTestFailures = 0
     }
 
     fun summaryText(promptVersion: String? = null, promptPrefixHash: String? = null): String {
@@ -131,7 +145,7 @@ object AiDiagnostics {
         val intents = if (m.byIntent.isEmpty()) "-" else m.byIntent.entries.joinToString(",") { "${it.key}=${it.value}" }
         return buildString {
             appendLine("Tổng hợp từ khi mở app: yêu cầu cloud=${m.cloudRequests} lỗi=${m.cloudFailures} ($faults) thử lại=${m.retries}")
-            appendLine("Độ trễ TB=${m.averageLatencyMs}ms tối đa=${m.maxLatencyMs}ms · lệnh cục bộ=${m.localControl} · chưa cấu hình=${m.notConfigured}")
+            appendLine("Độ trễ TB=${m.averageLatencyMs}ms tối đa=${m.maxLatencyMs}ms · lệnh cục bộ=${m.localControl} · chưa cấu hình=${m.notConfigured} · kiểm tra kết nối=${m.connectionTests} (lỗi=${m.connectionTestFailures})")
             appendLine("Token: $tokens · bộ nhớ đệm prompt: $cache")
             appendLine("Ý định: $intents")
             if (promptVersion != null) appendLine("Prompt: $promptVersion (prefix=${promptPrefixHash ?: "?"})")
@@ -140,8 +154,8 @@ object AiDiagnostics {
 
     fun asText(): String = snapshot().asReversed().joinToString("\n") {
         "${it.requestId} source=${it.source} fault=${it.fault ?: "-"} http=${it.httpStatus ?: "-"} " +
-            "latency=${it.latencyMs}ms retry=${it.retryCount} intent=${it.intent ?: "-"} " +
+            "latency=${it.latencyMs}ms retry=${it.retryCount} intent=${if (it.connectionTest) "CONNECTION_TEST" else it.intent ?: "-"} " +
             "tokens=${it.promptTokens ?: "-"}/${it.completionTokens ?: "-"} cache=${it.cacheStatus ?: "-"}(${it.cachedTokens ?: "-"}) " +
-            "prompt=${it.promptVersion}"
+            "prompt=${it.promptVersion}" + (it.errorClass?.let { c -> " err=$c" } ?: "")
     }.ifEmpty { "(chưa có yêu cầu AI nào)" }
 }

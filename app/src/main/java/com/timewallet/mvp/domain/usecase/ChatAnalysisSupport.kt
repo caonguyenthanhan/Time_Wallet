@@ -77,6 +77,33 @@ class ChatRequestOwner(val epoch: AnalysisEpoch = AnalysisEpoch()) {
     }
 }
 
+/**
+ * v1.0.13 (F4): nút Gửi biến thành nút Hủy ngay tại chỗ, nên cú chạm thứ hai của một lần bấm đúp rơi vào Hủy và hủy chính yêu cầu vừa gửi.
+ * Hủy chỉ có hiệu lực sau [armMs] kể từ lúc lượt phân tích bắt đầu; trước đó giao diện hiện nút Hủy ở trạng thái khóa và [WallyChatRunner.cancel]
+ * trả false (không đổi gì). Đồng hồ được tiêm vào để test chạy xác định; mặc định là đồng hồ đơn điệu.
+ *
+ * [DEFAULT_ARM_MS] = 700 ms: gấp hơn hai lần ngưỡng bấm đúp của Android (300 ms) nên bấm đúp chậm vẫn rơi vào cửa sổ, và ngắn hơn 1 giây nên
+ * "Hủy rồi Gửi lại" (F3/F5) và quyết định hủy có chủ đích (sau khi đọc "Wally đang trả lời…") không bị cảm nhận là chậm.
+ */
+class CancelArming(
+    private val armMs: Long = DEFAULT_ARM_MS,
+    private val nowMs: () -> Long = { System.nanoTime() / 1_000_000L }
+) {
+    @Volatile private var startedAtMs: Long? = null
+
+    /** Gọi khi một lượt phân tích MỚI thật sự bắt đầu (không gọi cho lần bấm trùng bị bỏ). */
+    fun onSendStarted() {
+        startedAtMs = nowMs()
+    }
+
+    /** true nếu Hủy được phép: chưa có lượt nào, hoặc đã qua [armMs] kể từ [onSendStarted]. */
+    fun isArmed(): Boolean = startedAtMs?.let { nowMs() - it >= armMs } ?: true
+
+    companion object {
+        const val DEFAULT_ARM_MS = 700L
+    }
+}
+
 /** WALLY A08: thông báo sau khi xác nhận; phân biệt "đã lưu" với "đã có sẵn, không ghi trùng". */
 object ConfirmFeedback {
     fun message(saved: Int, skippedDuplicates: Int): String = when {

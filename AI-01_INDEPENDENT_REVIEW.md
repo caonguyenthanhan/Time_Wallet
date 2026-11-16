@@ -131,7 +131,7 @@
 
 ### Finding A: Cảnh báo Fallback & Hoạt động bị loại bỏ bị ẩn ngầm (False Success)
 - **Mức độ nghiêm trọng:** `MEDIUM`
-- **Vị trí bằng chứng:** [TimeWalletViewModel.kt:648-654](file:///d:/desktop/Time_Wallet/app/src/main/java/com/timewallet/mvp/ui/TimeWalletViewModel.kt#L648-L654)
+- **Vị trí bằng chứng:** [TimeWalletViewModel.kt:648-654](app/src/main/java/com/timewallet/mvp/ui/TimeWalletViewModel.kt#L648-L654)
 - **Hiện trạng:**
   ```kotlin
   if (newDrafts.isEmpty()) {
@@ -150,7 +150,7 @@
 
 ### Finding B: Thiếu chốt chặn Re-entrancy / Debounce tại `analyzeChatInput`
 - **Mức độ nghiêm trọng:** `MEDIUM-HIGH`
-- **Vị trí bằng chứng:** [TimeWalletViewModel.kt:614-625](file:///d:/desktop/Time_Wallet/app/src/main/java/com/timewallet/mvp/ui/TimeWalletViewModel.kt#L614-L625)
+- **Vị trí bằng chứng:** [TimeWalletViewModel.kt:614-625](app/src/main/java/com/timewallet/mvp/ui/TimeWalletViewModel.kt#L614-L625)
 - **Hiện trạng:**
   Trong hàm `analyzeChatInput()`, không có câu lệnh kiểm tra trạng thái đang phân tích:
   ```kotlin
@@ -168,7 +168,7 @@
 
 ### Finding C: Nguy cơ cắt cụt ngữ cảnh ngày tương đối trong `VietnameseChatParser`
 - **Mức độ nghiêm trọng:** `MEDIUM`
-- **Vị trí bằng chứng:** [VietnameseChatParser.kt:161-164](file:///d:/desktop/Time_Wallet/app/src/main/java/com/timewallet/mvp/domain/usecase/VietnameseChatParser.kt#L161-L164)
+- **Vị trí bằng chứng:** [VietnameseChatParser.kt:161-164](app/src/main/java/com/timewallet/mvp/domain/usecase/VietnameseChatParser.kt#L161-L164)
 - **Hiện trạng:**
   ```kotlin
   val globalTomorrow = Regex("""(?U)(?:^|\s)(?:ngày mai|mai)(?=\s|$|:|,)""", ...).containsMatchIn(trimmed.take(25))
@@ -181,7 +181,7 @@
 
 ### Finding D: Nguy cơ tính trùng thời lượng do mệnh đề tổng hợp ("tổng cộng 5h")
 - **Mức độ nghiêm trọng:** `MEDIUM`
-- **Vị trí bằng chứng:** [GeminiProposalClient.kt:111-127](file:///d:/desktop/Time_Wallet/app/src/main/java/com/timewallet/mvp/data/ai/GeminiProposalClient.kt#L111-L127) và [VietnameseChatParser.kt:225-240](file:///d:/desktop/Time_Wallet/app/src/main/java/com/timewallet/mvp/domain/usecase/VietnameseChatParser.kt#L225-L240)
+- **Vị trí bằng chứng:** [GeminiProposalClient.kt:111-127](app/src/main/java/com/timewallet/mvp/data/ai/GeminiProposalClient.kt#L111-L127) và [VietnameseChatParser.kt:225-240](app/src/main/java/com/timewallet/mvp/domain/usecase/VietnameseChatParser.kt#L225-L240)
 - **Hiện trạng:** Người dùng nói: *"Học 2h, làm việc 3h, tổng cộng 5h"*. Cả AI System Prompt và Regex Parser đều xem "tổng cộng 5h" là một hoạt động thứ ba độc lập với thời lượng 300 phút.
 - **Hậu quả:** Hệ thống tạo ra 3 đề xuất với tổng thời lượng 10 giờ thay vì 5 giờ. Vì là hoạt động chưa gắn mốc giờ (`REPORTED_UNTIMED`), khi người dùng bấm xác nhận toàn bộ, thuật toán cộng dồn sẽ ghi nhận cả 10 giờ vào sổ cái.
 - **Hành vi kỳ vọng:**
@@ -192,7 +192,7 @@
 
 ### Finding E: Rủi ro Parse JSON khi Model kèm văn bản trò chuyện / Thiếu `response_format`
 - **Mức độ nghiêm trọng:** `LOW-MEDIUM`
-- **Vị trí bằng chứng:** [GeminiProposalClient.kt:148-165](file:///d:/desktop/Time_Wallet/app/src/main/java/com/timewallet/mvp/data/ai/GeminiProposalClient.kt#L148-L165) và [GeminiProposalClient.kt:219-224](file:///d:/desktop/Time_Wallet/app/src/main/java/com/timewallet/mvp/data/ai/GeminiProposalClient.kt#L219-L224)
+- **Vị trí bằng chứng:** [GeminiProposalClient.kt:148-165](app/src/main/java/com/timewallet/mvp/data/ai/GeminiProposalClient.kt#L148-L165) và [GeminiProposalClient.kt:219-224](app/src/main/java/com/timewallet/mvp/data/ai/GeminiProposalClient.kt#L219-L224)
 - **Hiện trạng:** Payload gửi lên OpenAI-compatible endpoint không kích hoạt `response_format: {"type": "json_object"}`. Bộ bóc tách chuỗi JSON chỉ dùng `replace` để bỏ markdown ở đầu và cuối chuỗi (`^```json` và ````$`).
 - **Hậu quả:** Nếu một số model (hoặc proxy) sinh thêm lời dẫn ở đầu câu (ví dụ: *"Dưới đây là danh sách hoạt động: ```json {...} ```"*), lệnh `JSONObject(cleanedJson)` sẽ quăng `JSONException`, dẫn đến việc tự động fallback ngầm về parser offline mà không tận dụng được kết quả của AI.
 - **Hành vi kỳ vọng:** Thêm `response_format` vào payload và dùng Regex trích xuất khối JSON bao bọc (`Regex("""\{[\s\S]*\}""")`) trước khi đưa vào `JSONObject`.
@@ -201,7 +201,7 @@
 
 ### Finding F: Khoảng cách đồng bộ `activeTimer` giữa RAM và SQLite khi commit batch
 - **Mức độ nghiêm trọng:** `LOW`
-- **Vị trí bằng chứng:** [LedgerDao.kt:193-207](file:///d:/desktop/Time_Wallet/app/src/main/java/com/timewallet/mvp/data/local/LedgerDao.kt#L193-L207)
+- **Vị trí bằng chứng:** [LedgerDao.kt:193-207](app/src/main/java/com/timewallet/mvp/data/local/LedgerDao.kt#L193-L207)
 - **Hiện trạng:** `activeTimer` được lưu trữ trong `SharedPreferences` (`TimerAndSettingsStore`). Khi người dùng bấm lưu lô đề xuất, `LedgerValidator.validateBatchAtomic` kiểm tra overlap với `activeTimer` lấy từ RAM. Tuy nhiên, khi bước vào `commitBatchRecordsTransactionally` bên trong khóa Mutex của `LedgerDao`, hàm này chỉ đối chiếu overlap với các dòng trong bảng `ledger_records` của SQLite mà không đối chiếu lại trạng thái Timer.
 - **Hậu quả:** Nếu người dùng bật một phiên timer mới trên một luồng khác ngay giữa thời điểm validate và thời điểm commit DB, bản ghi trong batch có thể ghi đè lên khung giờ của timer đang chạy. (Rủi ro thấp vì ứng dụng xử lý tuần tự trên Main thread).
 

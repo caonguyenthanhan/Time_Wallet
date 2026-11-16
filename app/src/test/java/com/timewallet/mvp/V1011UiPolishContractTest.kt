@@ -36,8 +36,11 @@ class V1011UiPolishContractTest {
         val chat = src("ChatScreen.kt")
         assertTrue(chat.contains(".verticalScroll(scroll)"))
         assertTrue(chat.contains("OutlinedTextField("))
-        // khi gõ ở Wally, thanh tab nhường chỗ
-        assertTrue(m.contains("WindowInsets.isImeVisible") && m.contains("imeVisible && state.currentTab == AppTab.CHAT"))
+        // khi gõ ở Wally, thanh tab nhường chỗ. v1.0.12 (P1-NAV): điều kiện này từng dựa vào `WindowInsets.isImeVisible`, cờ luôn `true`
+        // trên Android 9 (không có bàn phím, ime inset = 0) nên Wally mất thanh tab; nay chỉ tin ime inset THẬT ở đáy (test hành vi: V1012NavigationContractTest).
+        val code = m.lines().filterNot { it.trim().startsWith("//") }
+        assertTrue(code.none { it.contains("isImeVisible") })
+        assertTrue(m.contains("WindowInsets.ime.getBottom(LocalDensity.current)") && m.contains("shouldShowBottomBar(state.currentTab, imeBottomPx)"))
     }
 
     @Test

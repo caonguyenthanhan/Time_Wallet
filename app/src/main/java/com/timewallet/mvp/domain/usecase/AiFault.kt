@@ -22,6 +22,7 @@ enum class AiFault(val messageVi: String, val retryable: Boolean) {
     UNKNOWN("Không thể kết nối máy chủ AI. Hãy thử lại hoặc Ghi thủ công.", false),
     NOT_CONFIGURED("Wally cần khóa API và bật AI để hiểu và trả lời. Mở ⚙ để nhập khóa. Bạn vẫn có thể Ghi thủ công.", false),
     CONFIG("Cấu hình AI chưa hợp lệ: Base URL phải bắt đầu bằng https:// và khớp host của khóa. Mở ⚙ để kiểm tra.", false),
+    KEY_INVALID("Khóa API có ký tự không hợp lệ (thường do dán thừa dấu cách, xuống dòng hoặc dấu gạch lạ). Mở ⚙ và dán lại khóa.", false),
     GUARD_UNAVAILABLE("Bộ kiểm tra an toàn của Wally không khởi tạo được trên máy này, nên chưa gửi gì lên AI và chưa tạo đề xuất nào. Bạn vẫn có thể Ghi thủ công.", false)
 }
 

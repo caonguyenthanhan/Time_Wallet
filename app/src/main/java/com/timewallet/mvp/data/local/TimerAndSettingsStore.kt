@@ -10,6 +10,7 @@ import com.timewallet.mvp.domain.model.ActivityReviewNote
 import com.timewallet.mvp.domain.model.CategoryTimeBudget
 import com.timewallet.mvp.domain.model.DailyReviewRecord
 import com.timewallet.mvp.domain.model.LedgerRecord
+import com.timewallet.mvp.domain.usecase.ApiKeyHygiene
 import org.json.JSONObject
 import java.net.URI
 import java.security.KeyStore
@@ -283,7 +284,8 @@ class TimerAndSettingsStore(
                 null
             }
             keyUnavailable = decrypted == null
-            resolvedApiKey = decrypted ?: ""
+            // v1.0.12: khóa đã lưu có thể chứa ký tự rác do dán (khoảng trắng/gạch lạ): chuẩn hóa khi đọc để không gửi đi một khóa lẫn ký tự rác.
+            resolvedApiKey = ApiKeyHygiene.normalize(decrypted ?: "")
             resolvedTrustedHost = prefs.getString(KEY_AI_TRUSTED_HOST, null)
                 ?.trim()
                 ?.lowercase(Locale.US)
@@ -293,7 +295,7 @@ class TimerAndSettingsStore(
             }
         } else if (!legacyPlaintext.isNullOrBlank()) {
             // Migrate an toàn từ plaintext cũ sang AES-GCM và xóa ngay bản ghi plaintext
-            val cleanKey = legacyPlaintext.trim()
+            val cleanKey = ApiKeyHygiene.normalize(legacyPlaintext)
             val ciphertext = try {
                 apiKeyVault.encrypt(cleanKey)
             } catch (_: Exception) {
@@ -371,7 +373,7 @@ class TimerAndSettingsStore(
         val effectiveKey = if (isChangingHost && !hostChangeConfirmed) {
             ""
         } else {
-            aiPreferences.apiKey.trim()
+            ApiKeyHygiene.normalize(aiPreferences.apiKey)
         }
 
         val encryptedPayload = if (effectiveKey.isNotEmpty()) {

@@ -3,6 +3,8 @@ Archived/**
 out/**
 tmp/**
 .gradle/**
+.kotlin/**
+.idea/**
 build/**
 app/build/**
 gradle/wrapper/gradle-wrapper.jar
@@ -11,6 +13,10 @@ app/src/main/res/drawable-nodpi/app_logo.png
 gradlew
 gradlew.bat
 local.properties
+*.apk
+*.tar
+*.lnk
+text.md
 tree_scan_result.json
 tree_scan_result.txt
 classify_result.json

@@ -45,12 +45,18 @@ object VietnameseChatParser {
     )
 
     private val timeRangeRegex = Rx.ascii(
-        """(?:từ\s*)?(\d{1,2})\s*(?:h|:)\s*(\d{0,2})\s*(?:đến|tới|-|–)\s*(\d{1,2})\s*(?:h|:)\s*(\d{0,2})""",
+        """(?:từ\s*)?(\d{1,2})\s*(?:h|:)\s*(\d{0,2})(?:\s*(?:sáng|trưa|chiều|tối|đêm))?\s*(?:đến|tới|-|–)\s*(\d{1,2})\s*(?:h|:)\s*(\d{0,2})""",
         RegexOption.IGNORE_CASE
     )
 
     private val explicitStartAtHourRegex = Rx.uni(
         """(?:^|\s)lúc\s*(\d{1,2})\s*(?:h|:)\s*(\d{0,2})""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** v1.0.12: "từ 14h30", "đến 16h", "tới 9:15" là mốc giờ, không phải thời lượng 14,5 giờ. */
+    private val clockAfterFromRegex = Rx.uni(
+        """(?:^|\s)(?:từ|đến|tới)\s*(?:lúc\s*)?(\d{1,2})\s*(?:h|:)\s*(\d{0,2})""",
         RegexOption.IGNORE_CASE
     )
 
@@ -147,6 +153,12 @@ object VietnameseChatParser {
         """(?:^|(?<=[\s,.;:!?()]))(?:(\d+(?:[.,]\d+)?|$viWordTokenPattern(?:\s+$viWordTokenPattern){0,4})\s+)?(tiếng|giờ)(?:\s+đồng\s+hồ)?\s+rưỡi(?=$|[\s,.;:!?()])""",
         RegexOption.IGNORE_CASE
     )
+    // v1.0.13 (C2): "1h rưỡi", "2h rưỡi" = 1,5 / 2,5 giờ (cùng quy tắc với "1 giờ rưỡi").
+    private val hourLetterRuoiRegex = Rx.uni(
+        """(?:^|(?<=[\s,.;:!?()]))(\d{1,2})\s?h\s+rưỡi(?=$|[\s,.;:!?()])""",
+        RegexOption.IGNORE_CASE
+    )
+    private val dayPeriodNextRegex = Rx.uni("""^\s*(?:sáng|trưa|chiều|tối|đêm)(?=$|[\s,.;:!?()])""", RegexOption.IGNORE_CASE)
     private val decimalWordDurationRegex = Rx.uni(
         """(?:^|(?<=[\s,.;:!?()]))($viWordTokenPattern(?:\s+$viWordTokenPattern){0,3})\s+phẩy\s+($viWordTokenPattern(?:\s+$viWordTokenPattern){0,2})\s+(tiếng|giờ|phút)(?=$|[\s,.;:!?()])""",
         RegexOption.IGNORE_CASE
@@ -255,6 +267,13 @@ object VietnameseChatParser {
             }
         }
 
+        text = hourLetterRuoiRegex.replace(text) { m ->
+            val n = m.groupValues[1].toInt()
+            val isClockPoint = clockPointPrefixRegex.containsMatchIn(text.substring(0, m.range.first)) ||
+                dayPeriodNextRegex.containsMatchIn(text.substring(m.range.last + 1))
+            if (isClockPoint) "${n}h30" else "${n * 60 + 30} phút"
+        }
+
         text = decimalWordDurationRegex.replace(text) { m ->
             if (prevWordBefore(text, m.range.first) in ordinalGuardWords) return@replace m.value
             val whole = parseViNumberPhrase(m.groupValues[1]) ?: return@replace m.value
@@ -282,6 +301,99 @@ object VietnameseChatParser {
         }
 
         return text
+    }
+
+    // ---- v1.0.13 (C2/C3): người dùng gõ KHÔNG dấu ("nghi luc 3h chieu 2 tieng", "hoc bai tu 15h den gio") ----
+    private val plainWord = Rx.uni("""[A-Za-z]+""")
+    private val plainFixed = mapOf(
+        "mot" to "một", "bon" to "bốn", "nam" to "năm", "tam" to "tám", "chin" to "chín", "muoi" to "mười",
+        "tram" to "trăm", "lam" to "lăm", "ruoi" to "rưỡi", "nua" to "nửa", "gio" to "giờ", "tieng" to "tiếng", "phut" to "phút"
+    )
+    private val plainTensAfterDigit = Rx.uni("""(hai|ba|bốn|năm|sáu|bảy|tám|chín)\s+mười""")
+    private val plainClockBefore = Rx.ascii("""(\d{1,2})\s*(?:h|:)\s*\d{0,2}\s*$""", RegexOption.IGNORE_CASE)
+    private val plainClockAfter = Rx.ascii("""^\s*(?:luc\s+)?\d{1,2}\s*(?:h|:)""", RegexOption.IGNORE_CASE)
+    private val plainEndAfter = Rx.ascii("""^\s*(?:gio|bay\s+gio|nay|luc\s+nay)(?![A-Za-z])""", RegexOption.IGNORE_CASE)
+    private val plainNowAfter = Rx.ascii("""^\s*(?:gio|bay\s+gio|luc\s+nay)(?![A-Za-z])""", RegexOption.IGNORE_CASE)
+    private val plainDigitOrNayAfter = Rx.ascii("""^\s*(?:\d|nay(?![A-Za-z]))""", RegexOption.IGNORE_CASE)
+    private val plainGioAfter = Rx.ascii("""^\s+gio(?![A-Za-z])""", RegexOption.IGNORE_CASE)
+    private val plainGioNayBefore = Rx.ascii("""(?:gio|nay)\s+$""", RegexOption.IGNORE_CASE)
+    private val plainLucGioBefore = Rx.ascii("""(?:luc|gio)\s+$""", RegexOption.IGNORE_CASE)
+    private val plainFromBefore = Rx.ascii("""(?:^|\s)tu\s+[^,;.!?]*$""", RegexOption.IGNORE_CASE)
+
+    /**
+     * Khôi phục dấu cho số, đơn vị giờ và các từ chỉ mốc giờ để dùng chung bộ đọc thời lượng/giờ ở trên. Chỉ khi CẢ câu không có ký tự ngoài ASCII
+     * (câu đã có dấu được giữ nguyên nên hành vi cũ không đổi). Từ nhập nhằng ("toi" = tôi/tối/tới, "den", "tu", "sang"...) chỉ được khôi phục
+     * khi ngữ cảnh (đứng cạnh một giờ đồng hồ) quyết định rõ nghĩa; "sau" (sáu) và "toi nay" (tối nay) cố ý không đổi: thiếu chứ không thừa.
+     */
+    internal fun restoreUnaccented(text: String): String {
+        if (text.any { it.code > 127 }) return text
+        val words = plainWord.replace(text) { m ->
+            val key = m.value.lowercase(Locale.ROOT)
+            plainFixed[key] ?: run {
+                val before = text.substring(0, m.range.first)
+                val after = text.substring(m.range.last + 1)
+                val clockNear = plainClockBefore.containsMatchIn(before) || plainClockAfter.containsMatchIn(after)
+                val hourBefore = plainClockBefore.find(before)?.groupValues?.get(1)?.toIntOrNull()
+                when (key) {
+                    "luc" -> if (plainDigitOrNayAfter.containsMatchIn(after)) "lúc" else m.value
+                    "nay" -> if (plainLucGioBefore.containsMatchIn(before)) "này" else m.value
+                    // đuôi của "đến giờ rồi / đến nay luôn" (xem AiProposalGuard.OPEN_END_FILLER)
+                    "roi" -> if (plainGioNayBefore.containsMatchIn(before)) "rồi" else m.value
+                    "luon" -> if (plainGioNayBefore.containsMatchIn(before)) "luôn" else m.value
+                    "bay" -> if (plainGioAfter.containsMatchIn(after)) "bây" else m.value
+                    "tu" -> if (plainClockAfter.containsMatchIn(after)) "từ" else m.value
+                    "den" -> if (plainClockAfter.containsMatchIn(after) || plainEndAfter.containsMatchIn(after)) "đến" else m.value
+                    "toi" -> when {
+                        plainNowAfter.containsMatchIn(after) -> "tới"
+                        // "từ 19h toi 21h", "19h toi 21h" (giờ 24h đã rõ buổi) là mốc kết thúc; "10h toi 7h" là buổi tối + thời lượng.
+                        plainClockAfter.containsMatchIn(after) && (plainFromBefore.containsMatchIn(before) || (hourBefore ?: 0) > 12) -> "tới"
+                        hourBefore != null -> "tối"
+                        else -> m.value
+                    }
+                    "sang" -> if (clockNear) "sáng" else m.value
+                    "trua" -> if (clockNear) "trưa" else m.value
+                    "chieu" -> if (clockNear) "chiều" else m.value
+                    "dem" -> if (clockNear) "đêm" else m.value
+                    else -> m.value
+                }
+            }
+        }
+        return plainTensAfterDigit.replace(words) { it.groupValues[1] + " mươi" }
+    }
+
+    // "30 hay 40 phút", "1 hoặc 2 tiếng": hai số dùng chung MỘT đơn vị => viết lại thành "30 phút hay 40 phút" (cả hai đều là số người dùng đã viết).
+    private val sharedUnitAlternativesRegex = Rx.uni(
+        """(?:^|(?<=[\s,.;:!?()]))(\d+(?:[.,]\d+)?|$viWordTokenPattern(?:\s+$viWordTokenPattern){0,3})\s+(?:hay|hoặc)(?:\s+là)?\s+(\d+(?:[.,]\d+)?|$viWordTokenPattern(?:\s+$viWordTokenPattern){0,3})\s*(giờ|tiếng|phút|h|p|min|mins)(?=$|[\s,.;:!?()])""",
+        RegexOption.IGNORE_CASE
+    )
+
+    internal fun expandSharedUnitAlternatives(text: String): String =
+        sharedUnitAlternativesRegex.replace(text) { m -> "${m.groupValues[1]} ${m.groupValues[3]} hay ${m.groupValues[2]} ${m.groupValues[3]}" }
+
+    private val clockWithPeriodRegex = Rx.uni(
+        """(?:^|(?<=[\s,.;:!?()]))(\d{1,2})\s*(?:h|:)\s*(\d{0,2})\s*(sáng|trưa|chiều|tối|đêm)(?=$|[\s,.;:!?()])""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private fun hmMinutes(hm: String): Int = hm.substring(0, 2).toInt() * 60 + hm.substring(3, 5).toInt()
+
+    /**
+     * Số phút mà các mốc giờ người dùng đã viết suy ra CHÍNH XÁC (không đoán): độ dài và hai đầu (theo 24h, đã tính buổi) của mỗi khoảng
+     * "từ 8h đến 9h30" / "2h-4h chiều", và giờ có buổi ("7h tối" = 19:00).
+     */
+    internal fun userClockMinutes(text: String): Set<Int> {
+        val t = normalizeSpelledDurations(restoreUnaccented(text)).trim()
+        if (t.isEmpty()) return emptySet()
+        val out = mutableSetOf<Int>()
+        for (seg in splitSegments(t)) {
+            extractTimeRangeDirect(seg)?.let { r -> out += r.durationMinutes; out += hmMinutes(r.startLocal); out += hmMinutes(r.endLocal) }
+        }
+        for (m in clockWithPeriodRegex.findAll(t)) {
+            val h = m.groupValues[1].toInt()
+            val min = m.groupValues[2].ifEmpty { "0" }.toInt()
+            if (h in 0..23 && min in 0..59) out += shiftHourForPeriod(h, m.groupValues[3].lowercase(Locale("vi", "VN"))) * 60 + min
+        }
+        return out
     }
 
     internal fun hasUnnormalizedWordDuration(raw: String): Boolean {
@@ -553,8 +665,11 @@ object VietnameseChatParser {
         extractDurationMinutesDirect(normalizeSpelledDurations(segment))
 
     private fun extractDurationMinutesDirect(segment: String): Int? {
-        val cleaned = explicitStartAtHourRegex.replace(segment, " ")
-        val hoursMatch = hoursRegex.find(cleaned)
+        val cleaned = clockAfterFromRegex.replace(explicitStartAtHourRegex.replace(segment, " "), " ")
+        // v1.0.12: "Ngày mai 9h họp 1 tiếng": "9h" trần là mốc giờ, thời lượng là "1 tiếng". Ưu tiên cụm có đơn vị (giờ/tiếng/h tiếng);
+        // chỉ khi không có cụm nào như vậy thì "2h" trần mới là thời lượng ("Học 2h").
+        val hourMatches = hoursRegex.findAll(cleaned).toList()
+        val hoursMatch = hourMatches.firstOrNull { !it.value.trim().endsWith("h", ignoreCase = true) } ?: hourMatches.firstOrNull()
         val minsMatch = minutesRegex.find(cleaned)
         if (hoursMatch == null && minsMatch == null) return null
 

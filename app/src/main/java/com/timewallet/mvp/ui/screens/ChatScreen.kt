@@ -45,9 +45,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import com.timewallet.mvp.data.local.AiPreferences
 import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.usecase.AiFault
+import com.timewallet.mvp.domain.usecase.CancelArming
 import com.timewallet.mvp.data.ai.GuardHealth
 import com.timewallet.mvp.domain.usecase.OutcomeSource
 import com.timewallet.mvp.domain.usecase.ChatAnswer
@@ -118,6 +120,17 @@ fun ChatScreen(
     val compactHeight = LocalConfiguration.current.screenHeightDp < 480
     val hasReply = isAnalyzing || chatAnswer != null || chatFault != null || proposals.isNotEmpty()
     LaunchedEffect(hasReply) { if (!hasReply) onLastUserMessageChange(null) }
+    // v1.0.13 (F4): nút Gửi biến thành nút Hủy tại chỗ nên cú chạm thứ hai của bấm đúp rơi vào Hủy. Hủy hiện ra nhưng khóa trong CancelArming.DEFAULT_ARM_MS
+    // đầu (ViewModel/WallyChatRunner cũng bỏ qua Hủy trong cửa sổ đó); chạm sau đó hủy ngay như cũ. Ô này bắt đầu muộn hơn đồng hồ của runner ít nhất một khung hình,
+    // nên khi nút sáng lên thì runner chắc chắn đã "lên đạn".
+    var cancelArmed by remember { mutableStateOf(false) }
+    LaunchedEffect(isAnalyzing) {
+        cancelArmed = false
+        if (isAnalyzing) {
+            delay(CancelArming.DEFAULT_ARM_MS)
+            cancelArmed = true
+        }
+    }
     val scrollTrigger = listOf(proposals.size, chatAnswer?.headline, chatFault, isAnalyzing, lastUserMessage)
     LaunchedEffect(scrollTrigger) {
         withFrameNanos { }
@@ -219,7 +232,7 @@ fun ChatScreen(
                 WallyBubble {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(text = "Wally đang trả lời…", fontSize = 13.5.sp, color = WalletMuted, modifier = Modifier.weight(1f))
-                        TextButton(onClick = onCancelAnalysis, modifier = Modifier.heightIn(min = 48.dp)) {
+                        TextButton(onClick = onCancelAnalysis, enabled = cancelArmed, modifier = Modifier.heightIn(min = 48.dp)) {
                             Text("Hủy", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                     }
@@ -229,7 +242,7 @@ fun ChatScreen(
             // WALLY: lỗi AI không được im lặng; luôn có Thử lại và đường ghi thủ công. Nội dung đã nhập được giữ.
             if (chatFault != null) {
                 WallyBubble(tint = Color(0xFFFFF8E8)) {
-                    val needsSetup = chatFault == AiFault.NOT_CONFIGURED || chatFault == AiFault.CONFIG || chatFault == AiFault.AUTH
+                    val needsSetup = chatFault == AiFault.NOT_CONFIGURED || chatFault == AiFault.CONFIG || chatFault == AiFault.AUTH || chatFault == AiFault.KEY_INVALID
                     Text(
                         text = if (lastAnalysisSource == OutcomeSource.NOT_CONFIGURED) "Wally chưa được cấu hình AI" else "Wally chưa trả lời được",
                         fontSize = 12.sp, fontWeight = FontWeight.Bold, color = WalletMuted
@@ -343,8 +356,14 @@ fun ChatScreen(
             if (isAnalyzing && !GuardHealth.isCancelCommand(chatInputText)) {
                 Button(
                     onClick = onCancelAnalysis,
+                    // v1.0.13 (F4): khóa trong cửa sổ bấm đúp; vẫn hiện ở đúng chỗ để người dùng thấy yêu cầu đang chạy.
+                    enabled = cancelArmed,
                     shape = CircleShape,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5D7064)),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF5D7064),
+                        disabledContainerColor = Color(0xFF5D7064).copy(alpha = 0.45f),
+                        disabledContentColor = Color.White
+                    ),
                     contentPadding = PaddingValues(0.dp),
                     modifier = Modifier
                         .size(54.dp)

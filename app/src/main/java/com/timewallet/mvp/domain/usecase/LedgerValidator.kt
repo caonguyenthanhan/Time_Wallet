@@ -75,7 +75,8 @@ object LedgerValidator {
 
     /**
      * Phân tích chuỗi giờ HH:mm cùng ngày YYYY-MM-DD sang epoch millis theo múi giờ.
-     * Nếu giờ kết thúc <= giờ bắt đầu (qua nửa đêm), tự động cộng sang ngày kế tiếp.
+     * Nếu giờ kết thúc < giờ bắt đầu (qua nửa đêm), tự động cộng sang ngày kế tiếp.
+     * Giờ kết thúc == giờ bắt đầu là khoảng rỗng, không phải 24 giờ: trả null (v1.0.13).
      */
     fun parseTimeRangeToEpochMillis(
         dateLocal: String,
@@ -87,6 +88,8 @@ object LedgerValidator {
             val localDate = LocalDate.parse(dateLocal.trim())
             val startTime = parseFlexibleLocalTime(startHm) ?: return null
             val endTime = parseFlexibleLocalTime(endHm) ?: return null
+            if (endTime == startTime) return null
+            if (endTime == startTime) return null
 
             val startZoned = ZonedDateTime.of(localDate, startTime, zoneId)
             var endZoned = ZonedDateTime.of(localDate, endTime, zoneId)

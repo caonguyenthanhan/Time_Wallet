@@ -544,7 +544,7 @@ class WallyAiFaultInjectionTest {
 
         val badHost = GeminiProposalClient.testConnection(baseUrl = "http://insecure.invalid", apiKey = apiKey, modelName = "m")
         assertFalse(badHost.ok)
-        assertNull(badHost.fault)
+        assertEquals("v1.0.13: lỗi cấu hình phải mang đúng lớp lỗi, không để null", AiFault.CONFIG, badHost.fault)
         val noKey = GeminiProposalClient.testConnection(baseUrl = "https://api.example.invalid/v1", apiKey = " ", modelName = "m")
         assertFalse(noKey.ok)
     }
