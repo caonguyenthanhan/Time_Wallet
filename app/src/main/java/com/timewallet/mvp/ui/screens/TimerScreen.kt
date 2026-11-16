@@ -66,6 +66,7 @@ import com.timewallet.mvp.ui.theme.WalletRing
 import com.timewallet.mvp.ui.theme.WalletStroke
 import kotlin.math.max
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun TimerScreen(
     activeTimer: ActiveTimerSession?,
@@ -84,7 +85,11 @@ fun TimerScreen(
     onApplyDiceAndStartTimer: () -> Unit,
     onStartTimer: () -> Unit,
     onStopAndSaveTimer: () -> Unit,
-    onCancelTimer: () -> Unit
+    onCancelTimer: () -> Unit,
+    // v1.1.0: Tag cá nhân cho phiên đo (gợi ý gần đây/thường dùng; bấm lại để bỏ chọn).
+    tagSuggestions: List<com.timewallet.mvp.domain.model.Tag> = emptyList(),
+    selectedTagId: String? = null,
+    onSelectTag: (String?) -> Unit = {}
 ) {
     val isRunning = activeTimer != null
     val hours = elapsedSeconds / 3600L
@@ -197,6 +202,19 @@ fun TimerScreen(
             enabled = !isRunning,
             onSelectCategory = onCategoryChange
         )
+        if (!isRunning && tagSuggestions.isNotEmpty()) {
+            androidx.compose.foundation.layout.FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                tagSuggestions.forEach { t ->
+                    ChoiceChip("${t.category.emoji} ${t.name}", selectedTagId == t.id, "Tag ${t.name}") { onSelectTag(t.id) }
+                }
+            }
+        } else if (isRunning && activeTimer?.tagId != null) {
+            val name = tagSuggestions.firstOrNull { it.id == activeTimer.tagId }?.name
+            if (name != null) Text("Tag: $name", fontSize = 12.5.sp, color = WalletMuted)
+        }
 
         if (clockSkewDetected) {
             NoticeBox(

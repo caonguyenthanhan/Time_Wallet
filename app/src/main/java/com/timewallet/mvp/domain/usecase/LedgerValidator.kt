@@ -144,7 +144,8 @@ object LedgerValidator {
         zoneId: ZoneId = ZoneId.systemDefault(),
         idempotencyKey: String = UUID.randomUUID().toString(),
         excludeRecordId: String? = null,
-        convertFutureToPlanned: Boolean = false
+        convertFutureToPlanned: Boolean = false,
+        tagId: String? = null
     ): ValidationResult {
         val title = rawTitle.trim()
         if (title.isEmpty()) {
@@ -249,7 +250,8 @@ object LedgerValidator {
                 endedAt = endedAt,
                 timezone = zoneId.id,
                 status = status,
-                idempotencyKey = idempotencyKey
+                idempotencyKey = idempotencyKey,
+                tagId = tagId
             )
         )
     }
@@ -389,7 +391,8 @@ object LedgerValidator {
                 nowEpochMs = nowEpochMs,
                 zoneId = zoneId,
                 idempotencyKey = item.idempotencyKey ?: UUID.randomUUID().toString(),
-                convertFutureToPlanned = item.convertFutureToPlanned
+                convertFutureToPlanned = item.convertFutureToPlanned,
+                tagId = item.tagId
             )
 
             when (validation) {
@@ -421,7 +424,9 @@ data class BatchRecordInput(
     val startHm: String? = null,
     val endHm: String? = null,
     val convertFutureToPlanned: Boolean = false,
-    val idempotencyKey: String? = null
+    val idempotencyKey: String? = null,
+    /** v1.1.0: Tag cá nhân (id) gắn vào bản ghi sẽ tạo; null = không gắn. */
+    val tagId: String? = null
 )
 
 sealed class BatchValidationResult {

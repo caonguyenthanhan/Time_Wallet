@@ -207,6 +207,132 @@ object GeminiProposalClient {
         }
     }
 
+    // ------------------------------------------------------------------------------------------------ v1.1.0: AI Time Coach
+
+    /** Phiên bản prompt của Coach (tách khỏi [PROMPT_VERSION] của chat: prompt chat và các test ghim nó không đổi). */
+    const val COACH_PROMPT_VERSION = "wally-coach-3"
+
+    val coachSystemPrompt: String = """
+        Bạn là Wally Coach: kể một câu chuyện ngắn, thân thiện từ dữ liệu thời gian cá nhân. Người dùng cung cấp KHỐI DỮ LIỆU đã được ứng dụng tính sẵn.
+
+        QUY TẮC BẮT BUỘC:
+        1. Chỉ nhắc các con số CÓ TRONG khối dữ liệu, chép đúng như đã cho (ví dụ "30 phút", "2 giờ"). Không tự cộng, trừ, làm tròn khác hay suy ra số mới. Nếu không chắc một con số, đừng nêu số. Khi gợi ý, chỉ dùng các mức đã có trong khối dữ liệu (ví dụ mức mục tiêu hiện tại); mức MỚI chỉ đặt trong "suggestions", tuyệt đối không nhắc con số mới đó trong "story".
+        2. "Chưa có bản ghi" nghĩa là CHƯA GHI NHẬN, không phải người dùng không làm. Dùng "chưa ghi nhận"; không viết "bạn không chạy/đọc/học/tập...".
+        3. Không phán xét. Giải trí không phải lãng phí. Không dùng các từ như lười, lãng phí, thất bại, vô ích. Giọng ấm áp, tối đa 5 câu.
+        4. Không khẳng định hay đoán nguyên nhân – kết quả, lý do, cảm xúc hay ý định của người dùng (ví dụ "để thư giãn", "vì mệt", "sau khi tập trung"). Thêm "có vẻ"/"có lẽ" KHÔNG làm cho một lời đoán trở nên hợp lệ. Chỉ nêu điều có trong số liệu: cái gì được ghi, bao nhiêu, ngày nào, so với mục tiêu và so với các ngày khác.
+        5. Nếu dữ liệu mỏng hoặc nhiều thời gian chưa gắn Tag, nói rõ mức đầy đủ của dữ liệu và nhận xét thận trọng.
+        6. Bạn không ghi, lưu, sửa hay xóa gì và không tự đặt mục tiêu; không nói "mình đã/sẽ ghi, lưu, tạo, đặt...". Được dùng "đã ghi nhận" để MÔ TẢ dữ liệu có sẵn của người dùng.
+        7. Có thể gợi ý MỘT thay đổi nhỏ, thực tế theo kiểu "nếu phù hợp với lịch của bạn", dựa trên mục tiêu và số liệu có thật.
+        8. Trường "suggestions" (tùy chọn, tối đa 2) là đề xuất mục tiêu mới để người dùng tự quyết: {"targetType":"tag"|"category","target":"<đúng tên Tag hoặc khóa danh mục có trong dữ liệu>","kind":"MIN"|"MAX","period":"DAY"|"WEEK","minutes":<số nguyên>}. Chỉ đề xuất khi dữ liệu ủng hộ; có thể để mảng rỗng.
+        9. Chỉ trả về MỘT JSON object hợp lệ: {"story":"...","suggestions":[]}
+    """.trimIndent()
+
+    /** Kết quả thô của Coach: chưa qua [com.timewallet.mvp.domain.usecase.CoachGuard]. */
+    data class CoachRawOutcome(
+        val story: String?,
+        val suggestions: List<Map<String, Any?>>,
+        val fault: AiFault?,
+        val usage: AiUsage?,
+        val requestId: String
+    )
+
+    suspend fun requestCoach(
+        digestText: String,
+        optInEnabled: Boolean,
+        baseUrl: String = AiPreferences.DEFAULT_AI_BASE_URL,
+        apiKey: String,
+        modelName: String = AiPreferences.DEFAULT_AI_MODEL,
+        trustedHost: String? = null,
+        connectionFactory: HttpOpener = DEFAULT_OPENER,
+        deadlineMs: Long = DEADLINE_MS,
+        nowMs: () -> Long = { System.nanoTime() / 1_000_000L },
+        sleeper: suspend (Long) -> Unit = { delay(it) }
+    ): CoachRawOutcome {
+        GuardHealth.require()
+        val requestId = AiDiagnostics.newRequestId()
+        val started = nowMs()
+        var retries = 0
+        fun done(story: String?, suggestions: List<Map<String, Any?>>, fault: AiFault?, usage: AiUsage?, status: Int?, errorClass: String?, source: OutcomeSource = OutcomeSource.CLOUD): CoachRawOutcome {
+            AiDiagnostics.record(
+                AiEvent(
+                    requestId, source, fault, status, nowMs() - started, COACH_PROMPT_VERSION, retryCount = retries,
+                    promptTokens = usage?.promptTokens, completionTokens = usage?.completionTokens, cachedTokens = usage?.cachedTokens, cacheStatus = usage?.cacheStatus,
+                    intent = com.timewallet.mvp.domain.usecase.WallyIntentKind.COACH, errorClass = errorClass
+                )
+            )
+            return CoachRawOutcome(story, suggestions, fault, usage, requestId)
+        }
+
+        val cleanKey = ApiKeyHygiene.normalize(apiKey)
+        if (!optInEnabled || cleanKey.isBlank()) return done(null, emptyList(), AiFault.NOT_CONFIGURED, null, null, null, OutcomeSource.NOT_CONFIGURED)
+        if (ApiKeyHygiene.check(cleanKey) != null) return done(null, emptyList(), AiFault.KEY_INVALID, null, null, "KeyHeaderChars", OutcomeSource.NOT_CONFIGURED)
+        val cleanBaseUrl = baseUrl.trim().ifEmpty { AiPreferences.DEFAULT_AI_BASE_URL }.trimEnd('/')
+        val targetHost = AiPreferences.extractValidatedHttpsHost(cleanBaseUrl)
+        if (targetHost == null || (!trustedHost.isNullOrBlank() && !targetHost.equals(trustedHost.trim(), ignoreCase = true))) {
+            return done(null, emptyList(), AiFault.CONFIG, null, null, null, OutcomeSource.NOT_CONFIGURED)
+        }
+        val endpoint = if (cleanBaseUrl.endsWith("/chat/completions")) cleanBaseUrl else "$cleanBaseUrl/chat/completions"
+        val payload = JSONObject().apply {
+            put("model", modelName.trim().ifEmpty { AiPreferences.DEFAULT_AI_MODEL })
+            put("temperature", 0.3)
+            put(
+                "messages",
+                JSONArray()
+                    .put(JSONObject().put("role", "system").put("content", coachSystemPrompt))
+                    .put(JSONObject().put("role", "user").put("content", digestText))
+            )
+        }.toString()
+
+        return withContext(Dispatchers.IO) {
+            var attempt = 0
+            while (true) {
+                ensureActive()
+                val remaining = deadlineMs - (nowMs() - started)
+                if (remaining < MIN_ATTEMPT_MS) return@withContext done(null, emptyList(), AiFault.TIMEOUT, null, null, null)
+                try {
+                    val body = postJson(endpoint, cleanKey, payload, connectionFactory, remaining, targetHost)
+                    val usage = AiUsageParser.parseBody(body)
+                    return@withContext try {
+                        val root = StrictJson.parseSingleObject(body)
+                        if (root.has("error") && !root.has("choices")) throw AiHttpException(providerErrorFault(root.opt("error")), 200, errorClass = "ProviderErrorBody")
+                        val choices = root.optJSONArray("choices") ?: throw AiHttpException(AiFault.MALFORMED)
+                        val content = ((choices.optJSONObject(0)?.optJSONObject("message"))?.opt("content") as? String) ?: throw AiHttpException(AiFault.MALFORMED)
+                        when (val ex = StrictJson.extract(content)) {
+                            is StrictJson.Extracted.Text -> done(ex.text, emptyList(), null, usage, 200, null)
+                            is StrictJson.Extracted.Obj -> {
+                                val story = ex.json.optString("story", "").takeIf { it.isNotBlank() }
+                                val arr = ex.json.optJSONArray("suggestions") ?: JSONArray()
+                                val list = (0 until minOf(arr.length(), 4)).mapNotNull { i ->
+                                    arr.optJSONObject(i)?.let { o -> o.keys().asSequence().associateWith { k -> o.opt(k) } }
+                                }
+                                done(story, list, if (story == null) AiFault.MALFORMED else null, usage, 200, if (story == null) "NoStory" else null)
+                            }
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: AiHttpException) {
+                        done(null, emptyList(), e.fault, usage, 200, e.errorClass ?: "ResponseShape")
+                    } catch (e: Exception) {
+                        done(null, emptyList(), AiFault.MALFORMED, usage, 200, e.javaClass.simpleName)
+                    }
+                } catch (e: CancellationException) {
+                    AiDiagnostics.record(AiEvent(requestId, OutcomeSource.CLOUD, AiFault.CANCELLED, null, nowMs() - started, COACH_PROMPT_VERSION, retryCount = retries, intent = com.timewallet.mvp.domain.usecase.WallyIntentKind.COACH))
+                    throw e
+                } catch (e: Exception) {
+                    val fail = classify(e)
+                    val wait = fail.retryAfterMs ?: DEFAULT_RETRY_DELAY_MS
+                    val left = deadlineMs - (nowMs() - started) - wait
+                    if (attempt == 0 && fail.fault.retryable && wait <= MAX_RETRY_AFTER_MS && left >= MIN_ATTEMPT_MS) {
+                        sleeper(wait); attempt++; retries = attempt; continue
+                    }
+                    return@withContext done(null, emptyList(), fail.fault, null, fail.status, fail.errorClass)
+                }
+            }
+            @Suppress("UNREACHABLE_CODE")
+            error("unreachable")
+        }
+    }
+
     /** Kết quả kiểm tra kết nối (payload tổng hợp, không chứa dữ liệu người dùng). */
     data class ConnectionTestResult(
         val ok: Boolean,

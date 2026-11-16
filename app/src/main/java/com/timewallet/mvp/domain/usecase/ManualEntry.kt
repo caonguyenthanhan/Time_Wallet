@@ -14,7 +14,11 @@ sealed class ManualEntryValidation {
         val category: TimeCategory,
         val durationMinutes: Int,
         val dateLocal: String,
-        val title: String
+        val title: String,
+        val tagId: String? = null,
+        /** v1.1.0 (A2/A3): có giờ bắt đầu/kết thúc "HH:mm" khi nhập theo khoảng giờ; null khi chỉ có thời lượng. */
+        val startHm: String? = null,
+        val endHm: String? = null
     ) : ManualEntryValidation()
 
     data class Invalid(val message: String) : ManualEntryValidation()
@@ -52,10 +56,57 @@ object ManualEntry {
             rawCategory = valid.category.key,
             dateLocal = valid.dateLocal,
             durationMinutes = valid.durationMinutes,
-            startHm = null,
-            endHm = null,
-            idempotencyKey = key
+            startHm = valid.startHm,
+            endHm = valid.endHm,
+            idempotencyKey = key,
+            tagId = valid.tagId
         )
+    }
+
+    /**
+     * v1.1.0 (A2/A3): nhập theo KHOẢNG GIỜ — ứng dụng tự tính số phút (14:00–15:12 = 72p); kết thúc có thể là "Bây giờ".
+     * Chỉ ghi giờ đã dùng: ngày tương lai bị từ chối; hôm nay thì giờ kết thúc không được ở tương lai (dùng "Bây giờ"/Đồng hồ).
+     * Ghi vẫn đi qua `LedgerValidator.validateBatchAtomic` (chống chồng lấn, bất biến TimeLayer: có giờ ⇒ REPORTED_TIMED).
+     * @param nowHm đồng hồ hiện tại "HH:mm" (ứng dụng truyền tại lúc bấm Lưu).
+     */
+    fun validateRange(
+        categoryKey: String?,
+        tagId: String?,
+        tagName: String?,
+        startText: String,
+        endText: String,
+        endIsNow: Boolean,
+        dateLocal: String,
+        note: String,
+        today: LocalDate,
+        nowHm: String
+    ): ManualEntryValidation {
+        val category = TimeCategory.fromKeyOrNull(categoryKey)
+            ?: return ManualEntryValidation.Invalid("Hãy chọn hoạt động hoặc một danh mục.")
+        val date = try {
+            LocalDate.parse(dateLocal.trim())
+        } catch (_: DateTimeParseException) {
+            return ManualEntryValidation.Invalid("Ngày không hợp lệ.")
+        }
+        if (date.isAfter(today)) {
+            return ManualEntryValidation.Invalid("Chỉ ghi giờ đã dùng, không chọn ngày trong tương lai. Hãy dùng Đồng hồ hoặc Chat để lên kế hoạch.")
+        }
+        val isToday = date == today
+        val range = TimeRange.compute(startText, if (endIsNow) TimeRange.End.Now else TimeRange.End.At(endText), nowHm, isToday)
+        val ok = when (range) {
+            is TimeRange.Result.Invalid -> return ManualEntryValidation.Invalid(range.message)
+            is TimeRange.Result.Ok -> range
+        }
+        if (isToday && !endIsNow) {
+            val nowMin = TimeRange.parseMinuteOfDay(nowHm)
+            val endMin = TimeRange.parseMinuteOfDay(ok.endHm)
+            if (nowMin != null && endMin != null && !ok.crossesMidnight && endMin > nowMin) {
+                return ManualEntryValidation.Invalid("Giờ kết thúc chưa tới. Chọn \"Bây giờ\", hoặc dùng Đồng hồ nếu đang làm.")
+            }
+        }
+        if (ok.minutes > MAX_MINUTES) return ManualEntryValidation.Invalid("Một bản ghi không vượt quá 24 giờ.")
+        val title = note.trim().take(MAX_NOTE_LENGTH).ifBlank { tagName?.trim().orEmpty().ifBlank { category.displayName } }
+        return ManualEntryValidation.Valid(category, ok.minutes, date.toString(), title, tagId, ok.startHm, ok.endHm)
     }
 
     fun validate(
@@ -64,7 +115,9 @@ object ManualEntry {
         minutesText: String,
         dateLocal: String,
         note: String,
-        today: LocalDate
+        today: LocalDate,
+        tagId: String? = null,
+        tagName: String? = null
     ): ManualEntryValidation {
         val category = TimeCategory.fromKeyOrNull(categoryKey)
             ?: return ManualEntryValidation.Invalid("Hãy chọn một danh mục.")
@@ -88,7 +141,7 @@ object ManualEntry {
             return ManualEntryValidation.Invalid("Chỉ ghi giờ đã dùng, không chọn ngày trong tương lai. Hãy dùng Đồng hồ hoặc Chat để lên kế hoạch.")
         }
 
-        val title = note.trim().take(MAX_NOTE_LENGTH).ifBlank { category.displayName }
-        return ManualEntryValidation.Valid(category, total, date.toString(), title)
+        val title = note.trim().take(MAX_NOTE_LENGTH).ifBlank { tagName?.trim().orEmpty().ifBlank { category.displayName } }
+        return ManualEntryValidation.Valid(category, total, date.toString(), title, tagId)
     }
 }

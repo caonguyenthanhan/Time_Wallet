@@ -22,7 +22,9 @@ data class LedgerRecord(
     val endedAt: Long?,   // epoch millis (nullable for REPORTED_UNTIMED)
     val timezone: String,
     val status: String,   // "CONFIRMED" | "ACTIVE" | "PLANNED"
-    val idempotencyKey: String
+    val idempotencyKey: String,
+    /** v1.1.0: Tag cá nhân của hoạt động (null = chưa gắn Tag, gồm mọi bản ghi cũ). Không bao giờ được suy diễn lại từ tiêu đề. */
+    val tagId: String? = null
 ) {
     val durationMinutes: Int
         get() = ((durationSeconds + 30L) / 60L).toInt().coerceAtLeast(1)

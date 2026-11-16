@@ -24,7 +24,9 @@ data class ActiveTimerSession(
     val startedElapsedRealtimeMs: Long?,
     val timezone: String,
     val targetDurationSeconds: Long? = null,
-    val startedBootCount: Int? = null
+    val startedBootCount: Int? = null,
+    /** v1.1.0: Tag chọn khi bắt đầu phiên đo (null = không gắn). */
+    val tagId: String? = null
 ) {
     /**
      * Tính số giây đã trôi qua, phân biệt same-boot với reboot, và kiểm tra lệch đồng hồ hệ thống.

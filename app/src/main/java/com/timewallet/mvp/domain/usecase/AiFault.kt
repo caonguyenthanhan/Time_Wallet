@@ -50,7 +50,7 @@ data class AiUsage(
 )
 
 /** Phân loại kết quả của một lượt Wally (dùng cho số liệu quan sát và giao diện). */
-enum class WallyIntentKind { RECORD, QUERY, MIXED, CHAT, CLARIFY, BLOCKED, CONTROL, NOT_CONFIGURED, ERROR }
+enum class WallyIntentKind { RECORD, QUERY, MIXED, CHAT, CLARIFY, BLOCKED, CONTROL, NOT_CONFIGURED, ERROR, COACH }
 
 object WallyIntentClassifier {
     /**

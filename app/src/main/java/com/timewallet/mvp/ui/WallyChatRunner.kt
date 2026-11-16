@@ -106,7 +106,8 @@ class WallyChatRunner(
         try {
             val outcome = analyze()
             if (!owner.isCurrent(ticket)) return
-            val newDrafts = outcome.proposals.map { EditableProposalDraft.fromProposal(it) }
+            val tagsNow = state.value.tags
+            val newDrafts = outcome.proposals.map { EditableProposalDraft.fromProposal(it).withTagMatch(tagsNow) }
             val needsAnswers = outcome.fault == null && outcome.queries.isNotEmpty()
             var attempts = 0
             var effective = outcome

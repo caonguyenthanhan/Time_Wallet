@@ -634,7 +634,8 @@ private fun CompactProposalBatchCard(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "${cat.displayName} · $timeBadgeText",
+                                // v1.1.0: 🏷 = đề xuất đã khớp một Tag của bạn (khớp xác định theo tên, không do AI); nhóm theo Tag.
+                                text = "${cat.displayName}${if (item.tagId != null) " 🏷" else ""} · $timeBadgeText",
                                 fontSize = 12.sp,
                                 color = if (hasTime) Color(0xFF287356) else WalletMuted,
                                 maxLines = 3,

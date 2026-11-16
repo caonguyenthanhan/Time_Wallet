@@ -70,6 +70,15 @@ import com.timewallet.mvp.ui.screens.HistoryScreen
 import com.timewallet.mvp.ui.screens.InsightsScreen
 import com.timewallet.mvp.ui.screens.ManualEntrySheet
 import com.timewallet.mvp.ui.screens.OverviewScreen
+import com.timewallet.mvp.ui.screens.GoalEditorDialog
+import com.timewallet.mvp.ui.screens.GoalsDialog
+import com.timewallet.mvp.ui.screens.PersonalHubCard
+import com.timewallet.mvp.ui.screens.TagManagerDialog
+import com.timewallet.mvp.domain.usecase.GoalRules
+import com.timewallet.mvp.domain.usecase.TagRules
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import com.timewallet.mvp.ui.screens.ProductInfoDialog
 import com.timewallet.mvp.ui.screens.TimeBudgetEditorDialog
 import com.timewallet.mvp.ui.screens.TimeWalletBottomBar
@@ -159,6 +168,20 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
         scrollState.scrollTo(0)
     }
 
+    // v1.1.0: tóm tắt mục tiêu (tiến độ do ứng dụng tính) và gợi ý Tag gần đây/thường dùng; tính lại khi sổ cái/Tag/mục tiêu đổi.
+    val goalSummaries = remember(state.goals, state.records, state.tags, state.todayDateLocal) {
+        val zone = ZoneId.systemDefault()
+        GoalRules.summaries(
+            goals = state.goals, records = state.records,
+            tagNameOf = { id -> state.tags.firstOrNull { it.id == id }?.name },
+            today = LocalDate.now(zone), nowEpochMs = System.currentTimeMillis(), zone = zone
+        )
+    }
+    val activeTags = remember(state.tags) { state.tags.filter { !it.isArchived } }
+    val tagSuggestions = remember(state.tags, state.records) {
+        TagRules.suggestions(state.tags, state.records, System.currentTimeMillis(), ZoneId.systemDefault())
+    }
+
     // v1.0.11: nút ＋ nổi chỉ ở Nhật ký; Tổng quan đã có ô "Thêm giờ" ở màn hình đầu nên không để nút nổi che nội dung.
     val showFab = state.currentTab == AppTab.HISTORY
 
@@ -244,6 +267,17 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
                                 onAddManual = { viewModel.openManualEntry() },
                                 onNavigateToTab = { viewModel.selectTab(it) }
                             )
+                            PersonalHubCard(
+                                goalSummaries = goalSummaries,
+                                coach = state.coach,
+                                aiEnabled = state.aiPreferences.optInEnabled && state.aiPreferences.apiKey.isNotBlank(),
+                                onOpenGoals = viewModel::openGoals,
+                                onOpenTags = viewModel::openTagManager,
+                                onAskCoach = viewModel::requestCoach,
+                                onDismissCoach = viewModel::dismissCoach,
+                                onConfirmSuggestion = viewModel::confirmCoachSuggestion,
+                                onDismissSuggestion = viewModel::dismissCoachSuggestion
+                            )
                         }
                     }
 
@@ -264,7 +298,10 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
                         onApplyDiceAndStartTimer = viewModel::applyDiceRollAndStartTimer,
                         onStartTimer = viewModel::startTimer,
                         onStopAndSaveTimer = viewModel::stopAndSaveTimer,
-                        onCancelTimer = viewModel::cancelRunningTimer
+                        onCancelTimer = viewModel::cancelRunningTimer,
+                        tagSuggestions = tagSuggestions,
+                        selectedTagId = state.timerInputTagId,
+                        onSelectTag = viewModel::selectTimerTag
                     )
 
                     AppTab.CHAT -> ChatScreen(
@@ -397,9 +434,48 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
     state.manualEntry?.let { form ->
         ManualEntrySheet(
             state = form,
+            suggestions = tagSuggestions,
+            allActiveTags = activeTags,
             onChange = viewModel::updateManualEntry,
+            onSelectTag = viewModel::selectManualTag,
+            onCreateTag = viewModel::createTagFromManualEntry,
             onSave = viewModel::saveManualEntry,
             onDismiss = viewModel::closeManualEntry
+        )
+    }
+
+    state.tagManager?.let { tm ->
+        TagManagerDialog(
+            state = tm,
+            tags = state.tags,
+            onChange = viewModel::updateTagManager,
+            onCreate = viewModel::createTagFromManager,
+            onRename = viewModel::renameTag,
+            onSetCategory = viewModel::setTagCategory,
+            onArchive = viewModel::archiveTag,
+            onRestore = viewModel::restoreTag,
+            onDismiss = viewModel::closeTagManager
+        )
+    }
+
+    if (state.showGoals && state.goalEditor == null) {
+        GoalsDialog(
+            summaries = goalSummaries,
+            onCreate = { viewModel.openGoalEditor(null) },
+            onEdit = { viewModel.openGoalEditor(it) },
+            onPause = viewModel::pauseGoal,
+            onResume = viewModel::resumeGoal,
+            onEnd = viewModel::endGoal,
+            onDismiss = viewModel::closeGoals
+        )
+    }
+    state.goalEditor?.let { ed ->
+        GoalEditorDialog(
+            state = ed,
+            activeTags = activeTags,
+            onChange = viewModel::updateGoalEditor,
+            onSave = viewModel::saveGoalEditor,
+            onDismiss = viewModel::closeGoalEditor
         )
     }
 
