@@ -283,6 +283,8 @@ fun TimeWalletAppRoot(
     // Nhóm nút nổi góc dưới phải: ẩn ở Wally (đã có ô nhập ghim đáy) và màn Nhìn lại toàn trang; nội dung cuộn có khoảng đệm đáy tránh bị che.
     val showFloatingControls = state.currentTab != AppTab.CHAT && !state.isShowingDailyReview
     val showBackTop = showFloatingControls && shouldShowBackToTop(scrollState.value)
+    // Ở Tổng quan lúc đầu trang đã có ô "Hỏi Wally" lớn, nên chỉ hiện nút nổi "Hỏi nhanh Wally" khi cuộn qua hoặc ở các tab khác để không che chú giải Donut.
+    val showFloatingChatLauncher = showFloatingControls && (state.currentTab != AppTab.OVERVIEW || scrollState.value > 250)
 
     Box(
         modifier = Modifier
@@ -310,6 +312,7 @@ fun TimeWalletAppRoot(
                 if (showFloatingControls) {
                     FloatingActionGroup(
                         showBackTop = showBackTop,
+                        showChatLauncher = showFloatingChatLauncher,
                         speedDialExpanded = speedDialExpanded,
                         onBackToTop = {
                             speedDialExpanded = false
@@ -701,6 +704,7 @@ fun TimeWalletAppRoot(
 @Composable
 private fun FloatingActionGroup(
     showBackTop: Boolean,
+    showChatLauncher: Boolean,
     speedDialExpanded: Boolean,
     onBackToTop: () -> Unit,
     onOpenWallyChat: () -> Unit,
@@ -717,7 +721,7 @@ private fun FloatingActionGroup(
 
     Column(
         horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         AnimatedVisibility(
             visible = showBackTop && !speedDialExpanded,
@@ -737,9 +741,9 @@ private fun FloatingActionGroup(
         }
 
         AnimatedVisibility(
-            visible = !speedDialExpanded,
-            enter = fadeIn(),
-            exit = fadeOut()
+            visible = showChatLauncher && !speedDialExpanded,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
         ) {
             SmallFloatingActionButton(
                 onClick = onOpenWallyChat,

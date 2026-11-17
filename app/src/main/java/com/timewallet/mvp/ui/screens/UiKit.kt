@@ -505,12 +505,12 @@ fun DonutChart(
             }
         }
         Column(
-            modifier = Modifier.widthIn(max = 88.dp),
+            modifier = Modifier.widthIn(max = 78.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
                 text = centerTop,
-                fontSize = 16.sp,
+                fontSize = 14.5.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = WalletInk,
                 textAlign = TextAlign.Center,
@@ -521,11 +521,11 @@ fun DonutChart(
             if (centerBottom != null) {
                 Text(
                     text = centerBottom,
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
+                    lineHeight = 12.sp,
                     color = WalletMuted,
                     textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    softWrap = false,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
             }
@@ -548,7 +548,7 @@ fun DonutWithLegend(
     onSelectSlice: ((Int?) -> Unit)? = null,
     legend: @Composable () -> Unit
 ) {
-    val stacked = LocalDensity.current.fontScale > 1.15f || LocalConfiguration.current.screenWidthDp < 360
+    val stacked = LocalDensity.current.fontScale > 1.15f || LocalConfiguration.current.screenWidthDp < 340
     if (stacked) {
         Column(
             modifier = modifier.fillMaxWidth(),
@@ -561,25 +561,26 @@ fun DonutWithLegend(
                 centerBottom = centerBottom,
                 selectedIndex = selectedIndex,
                 onSelectSlice = onSelectSlice,
-                modifier = Modifier.size(156.dp).describe(description)
+                modifier = Modifier.size(152.dp).describe(description)
             )
-            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) { legend() }
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) { legend() }
         }
     } else {
         Row(
             modifier = modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             DonutChart(
                 slices = slices,
                 centerTop = centerTop,
                 centerBottom = centerBottom,
+                ringWidth = 14.dp,
                 selectedIndex = selectedIndex,
                 onSelectSlice = onSelectSlice,
-                modifier = Modifier.size(142.dp).describe(description)
+                modifier = Modifier.size(122.dp).describe(description)
             )
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) { legend() }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) { legend() }
         }
     }
 }
@@ -597,12 +598,12 @@ fun LegendRow(
 ) {
     val rowModifier = modifier
         .fillMaxWidth()
-        .clip(RoundedCornerShape(12.dp))
+        .clip(RoundedCornerShape(10.dp))
         .then(
             if (isSelected) {
                 Modifier
                     .background(WalletMintTint)
-                    .border(1.dp, WalletMint.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                    .border(1.dp, WalletMint.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
             } else {
                 Modifier
             }
@@ -616,34 +617,33 @@ fun LegendRow(
                 Modifier
             }
         )
-        .padding(horizontal = if (onClick != null) 8.dp else 0.dp, vertical = if (onClick != null) 6.dp else 0.dp)
+        .padding(horizontal = if (onClick != null) 4.dp else 0.dp, vertical = 4.dp)
 
     Row(
         modifier = rowModifier,
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        Box(modifier = Modifier.size(if (isSelected) 12.dp else 10.dp).clip(CircleShape).background(dot))
+        Box(modifier = Modifier.size(if (isSelected) 11.dp else 9.dp).clip(CircleShape).background(dot))
         Text(
             text = label,
-            fontSize = 13.sp,
+            fontSize = 12.5.sp,
             fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
             color = WalletInk,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
         )
-        Text(text = value, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk, maxLines = 1, softWrap = false)
+        Text(text = value, fontSize = 12.5.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk, maxLines = 1, softWrap = false)
         if (percentText != null) {
             Text(
                 text = percentText,
-                fontSize = 12.sp,
+                fontSize = 11.5.sp,
                 color = if (isSelected) WalletMint else WalletMuted,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                 maxLines = 1,
                 softWrap = false,
-                textAlign = TextAlign.End,
-                modifier = Modifier.width(38.dp)
+                textAlign = TextAlign.End
             )
         }
     }

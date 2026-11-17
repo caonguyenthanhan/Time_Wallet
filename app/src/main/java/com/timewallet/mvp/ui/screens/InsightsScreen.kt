@@ -482,7 +482,7 @@ fun InsightsScreen(
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.End,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.Start),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         if (canMoveUp) {

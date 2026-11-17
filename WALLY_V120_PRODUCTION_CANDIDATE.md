@@ -10,8 +10,8 @@
 | Thành phần | Giá trị / Đường dẫn |
 |---|---|
 | APK Production Candidate | `out/wally_candidate_v120/TimeWallet-MVP-v1.2.0-PRODUCTION-CANDIDATE-release.apk` |
-| Dung lượng | `8,457,132` bytes |
-| SHA-256 | `FA58218B83FD787D110BD0C4FB7CC6C572B4A650DFF7BEB70E9791F359D9D638` |
+| Dung lượng | `8,457,131` bytes |
+| SHA-256 | `1CCA6C8AA13B196997DD32DBC0A178ABB688D255AA5ABDF6F2D2681BC7AFDE2D` |
 | SHA-256 file | `out/wally_candidate_v120/TimeWallet-MVP-v1.2.0-PRODUCTION-CANDIDATE-release.apk.sha256` |
 | Package / Version | `com.timewallet.mvp` · `versionName = "1.2.0"` · `versionCode = 16` (`minSdk 26`, `targetSdk 35`) |
 | Chứng thư ký số Release | `CN=Time Wallet Personal Release, OU=Mobile, O=TimeWallet, L=Hanoi, ST=HN, C=VN` (RSA 2048-bit, APK Signature Scheme v2, digest `39f5712d139124e05d550458180e69a1919ade5a331d2eadbb9de47da79cdcd0`) |
@@ -49,14 +49,14 @@
 
 | Hạng mục | Trạng thái | Bằng chứng / Ghi chú |
 |---|---|---|
-| Bộ test JVM & tĩnh (`testDebugUnitTest --rerun-tasks`) | **PASS (618/620)** | Chạy sau sửa cuối (`task-3180`): `total=620, passed=618, failures=0, errors=0, skipped=2` (2 test skipped khi chạy offline là 2 bài Live API có điều kiện env var). Bao gồm [V121UiIntegrationTest.kt](app/src/test/java/com/timewallet/mvp/V121UiIntegrationTest.kt), [V121UiScreenHelpersTest.kt](app/src/test/java/com/timewallet/mvp/ui/screens/V121UiScreenHelpersTest.kt), [V120ProductionReadinessTest.kt](app/src/test/java/com/timewallet/mvp/V120ProductionReadinessTest.kt), [V120MigrationSchemaTest.kt](app/src/test/java/com/timewallet/mvp/V120MigrationSchemaTest.kt), `WallySecurityStaticTest`, `V106UiContractTest`, `V109PortableRegexTest`, `V1011UiPolishContractTest`, `WallyUiStaticTest`. |
-| Android Lint Release (`lintRelease`) | **PASS (0 errors)** | Chạy sau sửa cuối (`task-3180`), báo cáo `Lint Report: 46 warnings` và **0 errors**. |
-| Build & Ký số Release APK (`assembleRelease` + `apksigner` + `aapt2`) | **PASS** | `TimeWallet-MVP-v1.2.0-PRODUCTION-CANDIDATE-release.apk` (`8,457,132` bytes), xác thực chữ ký v2 thành công (`apksigner verify`), `versionCode=16`, `versionName="1.2.0"`, `targetSdk=35`. |
-| Live AI QA với Foza thật (`V110CoachLiveEvalTest` trên `wally-coach-5` + lịch sử `V120LiveAiEvalTest`) | **PASS (8/8 HTTP OK trên Coach mới)** | Đã chạy trực tiếp `V110CoachLiveEvalTest` (`COACH_EVAL_REPEAT=1`, `cinb/claude-sonnet-4-6`, dữ liệu synthetic): **8/8** cuộc gọi không fault (`S2`–`S9`) đều qua **`CoachGuard` (`OK`, `0` lỗi rubric)**, độ dài còn **`105`–`168` ký tự** kèm `headline`, `highlights` và `1`–`2` Action Items; riêng `S1` gặp `TIMEOUT` 45s từ upstream. Vòng Live Chat `UC-15` trước đó đạt HTTP 200, không suy đoán câu mơ hồ và tách lô 2 đề xuất. |
-| Emulator Android 9 (`WallyQA`) trên bản nền trước tích hợp UI (`3B144E36…`) | **Lịch sử** | Đã cài APK Release `3B144E36...`, xác minh Export/Import JSON `MERGE_SAFE` + `REPLACE_ALL`, `dumpsys alarm`, Live AI, và chụp ảnh xem tại `docs/screenshots/ui-preview/`. |
-| Emulator Android 9 (`WallyQA`) trên **APK mới nhất (`FA58218B…`)** | **NOT_TESTED (Host unavailable)** | Lệnh `ldconsole launch --index 1` không đưa `WallyQA` online (`1,WallyQA,0`, không có `adb devices`); dừng phiên QA theo Rule 7–8 `AGENTS.md` (không chạm tiến trình/service Windows dùng chung). |
+| Bộ test JVM & tĩnh (`testDebugUnitTest --rerun-tasks`) | **PASS (618/620)** | Chạy sau sửa cuối (`task-3286`): `total=620, passed=618, failures=0, errors=0, skipped=2` (2 test skipped khi chạy offline là 2 bài Live API có điều kiện env var). Bao gồm [V121UiIntegrationTest.kt](app/src/test/java/com/timewallet/mvp/V121UiIntegrationTest.kt), [V121UiScreenHelpersTest.kt](app/src/test/java/com/timewallet/mvp/ui/screens/V121UiScreenHelpersTest.kt), [V120ProductionReadinessTest.kt](app/src/test/java/com/timewallet/mvp/V120ProductionReadinessTest.kt), [V120MigrationSchemaTest.kt](app/src/test/java/com/timewallet/mvp/V120MigrationSchemaTest.kt), `WallySecurityStaticTest`, `V106UiContractTest`, `V109PortableRegexTest`, `V1011UiPolishContractTest`, `WallyUiStaticTest`. |
+| Android Lint Release (`lintRelease`) | **PASS (0 errors)** | Chạy sau sửa cuối (`task-3286`), báo cáo `Lint Report: 46 warnings` và **0 errors**. |
+| Build & Ký số Release APK (`assembleRelease` + `apksigner` + `aapt2`) | **PASS** | `TimeWallet-MVP-v1.2.0-PRODUCTION-CANDIDATE-release.apk` (`8,457,131` bytes, SHA-256 `1CCA6C8AA13B196997DD32DBC0A178ABB688D255AA5ABDF6F2D2681BC7AFDE2D`), xác thực chữ ký v2 thành công (`apksigner verify`), `versionCode=16`, `versionName="1.2.0"`, `targetSdk=35`. |
+| Live AI QA với Foza thật (`V110CoachLiveEvalTest` + live trên `WallyQA` APK `1CCA6C8A…`) | **PASS (Live QA & CoachGuard OK)** | Trên `WallyQA` (`cinb/claude-sonnet-4-6`), cả 3 nhánh live (`RECORD`, `QUERY` trên `wally-prompt-8` và `COACH` trên `wally-coach-5`) đạt **3/3 HTTP 200**, `0` retry, `0` lỗi; trước đó `V110CoachLiveEvalTest` đạt **8/8** cuộc gọi không fault qua **`CoachGuard` (`OK`, `0` lỗi rubric)** (`105`–`168` ký tự; `S1` từng timeout 45s). |
+| Emulator Android 9 (`WallyQA`) trên bản nền trước tích hợp UI (`3B144E36…`) | **Lịch sử** | Bản nền trước khi tích hợp 5 thành phần Compose và nâng cấp `Wally AI Coach`; giữ làm đối chiếu. |
+| Emulator Android 9 (`WallyQA`) trên **APK mới nhất (`1CCA6C8A…`)** | **PASS (Visual QA & Live AI)** | Cài sạch Release `1CCA6C8A…`, nạp 41 bản ghi synthetic 7 ngày, kiểm tra Donut 2D pop-out, Timeline spinner + `±15p` resize, Drag handle `⋮⋮` ngân sách, Speed Dial, Live `Wally AI Coach` (`✓` + `Lên lịch →` pre-fill sheet) và Live `Wally Chat` (`Đã gửi ✓` / `Wally đã xem ✓✓` + 3 chấm + 5 đề xuất), `FATAL EXCEPTION = 0`; đã xóa khóa QA & tắt `WallyQA`. |
 | Android 13–16 runtime (`POST_NOTIFICATIONS` prompt & Work/Alarm trên Android 13+) | **NOT_TESTED (Blocked)** | Bị chặn theo **Rule 14 `AGENTS.md`** (AVD Android 16 AEHD gây sập nguồn máy chủ Windows 3 lần trước đó). |
-| Khởi động lại lạnh (`BOOT_COMPLETED` / `CompletionBootReceiver`) & nghiệm thu máy thật Owner | **NOT_TESTED (Pending Owner)** | Chờ Owner cài đặt, kiểm tra trực quan 5 thành phần giao diện mới + thẻ Wally AI Coach có Action Items và nghiệm thu trên điện thoại cá nhân. |
+| Khởi động lại lạnh (`BOOT_COMPLETED` / `CompletionBootReceiver`) & nghiệm thu máy thật Owner | **NOT_TESTED (Pending Owner)** | Chờ Owner cài đặt APK `1CCA6C8A…` và nghiệm thu trên điện thoại cá nhân. |
 
 ---
 
@@ -72,7 +72,7 @@
 
 1. **Sao lưu dữ liệu từ bản đang cài (nếu đang dùng bản Debug cũ):** Mở app hiện tại → menu `⋮` góc trên phải → **Dữ liệu & sao lưu** → **Xuất JSON** → **Lưu tệp .JSON** vào thư mục `Downloads` trên máy. Mở thử hoặc kiểm tra dung lượng tệp > 0 bytes.
 2. **Gỡ bản Debug cũ** (chỉ sau khi đã thấy tệp `.json` an toàn trong `Downloads`).
-3. **Cài APK Production Candidate:** Chép `out/wally_candidate_v120/TimeWallet-MVP-v1.2.0-PRODUCTION-CANDIDATE-release.apk` (đối chiếu đúng SHA-256 `FA58218B83FD787D110BD0C4FB7CC6C572B4A650DFF7BEB70E9791F359D9D638`) sang điện thoại và cài đặt.
+3. **Cài APK Production Candidate:** Chép `out/wally_candidate_v120/TimeWallet-MVP-v1.2.0-PRODUCTION-CANDIDATE-release.apk` (đối chiếu đúng SHA-256 `1CCA6C8AA13B196997DD32DBC0A178ABB688D255AA5ABDF6F2D2681BC7AFDE2D`) sang điện thoại và cài đặt.
 4. **Khôi phục toàn bộ dữ liệu:** Mở app mới → menu `⋮` → **Dữ liệu & sao lưu** → **Nhập / khôi phục JSON** → **Chọn tệp .JSON từ thiết bị** → chọn đúng tệp vừa xuất → kiểm tra dòng xanh đếm đủ bản ghi / tag / mục tiêu / ngân sách / phản tư → chọn chế độ **`Khôi phục toàn bộ`** → xác nhận. Đối chiếu lại màn Tổng quan, Nhật ký, Phân tích và Tag.
 5. **Thiết lập & kiểm tra AI:** Vào biểu tượng `⚙` → dán API Key cá nhân → kiểm tra model mặc định đã là **`cinb/claude-sonnet-4-6`** → bấm **Kiểm tra kết nối** (phải báo `✓ Kết nối thành công tới api.foza.ai (HTTP 200)`) → bấm **Xác nhận & Lưu**. Thử nhắn một câu ở tab Wally (ví dụ `"Sáng 8h đến 9h đọc sách"`).
 6. **Kiểm tra thông báo & Reboot (Android 13+):** Thêm 1 hoạt động **Dự kiến** kết thúc sau hiện tại ~2–3 phút → cấp quyền thông báo khi Android hỏi → khóa màn hình chờ tới giờ kết thúc xem có notification và bấm vào notification có mở đúng hộp thoại xác nhận không; tùy chọn: đặt 1 hoạt động dự kiến khác xa hơn, khởi động lại điện thoại rồi kiểm tra thông báo vẫn đổ đúng giờ khi tới hạn.
