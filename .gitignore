@@ -16,6 +16,7 @@ captures/
 .externalNativeBuild/
 
 # Context & temporary outputs
+Archived/
 repomix-context.xml
 tree_scan_result.json
 tree_scan_result.txt
@@ -24,5 +25,8 @@ out/
 tmp/
 .kotlin/
 *.lnk
+*.bak
+*.old
+*.tmp
 text.md
 

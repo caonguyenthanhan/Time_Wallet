@@ -26,6 +26,9 @@ Time_Wallet/
 ├── .agents/                        # Quy tắc dự án & liên kết hệ sinh thái
 ├── Time_Wallet_MVP/                # Tài liệu đặc tả MVP & HTML Prototype gốc
 ├── ai_test/                        # Script kiểm thử gateway (đọc từ biến môi trường FOZA_API_KEY)
+├── docs/
+│   ├── archive/                    # Hồ sơ, review & biên bản QA lịch sử (v1.0.5–v1.0.13, AI-01)
+│   └── screenshots/                # Ảnh chụp giao diện minh họa trên WallyQA
 ├── app/
 │   ├── build.gradle.kts
 │   ├── schemas/                    # Lược đồ Room DB xuất tự động (bao gồm v4)
@@ -50,6 +53,8 @@ Time_Wallet/
 │       └── test/java/com/timewallet/mvp/  # Bộ kiểm thử đơn vị JVM (domain, guards, migration, UI contract)
 ├── build.gradle.kts
 ├── settings.gradle.kts
+├── WALLY_OWNER_CHECKLIST_V110.md   # Danh sách tự kiểm v1.1.0 Preview trên điện thoại thật
+├── WALLY_V110_CLOSURE_DIGEST.md    # Tóm tắt bàn giao v1.1.0 Preview
 └── CONTEXT_MANIFEST.md
 ```
 

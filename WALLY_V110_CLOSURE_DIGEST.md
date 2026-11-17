@@ -9,7 +9,7 @@
 Sau khi AI-Master đạt giới hạn sử dụng tuần lúc 19:34 (đã sửa `CoachGuard` & `wally-coach-3` trong `CoachDigest.kt` / `GeminiProposalClient.kt` lúc 19:32–19:33 dựa trên ảnh chụp thực tế trên `WallyQA` nhưng **chưa kịp rebuild APK**), Reviewer/Git Controller đã tiếp nhận tiếp theo chỉ thị của Owner để:
 1. Build lại APK `v1.1.0` đồng bộ với mã nguồn cuối cùng (`373aeb7d…`).
 2. Chạy tươi toàn bộ bộ unit test (`./gradlew testDebugUnitTest --rerun-tasks`) và kiểm tra bổ sung trực tiếp trên `WallyQA` cho APK `373aeb7d…`.
-3. Khôi phục sạch và tắt `WallyQA`, bảo toàn nguyên vẹn toàn bộ các bản candidate cũ (`v1.0.10`–`v1.0.13`), dọn đường dẫn cá nhân/PII, cập nhật `README.md`, `CONTEXT_MANIFEST.md`, `.repomixignore`, sửa SHA-256 `WALLY_OWNER_CHECKLIST_V1012.md`, và quét bí mật trước khi đưa lên Git (Phương án A — giữ nguyên lịch sử).
+3. Khôi phục sạch và tắt `WallyQA`, bảo toàn nguyên vẹn toàn bộ các bản candidate cũ (`v1.0.9`–`v1.0.13`), dọn đường dẫn cá nhân/PII, cập nhật `README.md`, `CONTEXT_MANIFEST.md`, `.repomixignore`, sửa SHA-256 `docs/archive/WALLY_OWNER_CHECKLIST_V1012.md`, gom báo cáo lịch sử (`v1.0.5`–`v1.0.13`) về `docs/archive/`, và quét bí mật trước khi đưa lên Git (Phương án A — giữ nguyên lịch sử).
 
 ---
 
@@ -68,8 +68,8 @@ Sau khi AI-Master đạt giới hạn sử dụng tuần lúc 19:34 (đã sửa 
 - **Môi trường `WallyQA`:** Đã khôi phục `persist.sys.timezone = Asia/Ho_Chi_Minh`, `auto_time_zone = 1`, gỡ cài đặt `com.timewallet.mvp` (xóa khóa QA khỏi guest), tắt root (`--root 0`), tắt nguồn máy ảo QA sạch (`adb devices` và `ldconsole runninglist` rỗng; `index 0` của Owner và `Ld9BoxSVC` không bị chạm).
 - **Bảo mật & PII:**
   - `ai_test/test_foza_ai.ts` đọc từ `FOZA_API_KEY` (không chứa khóa cứng trong cây làm việc; lịch sử git cũ giữ nguyên theo Phương án A và khóa cũ đã được Owner xác nhận thu hồi).
-  - Đã cập nhật `README.md`, `CONTEXT_MANIFEST.md`, `.repomixignore`, sửa SHA-256 trong `WALLY_OWNER_CHECKLIST_V1012.md` về `1a034e02…`, và loại bỏ đường dẫn thư mục người dùng / Desktop cá nhân trên các tài liệu không-ignored.
-  - Quét toàn bộ `242` tệp không bị gitignore: `0` bí mật dạng `sk-...`, `0` username Windows, `0` đường dẫn Desktop lộ ngoài kho mã.
+  - Đã cập nhật `README.md`, `CONTEXT_MANIFEST.md`, `.repomixignore`, sửa SHA-256 trong `docs/archive/WALLY_OWNER_CHECKLIST_V1012.md` về `1a034e02…`, và loại bỏ đường dẫn thư mục người dùng / Desktop cá nhân trên các tài liệu không-ignored.
+  - Quét toàn bộ `244` tệp không bị gitignore: `0` bí mật dạng `sk-...`, `0` username Windows, `0` đường dẫn Desktop lộ ngoài kho mã.
 
 ---
 
