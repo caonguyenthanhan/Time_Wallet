@@ -1,6 +1,7 @@
 package com.timewallet.mvp.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,13 +16,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -30,13 +35,16 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -44,14 +52,18 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.timewallet.mvp.R
 import com.timewallet.mvp.domain.model.GoalGroupState
 import com.timewallet.mvp.domain.model.GoalKind
 import com.timewallet.mvp.domain.model.GoalPeriod
 import com.timewallet.mvp.domain.model.GoalTargetType
 import com.timewallet.mvp.domain.model.Tag
 import com.timewallet.mvp.domain.model.TimeCategory
+import com.timewallet.mvp.domain.usecase.CoachActionItem
+import com.timewallet.mvp.domain.usecase.CoachBrief
 import com.timewallet.mvp.domain.usecase.CoachSuggestion
 import com.timewallet.mvp.domain.usecase.GoalRules
 import com.timewallet.mvp.domain.usecase.TagRules
@@ -61,6 +73,8 @@ import com.timewallet.mvp.ui.GoalEditorState
 import com.timewallet.mvp.ui.TagManagerState
 import com.timewallet.mvp.ui.theme.WalletInk
 import com.timewallet.mvp.ui.theme.WalletMint
+import com.timewallet.mvp.ui.theme.WalletMintDark
+import com.timewallet.mvp.ui.theme.WalletMintTint
 import com.timewallet.mvp.ui.theme.WalletMuted
 import com.timewallet.mvp.ui.theme.WalletStroke
 
@@ -196,10 +210,11 @@ fun PersonalHubCard(
     onAskCoach: (Int) -> Unit,
     onDismissCoach: () -> Unit,
     onConfirmSuggestion: (Int) -> Unit,
-    onDismissSuggestion: (Int) -> Unit
+    onDismissSuggestion: (Int) -> Unit,
+    onTriggerAction: (CoachActionItem) -> Unit = {}
 ) {
     SoftCard(modifier = Modifier.padding(top = 12.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SectionTitle(text = "Mục tiêu của bạn", actionText = "Quản lý", onAction = onOpenGoals)
             if (goalSummaries.isEmpty()) {
                 Text(
@@ -216,28 +231,99 @@ fun PersonalHubCard(
                 goalSummaries.take(3).forEach { GoalProgressRow(it) }
             }
 
-            SectionTitle(text = "Wally Coach")
-            FlowRow2 {
-                Button(
-                    onClick = { onAskCoach(1) },
-                    enabled = !coach.loading,
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
-                    modifier = Modifier.heightIn(min = 48.dp)
-                ) { Text("Hôm nay", fontWeight = FontWeight.Bold) }
-                OutlinedButton(
-                    onClick = { onAskCoach(7) },
-                    enabled = !coach.loading,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.heightIn(min = 48.dp)
-                ) { Text("7 ngày qua") }
-                TextButton(onClick = onOpenTags, modifier = Modifier.heightIn(min = 48.dp)) { Text("Quản lý Tag") }
-            }
-            if (!aiEnabled && !coach.requested) {
-                Text("Số liệu do ứng dụng tính. Bật AI để Wally kể câu chuyện từ dữ liệu.", fontSize = 12.sp, color = WalletMuted)
-            }
-            if (coach.requested || coach.loading) {
-                CoachPanel(coach, onDismissCoach, onConfirmSuggestion, onDismissSuggestion)
+            // Khối Spotlight riêng cho Wally AI Coach: tách biệt rõ khỏi phần số liệu thô.
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Brush.linearGradient(listOf(Color(0xFFECF7F1), Color(0xFFF9FCFA))))
+                    .border(BorderStroke(1.2.dp, Color(0xFFAAD8C1)), RoundedCornerShape(18.dp))
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.ic_wally),
+                        contentDescription = null,
+                        modifier = Modifier.size(34.dp)
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "Wally AI Coach",
+                                fontSize = 15.5.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = WalletInk
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(100.dp))
+                                    .background(if (aiEnabled) WalletMintDark else Color(0xFFE2EBE6))
+                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = if (aiEnabled) "✦ AI Bật" else "Số liệu máy",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (aiEnabled) Color.White else WalletMuted,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+                        Text(
+                            text = "Tóm tắt 5 giây · Điểm sáng · Action items",
+                            fontSize = 12.sp,
+                            color = WalletMuted
+                        )
+                    }
+                }
+
+                FlowRow2 {
+                    Button(
+                        onClick = { onAskCoach(1) },
+                        enabled = !coach.loading,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) { Text("✦ Hôm nay", fontWeight = FontWeight.Bold) }
+                    OutlinedButton(
+                        onClick = { onAskCoach(7) },
+                        enabled = !coach.loading,
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, WalletMint.copy(alpha = 0.6f)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = Color.White,
+                            contentColor = WalletMintDark
+                        ),
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) { Text("✦ 7 ngày qua", fontWeight = FontWeight.Bold) }
+                    TextButton(onClick = onOpenTags, modifier = Modifier.heightIn(min = 48.dp)) { Text("Quản lý Tag") }
+                }
+
+                if (!aiEnabled && !coach.requested) {
+                    Text(
+                        "Số liệu do ứng dụng tính sẵn. Bật AI trong ⚙ để Wally tóm tắt ngắn gọn và gợi ý action item.",
+                        fontSize = 12.sp,
+                        color = WalletMuted
+                    )
+                }
+                if (coach.requested || coach.loading) {
+                    CoachPanel(
+                        coach = coach,
+                        onDismiss = onDismissCoach,
+                        onConfirmSuggestion = onConfirmSuggestion,
+                        onDismissSuggestion = onDismissSuggestion,
+                        onTriggerAction = onTriggerAction
+                    )
+                }
             }
         }
     }
@@ -246,33 +332,321 @@ fun PersonalHubCard(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun FlowRow2(content: @Composable () -> Unit) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) { content() }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { content() }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CoachPanel(
     coach: CoachUiState,
     onDismiss: () -> Unit,
     onConfirmSuggestion: (Int) -> Unit,
-    onDismissSuggestion: (Int) -> Unit
+    onDismissSuggestion: (Int) -> Unit,
+    onTriggerAction: (CoachActionItem) -> Unit = {}
 ) {
+    val activeBrief: CoachBrief? = coach.brief ?: coach.story?.let { raw ->
+        val clean = raw.trim()
+        if (clean.isEmpty()) null else CoachBrief(headline = clean)
+    }
+    val hasAiCard = activeBrief != null
+    var factsExpanded by remember(hasAiCard, coach.rangeDays) { mutableStateOf(!hasAiCard) }
+    val checkedActions = remember(activeBrief) { mutableStateMapOf<Int, Boolean>() }
+
     Column(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color(0xFFF3F7F4)).padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White)
+            .border(BorderStroke(1.dp, Color(0xFFC5DFD1)), RoundedCornerShape(16.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (coach.rangeDays == 1) "Hôm nay" else "${coach.rangeDays} ngày qua", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = WalletMuted, modifier = Modifier.weight(1f))
-            TextButton(onClick = onDismiss) { Text("Đóng", fontSize = 12.sp) }
+        // Thanh tiêu đề mang dấu ấn riêng của Wally AI
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(100.dp))
+                    .background(WalletMintTint)
+                    .padding(horizontal = 9.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = if (coach.rangeDays == 1) "✦ WALLY AI · HÔM NAY" else "✦ WALLY AI · ${coach.rangeDays} NGÀY QUA",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = WalletMintDark,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = "Đóng ✕",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = WalletMuted,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .walletClickable(onClickLabel = "Đóng phân tích Wally", onClick = onDismiss)
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            )
         }
-        coach.facts.forEach { Text("• $it", fontSize = 13.sp, color = WalletInk) }
-        if (coach.loading) Text("Wally đang đọc số liệu của bạn…", fontSize = 13.sp, color = WalletMuted)
-        coach.story?.let { story ->
-            Text("Wally (AI)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = WalletMint)
-            Text(story, fontSize = 14.sp, color = WalletInk)
+
+        if (coach.loading) {
+            Text(
+                text = "✦ Wally đang tóm tắt dữ liệu và chọn gợi ý hành động…",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = WalletMintDark
+            )
         }
+
+        // Thẻ đầu ra AI có cấu trúc: Tóm tắt 1 dòng -> Điểm sáng -> Lưu ý -> Action Items
+        if (activeBrief != null) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0xFFF6FBF8))
+                    .border(BorderStroke(1.dp, Color(0xFFD6EDE1)), RoundedCornerShape(14.dp))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(4.dp)
+                            .height(22.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(WalletMint)
+                    )
+                    Text(
+                        text = activeBrief.headline,
+                        fontSize = 14.5.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = WalletInk,
+                        lineHeight = 20.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                if (activeBrief.highlights.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        activeBrief.highlights.forEach { bullet ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .padding(top = 6.dp)
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(WalletMint)
+                                )
+                                Text(
+                                    text = bullet,
+                                    fontSize = 13.sp,
+                                    color = WalletInk,
+                                    lineHeight = 18.5.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                activeBrief.watchout?.takeIf { it.isNotBlank() }?.let { noteLine ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFFFFF8EC))
+                            .border(BorderStroke(1.dp, Color(0xFFF2DFBD)), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Text(
+                            text = "Lưu ý:",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF9C540B)
+                        )
+                        Text(
+                            text = noteLine,
+                            fontSize = 12.5.sp,
+                            color = Color(0xFF6B4211),
+                            lineHeight = 17.5.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+
+            if (activeBrief.actionItems.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text(
+                        text = "◆ ACTION ITEMS · BẠN TỰ QUYẾT ĐỊNH",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = WalletMintDark
+                    )
+                    activeBrief.actionItems.forEachIndexed { idx, action ->
+                        val isDone = checkedActions[idx] == true
+                        ActionItemCard(
+                            action = action,
+                            checked = isDone,
+                            onToggleCheck = { checkedActions[idx] = !isDone },
+                            onActionClick = { onTriggerAction(action) }
+                        )
+                    }
+                }
+            }
+        }
+
         coach.note?.let { Text(it, fontSize = 12.5.sp, color = WalletMuted) }
+
         coach.suggestions.forEachIndexed { i, s ->
             SuggestionCard(s, onConfirm = { onConfirmSuggestion(i) }, onDismiss = { onDismissSuggestion(i) })
+        }
+
+        if (coach.facts.isNotEmpty()) {
+            HorizontalDivider(color = Color(0xFFEAF0EC))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .walletClickable(
+                        onClickLabel = if (factsExpanded) "Thu gọn số liệu ứng dụng" else "Xem số liệu ứng dụng tính"
+                    ) { factsExpanded = !factsExpanded }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Số liệu xác thực từ ứng dụng (${coach.facts.size})",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = WalletMuted,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = if (factsExpanded) "Thu gọn ▴" else "Đối chiếu ▾",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = WalletMint
+                )
+            }
+            if (factsExpanded) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    coach.facts.forEach { Text("• $it", fontSize = 12.5.sp, color = WalletInk, lineHeight = 17.5.sp) }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ActionItemCard(
+    action: CoachActionItem,
+    checked: Boolean,
+    onToggleCheck: () -> Unit,
+    onActionClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (checked) Color(0xFFF3F6F4) else Color(0xFFFAFCFB))
+            .border(
+                BorderStroke(1.dp, if (checked) WalletStroke else Color(0xFFCDE4D8)),
+                RoundedCornerShape(12.dp)
+            )
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .clip(CircleShape)
+                .walletClickable(onClickLabel = if (checked) "Bỏ đánh dấu ${action.title}" else "Đánh dấu xong ${action.title}", onClick = onToggleCheck),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(if (checked) WalletMint else Color.White)
+                    .border(BorderStroke(1.5.dp, if (checked) WalletMint else Color(0xFF8FBFA6)), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                if (checked) {
+                    Text("✓", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                }
+            }
+        }
+
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                text = action.title,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (checked) WalletMuted else WalletInk,
+                textDecoration = if (checked) TextDecoration.LineThrough else TextDecoration.None,
+                lineHeight = 18.sp
+            )
+            val metaParts = listOfNotNull(
+                action.targetLabel,
+                action.durationMinutes?.let { TimeRange.formatDuration(it) }
+            )
+            if (metaParts.isNotEmpty()) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    metaParts.forEach { tagText ->
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(WalletMintTint)
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = tagText,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = WalletMintDark,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(10.dp))
+                .background(WalletMintTint)
+                .walletClickable(onClickLabel = "${action.kind.ctaLabelVi}: ${action.title}", onClick = onActionClick)
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "${action.kind.ctaLabelVi} →",
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = WalletMintDark,
+                maxLines = 1,
+                softWrap = false
+            )
         }
     }
 }
@@ -282,13 +656,18 @@ private fun SuggestionCard(s: CoachSuggestion, onConfirm: () -> Unit, onDismiss:
     val per = if (s.period == GoalPeriod.DAY) "ngày" else "tuần"
     val kind = if (s.kind == GoalKind.MIN) "ít nhất" else "tối đa"
     Column(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color.White).border(BorderStroke(1.dp, WalletStroke), RoundedCornerShape(14.dp)).padding(10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color(0xFFF9FCFA))
+            .border(BorderStroke(1.dp, Color(0xFFCCE3D7)), RoundedCornerShape(14.dp))
+            .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text("Gợi ý mục tiêu (chưa tạo)", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = WalletMuted)
-        Text("${s.targetLabel}: $kind ${TimeRange.formatDuration((s.targetSeconds / 60).toInt())}/$per", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = WalletInk)
+        Text("✦ Gợi ý mục tiêu (chưa tạo)", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = WalletMintDark)
+        Text("${s.targetLabel}: $kind ${TimeRange.formatDuration((s.targetSeconds / 60).toInt())}/$per", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = WalletInk)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onConfirm, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = WalletMint), modifier = Modifier.heightIn(min = 48.dp)) { Text("Tạo mục tiêu") }
+            Button(onClick = onConfirm, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = WalletMint), modifier = Modifier.heightIn(min = 48.dp)) { Text("✓ Tạo mục tiêu") }
             TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp)) { Text("Bỏ qua") }
         }
     }

@@ -61,6 +61,7 @@ import com.timewallet.mvp.ui.theme.WalletInk
 import com.timewallet.mvp.ui.theme.WalletMicroBg
 import com.timewallet.mvp.ui.theme.WalletMicroText
 import com.timewallet.mvp.ui.theme.WalletMint
+import com.timewallet.mvp.ui.theme.WalletMintTint
 import com.timewallet.mvp.ui.theme.WalletMuted
 import com.timewallet.mvp.ui.theme.WalletStroke
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -590,12 +591,19 @@ private fun SuggestionChip(text: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(100.dp))
-            .background(Color.White)
-            .border(1.dp, Color(0xFFDBE8DD), RoundedCornerShape(100.dp))
+            .background(WalletMintTint)
+            .border(1.dp, Color(0xFFBBDCCB), RoundedCornerShape(100.dp))
             .walletClickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .padding(horizontal = 13.dp, vertical = 7.dp)
     ) {
-        Text(text = text, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF3E6B56), maxLines = 1, softWrap = false)
+        Text(
+            text = "→ $text",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = WalletMintDark,
+            maxLines = 1,
+            softWrap = false
+        )
     }
 }
 
@@ -979,19 +987,36 @@ private fun ChatAnswerContent(
     onDismiss: () -> Unit,
     onUseSuggestion: (String) -> Unit
 ) {
-    Column {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = answer.label ?: if (answer.isClarification) "Cần hỏi lại" else "Wally",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = WalletMuted,
-                modifier = Modifier.weight(1f)
-            )
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(100.dp))
+                    .background(if (answer.isClarification) Color(0xFFFFECCC) else WalletMintTint)
+                    .padding(horizontal = 9.dp, vertical = 3.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "✦",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = if (answer.isClarification) Color(0xFF9C540B) else WalletMintDark
+                    )
+                    Text(
+                        text = answer.label ?: if (answer.isClarification) "Cần hỏi lại" else "Wally",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = if (answer.isClarification) Color(0xFF9C540B) else WalletMintDark
+                    )
+                }
+            }
             Text(
                 text = "Đóng ✕",
                 fontSize = 12.sp,
@@ -1003,30 +1028,71 @@ private fun ChatAnswerContent(
                     .padding(horizontal = 6.dp, vertical = 4.dp)
             )
         }
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = answer.headline,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = WalletInk,
-            lineHeight = 22.sp
-        )
-        answer.lines.forEach { line ->
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(text = line, fontSize = 13.5.sp, color = WalletInk, lineHeight = 19.sp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 3.dp)
+                    .size(width = 3.5.dp, height = 20.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(if (answer.isClarification) Color(0xFFD97706) else WalletMint)
+            )
+            Text(
+                text = answer.headline,
+                fontSize = 15.5.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = WalletInk,
+                lineHeight = 21.sp,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        if (answer.lines.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                answer.lines.forEach { line ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .padding(top = 7.dp)
+                                .size(5.dp)
+                                .clip(CircleShape)
+                                .background(WalletMint)
+                        )
+                        Text(
+                            text = line,
+                            fontSize = 13.5.sp,
+                            color = WalletInk,
+                            lineHeight = 19.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
         }
         answer.notes.forEach { note ->
-            Spacer(modifier = Modifier.height(6.dp))
             Text(text = note, fontSize = 12.sp, color = WalletMuted, lineHeight = 17.sp)
         }
         if (answer.suggestions.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                answer.suggestions.forEach { suggestion ->
-                    SuggestionChip(text = suggestion) { onUseSuggestion(suggestion) }
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(
+                    text = "◆ BƯỚC TIẾP THEO",
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = WalletMintDark
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    answer.suggestions.forEach { suggestion ->
+                        SuggestionChip(text = suggestion) { onUseSuggestion(suggestion) }
+                    }
                 }
             }
         }

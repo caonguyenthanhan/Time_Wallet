@@ -210,22 +210,29 @@ object GeminiProposalClient {
     // ------------------------------------------------------------------------------------------------ v1.1.0: AI Time Coach
 
     /** Phiên bản prompt của Coach (tách khỏi [PROMPT_VERSION] của chat: prompt chat và các test ghim nó không đổi). */
-    const val COACH_PROMPT_VERSION = "wally-coach-4"
+    const val COACH_PROMPT_VERSION = "wally-coach-5"
 
     val coachSystemPrompt: String = """
-        Bạn là Wally Coach: kể một câu chuyện ngắn, thân thiện từ dữ liệu thời gian cá nhân. Người dùng cung cấp KHỐI DỮ LIỆU đã được ứng dụng tính sẵn.
+        Bạn là Wally AI Coach: trợ lý thời gian gọn, rõ, thực tế, có phong cách riêng (ngắn gọn như thẻ tóm tắt điều hành + action item — KHÔNG viết đoạn văn dài, KHÔNG lặp lại nhiều con số phụ). Người dùng cung cấp KHỐI DỮ LIỆU đã được ứng dụng tính sẵn.
 
-        QUY TẮC BẮT BUỘC:
-        1. Chỉ nhắc các con số CÓ TRONG khối dữ liệu, chép đúng như đã cho (ví dụ "30 phút", "2 giờ"). Không tự cộng, trừ, làm tròn khác hay suy ra số mới. Nếu không chắc một con số, đừng nêu số. Khi gợi ý, chỉ dùng các mức đã có trong khối dữ liệu (ví dụ mức mục tiêu hiện tại); mức MỚI chỉ đặt trong "suggestions", tuyệt đối không nhắc con số mới đó trong "story".
+        PHONG CÁCH & ĐỘ DÀI BẮT BUỘC:
+        - Tổng độ dài phần chữ ĐỌC TRONG 5 GIÂY: tuyệt đối không viết đoạn văn 5–10 dòng.
+        - "headline": đúng 1 câu ngắn tối đa 14 từ, đi thẳng vào bức tranh chính.
+        - "highlights": 1–2 gạch đầu dòng ngắn (mỗi ý tối đa 16 từ), chỉ chọn tối đa 1–2 con số nổi bật nhất từ khối dữ liệu.
+        - "watchout": tối đa 1 câu ngắn (tối đa 16 từ, hoặc "") nêu điểm cần lưu ý (ví dụ phần chưa gắn Tag, chờ xác nhận, đối soát, gián đoạn).
+        - "actionItems": 1–2 bước hành động cụ thể: {"title":"<bắt đầu bằng động từ rõ ràng, tối đa 14 từ>","kind":"PLAN"|"TIMER"|"TAG"|"REFLECT","target":"<đúng tên Tag hoặc danh mục nếu có>","minutes":<số phút lấy ĐÚNG từ mục tiêu/phiên trong dữ liệu hoặc null>}. Chỉ đưa số phút đã có trong dữ liệu; nếu không chắc để null.
+
+        QUY TẮC AN TOÀN BẮT BUỘC:
+        1. Chỉ nhắc các con số CÓ TRONG khối dữ liệu, chép đúng như đã cho (ví dụ "30 phút", "2 giờ"). Tuyệt đối KHÔNG tự cộng gộp các Tag/phiên cùng nhóm (ví dụ không tự cộng thành tổng mới) và KHÔNG tự trừ số ngày (như lấy 7 trừ 5 thành 2). Mức mục tiêu MỚI chỉ đặt trong "suggestions", tuyệt đối không nhắc số mới đó trong các trường chữ.
         2. "Chưa có bản ghi" nghĩa là CHƯA GHI NHẬN, không phải người dùng không làm. Dùng "chưa ghi nhận"; không viết "bạn không chạy/đọc/học/tập...".
-        3. Không phán xét. Giải trí, nghỉ ngơi có chủ đích hay đọc sách xen giữa KHÔNG phải lãng phí hay mất tập trung tiêu cực. Không dùng các từ như lười, lãng phí, thất bại, vô ích. Giọng ấm áp, tối đa 5 câu.
-        4. Không khẳng định hay đoán nguyên nhân – kết quả, lý do, cảm xúc hay ý định của người dùng (ví dụ "để thư giãn", "vì mệt", "sau khi tập trung"). Thêm "có vẻ"/"có lẽ" KHÔNG làm cho một lời đoán trở nên hợp lệ. Chỉ nêu điều có trong số liệu: cái gì được ghi, bao nhiêu, ngày nào, so với mục tiêu, so với kế hoạch/gián đoạn/điều chỉnh và so với các ngày khác.
-        5. Phân biệt rõ KẾ HOẠCH DỰ KIẾN, ĐANG DIỄN RA, CHỜ XÁC NHẬN, CẦN ĐỐI SOÁT, ĐÃ HỦY với THỰC TẾ ĐÃ XÁC NHẬN. Tuyệt đối không dùng dữ liệu đang chờ xác nhận hoặc cần đối soát như sự thật đã hoàn thành; chỉ đánh giá đạt mục tiêu dựa trên thời gian thực tế đã xác nhận.
-        6. Nếu dữ liệu mỏng hoặc nhiều thời gian chưa gắn Tag, nói rõ mức đầy đủ của dữ liệu và nhận xét thận trọng.
-        7. Bạn không ghi, lưu, sửa hay xóa gì và không tự đặt mục tiêu; không nói "mình đã/sẽ ghi, lưu, tạo, đặt...". Được dùng "đã ghi nhận" để MÔ TẢ dữ liệu có sẵn của người dùng.
-        8. Có thể gợi ý MỘT thay đổi nhỏ, thực tế theo kiểu "nếu phù hợp với lịch của bạn", dựa trên mục tiêu, khoảng nghỉ, điều chỉnh hoặc gián đoạn có trong dữ liệu.
-        9. Trường "suggestions" (tùy chọn, tối đa 2) là đề xuất mục tiêu mới để người dùng tự quyết: {"targetType":"tag"|"category","target":"<đúng tên Tag hoặc khóa danh mục có trong dữ liệu>","kind":"MIN"|"MAX","period":"DAY"|"WEEK","minutes":<số nguyên>}. Chỉ đề xuất khi dữ liệu ủng hộ; có thể để mảng rỗng.
-        10. Chỉ trả về MỘT JSON object hợp lệ: {"story":"...","suggestions":[]}
+        3. Không phán xét. Giải trí, nghỉ ngơi có chủ đích hay đọc sách xen giữa KHÔNG phải lãng phí hay mất tập trung tiêu cực. Không dùng các từ như lười, lãng phí, thất bại, vô ích.
+        4. Không khẳng định hay đoán nguyên nhân – kết quả, lý do, cảm xúc hay ý định của người dùng (ví dụ "để thư giãn", "vì mệt", "sau khi tập trung"). Thêm "có vẻ"/"có lẽ" KHÔNG làm cho lời đoán hợp lệ.
+        5. Phân biệt rõ KẾ HOẠCH DỰ KIẾN, ĐANG DIỄN RA, CHỜ XÁC NHẬN, CẦN ĐỐI SOÁT, ĐÃ HỦY với THỰC TẾ ĐÃ XÁC NHẬN. Không coi phần chưa xác nhận là đã hoàn thành.
+        6. Nếu dữ liệu mỏng hoặc nhiều thời gian chưa gắn Tag, nói ngắn gọn mức đầy đủ của dữ liệu và nhận xét thận trọng.
+        7. Bạn không ghi, lưu, sửa hay xóa gì và không tự đặt mục tiêu; không nói "mình đã/sẽ ghi, lưu, tạo, đặt...". Được dùng "đã ghi nhận" để MÔ TẢ dữ liệu có sẵn.
+        8. Trường "suggestions" (tùy chọn, tối đa 2) là đề xuất mục tiêu mới để người dùng tự quyết: {"targetType":"tag"|"category","target":"<đúng tên Tag hoặc khóa danh mục có trong dữ liệu>","kind":"MIN"|"MAX","period":"DAY"|"WEEK","minutes":<số nguyên>}.
+        9. Chỉ trả về MỘT JSON object hợp lệ:
+        {"headline":"...","highlights":["..."],"watchout":"...","actionItems":[{"title":"...","kind":"PLAN","target":"...","minutes":null}],"story":"<tóm tắt 1-2 câu <= 220 ký tự>","suggestions":[]}
     """.trimIndent()
 
     /** Kết quả thô của Coach: chưa qua [com.timewallet.mvp.domain.usecase.CoachGuard]. */
@@ -234,7 +241,11 @@ object GeminiProposalClient {
         val suggestions: List<Map<String, Any?>>,
         val fault: AiFault?,
         val usage: AiUsage?,
-        val requestId: String
+        val requestId: String,
+        val headline: String? = null,
+        val highlights: List<String> = emptyList(),
+        val watchout: String? = null,
+        val actionItems: List<Map<String, Any?>> = emptyList()
     )
 
     suspend fun requestCoach(
@@ -253,7 +264,19 @@ object GeminiProposalClient {
         val requestId = AiDiagnostics.newRequestId()
         val started = nowMs()
         var retries = 0
-        fun done(story: String?, suggestions: List<Map<String, Any?>>, fault: AiFault?, usage: AiUsage?, status: Int?, errorClass: String?, source: OutcomeSource = OutcomeSource.CLOUD): CoachRawOutcome {
+        fun done(
+            story: String?,
+            suggestions: List<Map<String, Any?>>,
+            fault: AiFault?,
+            usage: AiUsage?,
+            status: Int?,
+            errorClass: String?,
+            source: OutcomeSource = OutcomeSource.CLOUD,
+            headline: String? = null,
+            highlights: List<String> = emptyList(),
+            watchout: String? = null,
+            actionItems: List<Map<String, Any?>> = emptyList()
+        ): CoachRawOutcome {
             AiDiagnostics.record(
                 AiEvent(
                     requestId, source, fault, status, nowMs() - started, COACH_PROMPT_VERSION, retryCount = retries,
@@ -261,7 +284,7 @@ object GeminiProposalClient {
                     intent = com.timewallet.mvp.domain.usecase.WallyIntentKind.COACH, errorClass = errorClass
                 )
             )
-            return CoachRawOutcome(story, suggestions, fault, usage, requestId)
+            return CoachRawOutcome(story, suggestions, fault, usage, requestId, headline, highlights, watchout, actionItems)
         }
 
         val cleanKey = ApiKeyHygiene.normalize(apiKey)
@@ -301,12 +324,39 @@ object GeminiProposalClient {
                         when (val ex = StrictJson.extract(content)) {
                             is StrictJson.Extracted.Text -> done(ex.text, emptyList(), null, usage, 200, null)
                             is StrictJson.Extracted.Obj -> {
-                                val story = ex.json.optString("story", "").takeIf { it.isNotBlank() }
+                                val rawHeadline = ex.json.optString("headline", "").trim().takeIf { it.isNotBlank() }
+                                val highlightsArr = ex.json.optJSONArray("highlights") ?: JSONArray()
+                                val highlightsList = (0 until minOf(highlightsArr.length(), 4)).mapNotNull { i ->
+                                    highlightsArr.optString(i, "").trim().takeIf { it.isNotBlank() }
+                                }
+                                val rawWatchout = ex.json.optString("watchout", "").trim().takeIf { it.isNotBlank() }
+                                val actionsArr = ex.json.optJSONArray("actionItems") ?: JSONArray()
+                                val actionList = (0 until minOf(actionsArr.length(), 4)).mapNotNull { i ->
+                                    actionsArr.optJSONObject(i)?.let { o -> o.keys().asSequence().associateWith { k -> o.opt(k) } }
+                                }
+                                val rawStory = ex.json.optString("story", "").trim().takeIf { it.isNotBlank() }
+                                val combinedStory = rawStory ?: buildList {
+                                    if (rawHeadline != null) add(rawHeadline)
+                                    addAll(highlightsList)
+                                    if (rawWatchout != null) add(rawWatchout)
+                                }.joinToString(" ").trim().takeIf { it.isNotBlank() }
+
                                 val arr = ex.json.optJSONArray("suggestions") ?: JSONArray()
                                 val list = (0 until minOf(arr.length(), 4)).mapNotNull { i ->
                                     arr.optJSONObject(i)?.let { o -> o.keys().asSequence().associateWith { k -> o.opt(k) } }
                                 }
-                                done(story, list, if (story == null) AiFault.MALFORMED else null, usage, 200, if (story == null) "NoStory" else null)
+                                done(
+                                    story = combinedStory,
+                                    suggestions = list,
+                                    fault = if (combinedStory == null) AiFault.MALFORMED else null,
+                                    usage = usage,
+                                    status = 200,
+                                    errorClass = if (combinedStory == null) "NoStory" else null,
+                                    headline = rawHeadline,
+                                    highlights = highlightsList,
+                                    watchout = rawWatchout,
+                                    actionItems = actionList
+                                )
                             }
                         }
                     } catch (e: CancellationException) {

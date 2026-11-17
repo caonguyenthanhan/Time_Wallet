@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white" alt="Jetpack Compose" />
   <img src="https://img.shields.io/badge/Android-API%2026%E2%80%9335-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android API 26-35" />
   <img src="https://img.shields.io/badge/Room%20SQLite-Schema%20v5-00838F?style=flat-square" alt="Room Schema v5" />
-  <img src="https://img.shields.io/badge/JVM%20Tests-616%2F618%20PASS-2E7D32?style=flat-square" alt="Unit Tests" />
+  <img src="https://img.shields.io/badge/JVM%20Tests-618%2F620%20PASS-2E7D32?style=flat-square" alt="Unit Tests" />
   <img src="https://img.shields.io/badge/Lint%20Release-0%20errors-2E7D32?style=flat-square" alt="Lint Release" />
 </p>
 
@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <sub><i>Ảnh tổng hợp chụp trên emulator QA <code>WallyQA</code> (Android 9, <code>780×1688 @320dpi</code>) với dữ liệu mock synthetic 7 ngày và live AI <code>cinb/claude-sonnet-4-6</code> trên bản nền Release <code>3B144E36…</code> (trước đợt tích hợp thêm 5 thành phần UI Compose mới trên APK <code>D500D410…</code>; thiết bị thật: <code>NOT_TESTED</code>).</i></sub>
+  <sub><i>Ảnh tổng hợp chụp trên emulator QA <code>WallyQA</code> (Android 9, <code>780×1688 @320dpi</code>) với dữ liệu mock synthetic 7 ngày và live AI <code>cinb/claude-sonnet-4-6</code> trên bản nền Release <code>3B144E36…</code> (trước đợt tích hợp 5 thành phần UI Compose mới và nâng cấp thẻ <code>Wally AI Coach</code> ngắn gọn + Action Items trên APK <code>FA58218B…</code>; hiển thị trên thiết bị thật: <code>NOT_TESTED</code>).</i></sub>
 </p>
 
 ---
@@ -33,18 +33,19 @@
 - **Sổ cái Thời gian 5 lớp bất biến & Chống chồng lấn nguyên tử (`domain/` + Room v5):**
   - Tách biệt rõ 5 tầng `MEASURED`, `REPORTED_TIMED`, `REPORTED_UNTIMED`, `ACTIVE` và `PLANNED` (`ConfirmationState`: `PLANNED`, `DOING`, `PENDING_CONFIRMATION`, `COMPLETED`, `ADJUSTED`, `INTERRUPTED`, `CANCELLED`).
   - Không bao giờ tự suy đoán mốc giờ bắt đầu/kết thúc cho dữ liệu chỉ có thời lượng; không cộng gộp `REPORTED_UNTIMED` hay `PLANNED` vào trục 24h / cột 7 ngày có mốc giờ; hỗ trợ hoạt động vắt qua nửa đêm **`UC-15`** và tách đoạn nghỉ xen giữa / hoạt động song song trong Room `@Transaction` kết hợp `LedgerConcurrencyGate.mutex`.
-- **AI-First Opt-in + Kiểm chứng tất định (Zero Auto-Commit & Zero Fabricated Numbers):**
-  - `Wally Chat` và `Wally Coach` kết nối OpenAI-compatible Chat Completions gateway bằng API Key riêng do người dùng tự nhập và mã hóa AES-GCM qua Android Keystore (model mặc định `cinb/claude-sonnet-4-6` kèm nút chọn nhanh trong cấu hình).
-  - Mọi câu trả lời từ AI đi qua chuỗi guard (`ReplyGuard`, `AiProposalGuard`, `UntilNowGuard`, `BudgetClaimGuard`, `FutureStartGuard`, `CoachGuard`) và bộ Regex tương thích ICU/JDK (`Rx.kt`); AI chỉ tạo thẻ đề xuất chờ người dùng xác nhận hoặc diễn giải trên số liệu đã tính sẵn cục bộ.
+- **AI-First Opt-in + Kiểm chứng tất định (Style riêng, Siêu ngắn 5 giây & Interactive Action Items):**
+  - `Wally Chat` và `Wally AI Coach` (`wally-coach-5`) kết nối OpenAI-compatible Chat Completions gateway bằng API Key riêng mã hóa AES-GCM Android Keystore (mặc định `cinb/claude-sonnet-4-6`).
+  - Thẻ **Wally AI Spotlight** trình bày có cấu trúc gọn (`headline` 1 câu, `1–2` điểm sáng `●`, badge `Lưu ý:` màu ấm, và **Action Items** có ô đánh dấu + nút 1 chạm **`Lên lịch →` / `Bấm giờ →` / `Gắn Tag →` / `Nhìn lại →`** chỉ mở sẵn form cho người dùng quyết định, không tự ghi DB).
+  - Mọi đầu ra qua chuỗi guard tất định (`ReplyGuard`, `AiProposalGuard`, `CoachGuard.checkStructured`, `Rx.kt`) chặn số ngoài dữ liệu, phán xét hay suy đoán cảm xúc.
 - **5 thành phần Jetpack Compose tương tác gốc vừa tích hợp (`v1.2.0`):**
   1. **Timeline dọc theo giờ & Chỉnh nhanh `±15p` (`HistoryScreen`, `UiKit`):** sắp tăng dần từ sáng đến tối, cột giờ đối diện bên trái, chấm đặc / vòng xoay động cho phiên `DOING` / đường nối dừng ở chấm cuối, hỗ trợ tay cầm `−15p`/`+15p` cho thẻ `PLANNED` (bị khóa với bản ghi đã ghi nhận).
-  2. **Hội thoại Chat chuẩn mực (`ChatScreen`):** `LiveRegionMode.Polite`, bong bóng bo góc kèm đuôi hướng người nói, giới hạn ~75% chiều rộng cột, metadata giờ gửi + `Đã gửi ✓` / `Wally đã xem ✓✓`, và chỉ báo 3 chấm nảy tuần tự (`WallyTypingDots`).
+  2. **Hội thoại Chat chuẩn mực (`ChatScreen`):** `LiveRegionMode.Polite`, bong bóng bo góc kèm đuôi hướng người nói, giới hạn ~75% chiều rộng cột, metadata giờ gửi + `Đã gửi ✓` / `Wally đã xem ✓✓`, chỉ báo 3 chấm nảy tuần tự (`WallyTypingDots`) và thẻ trả lời `✦` kèm pill `◆ BƯỚC TIẾP THEO`.
   3. **Donut 2D tương tác (`OverviewScreen`, `InsightsScreen`, `UiKit`):** tối đa 6 lát cắt (`capDonutSlices`), khe hở đều, chạm lát hoặc dòng chú giải đẩy lát nổi nhẹ 2D (không 3D) và cập nhật chi tiết ở lỗ giữa.
   4. **Nhóm Floating Action + Speed Dial + Back-to-Top (`MainActivity`):** FAB tròn mở Speed Dial 3 hành động (`Ghi giờ thủ công`, `Bắt đầu đồng hồ`, `Nhìn lại ngày hôm nay`), nút mở nhanh Wally Chat, và nút Back-to-Top chỉ hiện khi cuộn `> 400 px`.
   5. **Kéo-thả sắp xếp thứ tự ngân sách (`InsightsScreen`, `BudgetDao`, `BudgetPolicy`):** tay cầm `⋮⋮`, bản xem trước nổi, vạch chèn `BudgetInsertionLine` trước khi thả, nút trợ năng `↑`/`↓` giữ nguyên phân nhóm ưu tiên và công bố qua `liveRegion`.
 - **Sẵn sàng Production dùng cá nhân (`v1.2.0` · `versionCode 16`):**
   - **Sao lưu / Khôi phục JSON lossless** (`MERGE_SAFE` và `REPLACE_ALL`, an toàn khi chuyển `Debug → Release`, không ghi đè khóa AI), cô lập Release Keystore ngoài Git, `CompletionBootReceiver` khôi phục lịch nhắc `AlarmManager` sau khởi động lại / cập nhật app / đổi múi giờ.
-  - **Kiểm chứng hiện hành (`task-3009`):** `616/618` JVM & contract tests PASS (`0 failed`, `2` bài Live API skipped khi chạy offline — đã pass trước đó ở vòng Live Eval), `lintRelease` đạt **0 errors** (`46 warnings`), APK Release ký số Scheme v2 hợp lệ. *(Hiển thị runtime trên emulator/máy thật cho bản build mới `D500D410…` là `NOT_TESTED`.)*
+  - **Kiểm chứng hiện hành (`task-3180`):** `618/620` JVM & contract tests PASS (`0 failed`, `2` bài Live API skipped khi chạy offline), `lintRelease` đạt **0 errors** (`46 warnings`), APK Release ký số Scheme v2 hợp lệ (`FA58218B…`); riêng bài Live Coach `wally-coach-5` với Foza thật đạt `8/8` cuộc gọi không fault qua `CoachGuard` (`105`–`168` ký tự, `0` lỗi rubric; `1` timeout tạm thời 45s). *(Hiển thị runtime trên emulator/máy thật cho APK `FA58218B…` là `NOT_TESTED`.)*
 
 ---
 

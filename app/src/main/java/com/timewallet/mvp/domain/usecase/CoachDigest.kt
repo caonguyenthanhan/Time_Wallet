@@ -357,6 +357,36 @@ sealed class CoachCheck {
     data class Rejected(val reason: String) : CoachCheck()
 }
 
+enum class CoachActionKind(val storageKey: String, val ctaLabelVi: String) {
+    PLAN("PLAN", "Lên lịch"),
+    TIMER("TIMER", "Bấm giờ"),
+    TAG("TAG", "Gắn Tag"),
+    REFLECT("REFLECT", "Nhìn lại")
+}
+
+/** Việc gợi ý tiếp theo để người dùng tự quyết (chỉ mở form/màn hình phù hợp, KHÔNG tự ghi DB). */
+data class CoachActionItem(
+    val title: String,
+    val kind: CoachActionKind = CoachActionKind.PLAN,
+    val targetCategoryKey: String? = null,
+    val targetTagId: String? = null,
+    val targetLabel: String? = null,
+    val durationMinutes: Int? = null
+)
+
+/** Đầu ra Wally AI Coach dạng có cấu trúc, ngắn gọn và dễ quét mắt. */
+data class CoachBrief(
+    val headline: String,
+    val highlights: List<String> = emptyList(),
+    val watchout: String? = null,
+    val actionItems: List<CoachActionItem> = emptyList()
+)
+
+sealed class CoachStructuredCheck {
+    data class Ok(val story: String, val brief: CoachBrief) : CoachStructuredCheck()
+    data class Rejected(val reason: String) : CoachStructuredCheck()
+}
+
 /** Đề xuất mục tiêu do AI gợi ý — chỉ là THẺ ĐỀ XUẤT chờ người dùng xác nhận, không bao giờ tự tạo. */
 data class CoachSuggestion(
     val targetType: GoalTargetType,
@@ -483,5 +513,137 @@ object CoachGuard {
             out += CoachSuggestion(tType, key, label, kind, period, seconds)
         }
         return out
+    }
+
+    /** Kiểm chứng các action item do AI gợi ý: tiêu đề qua [check], đối chiếu Tag/Category có thật, phút thuộc [CoachDigest.allowedMinutes]. */
+    fun validActionItems(
+        raw: List<Map<String, Any?>>,
+        digest: CoachDigest,
+        tags: List<Tag>
+    ): List<CoachActionItem> {
+        val out = ArrayList<CoachActionItem>()
+        for (item in raw) {
+            if (out.size >= 2) break
+            val title = (item["title"] as? String)?.trim().orEmpty()
+            if (title.isEmpty() || title.length > 120) continue
+            if (check(title, digest) !is CoachCheck.Ok) continue
+            val rawKind = (item["kind"] as? String)?.trim()?.uppercase()
+            val kind = CoachActionKind.entries.firstOrNull { it.storageKey == rawKind } ?: CoachActionKind.PLAN
+            val target = (item["target"] as? String)?.trim().orEmpty()
+            var catKey: String? = null
+            var tagId: String? = null
+            var label: String? = null
+            if (target.isNotEmpty()) {
+                val matchedTag = tags.firstOrNull { !it.isArchived && it.nameKey == TagRules.nameKey(target) }
+                if (matchedTag != null) {
+                    tagId = matchedTag.id
+                    catKey = matchedTag.category.key
+                    label = matchedTag.name
+                } else {
+                    val matchedCat = TimeCategory.fromKeyOrNull(target.lowercase())
+                        ?: TimeCategory.entries.firstOrNull { TagRules.nameKey(it.displayName) == TagRules.nameKey(target) }
+                    if (matchedCat != null) {
+                        catKey = matchedCat.key
+                        label = matchedCat.displayName
+                    }
+                }
+            }
+            val rawMins = (item["minutes"] as? Number)?.toInt()
+            val verifiedMins = rawMins?.takeIf { it in 5..480 && it in digest.allowedMinutes }
+            out += CoachActionItem(
+                title = title,
+                kind = kind,
+                targetCategoryKey = catKey,
+                targetTagId = tagId,
+                targetLabel = label,
+                durationMinutes = verifiedMins
+            )
+        }
+        return out
+    }
+
+    /** Tách câu đơn giản an toàn trên ICU/JVM mà không cắt nhầm số thập phân. */
+    private fun splitSentencesPlain(text: String): List<String> {
+        val cleaned = text.trim()
+        if (cleaned.isEmpty()) return emptyList()
+        val sentences = ArrayList<String>()
+        val cur = StringBuilder()
+        var i = 0
+        while (i < cleaned.length) {
+            val ch = cleaned[i]
+            cur.append(ch)
+            val isTerminator = ch == '.' || ch == '!' || ch == '?' || ch == '\n'
+            val nextIsBoundary = i == cleaned.lastIndex || cleaned[i + 1].isWhitespace()
+            val prevIsDigit = ch == '.' && i > 0 && cleaned[i - 1].isDigit() && i < cleaned.lastIndex && cleaned[i + 1].isDigit()
+            if (isTerminator && nextIsBoundary && !prevIsDigit) {
+                val s = cur.toString().trim()
+                if (s.isNotEmpty()) sentences += s
+                cur.setLength(0)
+            }
+            i++
+        }
+        val tail = cur.toString().trim()
+        if (tail.isNotEmpty()) sentences += tail
+        return sentences
+    }
+
+    /** Kiểm chứng toàn bộ đầu ra có cấu trúc của Coach (kể cả fallback từ [rawStory]). Mọi phần đều phải qua [check]. */
+    fun checkStructured(
+        rawStory: String?,
+        rawHeadline: String? = null,
+        rawHighlights: List<String> = emptyList(),
+        rawWatchout: String? = null,
+        rawActions: List<Map<String, Any?>> = emptyList(),
+        digest: CoachDigest,
+        tags: List<Tag>
+    ): CoachStructuredCheck {
+        val headlineClean = rawHeadline?.trim()?.takeIf { it.isNotEmpty() }
+        val highlightsClean = rawHighlights.mapNotNull { it.trim().takeIf { s -> s.isNotEmpty() } }.take(3)
+        val watchoutClean = rawWatchout?.trim()?.takeIf { it.isNotEmpty() }
+        val storyClean = rawStory?.trim()?.takeIf { it.isNotEmpty() }
+
+        val canonicalStory = storyClean ?: buildList {
+            if (headlineClean != null) add(headlineClean)
+            addAll(highlightsClean)
+            if (watchoutClean != null) add(watchoutClean)
+        }.joinToString(" ").trim()
+
+        if (canonicalStory.isEmpty()) return CoachStructuredCheck.Rejected("Lời kể trống.")
+        when (val c = check(canonicalStory, digest)) {
+            is CoachCheck.Rejected -> return CoachStructuredCheck.Rejected(c.reason)
+            CoachCheck.Ok -> Unit
+        }
+        if (headlineClean != null) {
+            val hc = check(headlineClean, digest)
+            if (hc is CoachCheck.Rejected) return CoachStructuredCheck.Rejected(hc.reason)
+        }
+        for (h in highlightsClean) {
+            val hCheck = check(h, digest)
+            if (hCheck is CoachCheck.Rejected) return CoachStructuredCheck.Rejected(hCheck.reason)
+        }
+        if (watchoutClean != null) {
+            val wc = check(watchoutClean, digest)
+            if (wc is CoachCheck.Rejected) return CoachStructuredCheck.Rejected(wc.reason)
+        }
+
+        val fallbackSentences = splitSentencesPlain(canonicalStory)
+        val finalHeadline = headlineClean ?: fallbackSentences.firstOrNull() ?: canonicalStory.take(120)
+        val finalHighlights = if (highlightsClean.isNotEmpty()) {
+            highlightsClean
+        } else {
+            fallbackSentences.drop(1).take(2)
+        }
+        val finalWatchout = watchoutClean ?: if (highlightsClean.isEmpty()) fallbackSentences.drop(3).firstOrNull() else null
+        val verifiedActions = validActionItems(rawActions, digest, tags)
+
+        return CoachStructuredCheck.Ok(
+            story = canonicalStory,
+            brief = CoachBrief(
+                headline = finalHeadline,
+                highlights = finalHighlights,
+                watchout = finalWatchout,
+                actionItems = verifiedActions
+            )
+        )
     }
 }

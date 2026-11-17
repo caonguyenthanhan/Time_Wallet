@@ -37,9 +37,13 @@ import com.timewallet.mvp.domain.model.OverlapResolution
 import com.timewallet.mvp.domain.model.Tag
 import com.timewallet.mvp.domain.usecase.ActivityBreakEngine
 import com.timewallet.mvp.domain.usecase.BreakDecision
+import com.timewallet.mvp.domain.usecase.CoachActionItem
+import com.timewallet.mvp.domain.usecase.CoachActionKind
+import com.timewallet.mvp.domain.usecase.CoachBrief
 import com.timewallet.mvp.domain.usecase.CoachCheck
 import com.timewallet.mvp.domain.usecase.CoachDigestBuilder
 import com.timewallet.mvp.domain.usecase.CoachGuard
+import com.timewallet.mvp.domain.usecase.CoachStructuredCheck
 import com.timewallet.mvp.domain.usecase.CoachSuggestion
 import com.timewallet.mvp.domain.usecase.ConfirmationActionResult
 import com.timewallet.mvp.domain.usecase.ConfirmationEngine
@@ -259,6 +263,7 @@ data class CoachUiState(
     val rangeDays: Int = 1,
     val facts: List<String> = emptyList(),
     val story: String? = null,
+    val brief: CoachBrief? = null,
     val suggestions: List<CoachSuggestion> = emptyList(),
     val note: String? = null,
     val requested: Boolean = false
@@ -2706,11 +2711,33 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             val coach = when {
                 raw.fault != null -> CoachUiState(rangeDays = days, facts = digest.facts, requested = true,
                     note = (raw.fault.messageVi) + " Số liệu bên trên vẫn do ứng dụng tính.")
-                else -> when (val check = CoachGuard.check(raw.story, digest)) {
-                    CoachCheck.Ok -> CoachUiState(
-                        rangeDays = days, facts = digest.facts, requested = true, story = raw.story!!.trim(),
-                        suggestions = CoachGuard.validSuggestions(raw.suggestions, fresh.tags, fresh.goals)
-                    )
+                else -> when (CoachGuard.check(raw.story, digest)) {
+                    CoachCheck.Ok -> when (
+                        val structured = CoachGuard.checkStructured(
+                            rawStory = raw.story,
+                            rawHeadline = raw.headline,
+                            rawHighlights = raw.highlights,
+                            rawWatchout = raw.watchout,
+                            rawActions = raw.actionItems,
+                            digest = digest,
+                            tags = fresh.tags
+                        )
+                    ) {
+                        is CoachStructuredCheck.Ok -> CoachUiState(
+                            rangeDays = days,
+                            facts = digest.facts,
+                            requested = true,
+                            story = structured.story,
+                            brief = structured.brief,
+                            suggestions = CoachGuard.validSuggestions(raw.suggestions, fresh.tags, fresh.goals)
+                        )
+                        is CoachStructuredCheck.Rejected -> CoachUiState(
+                            rangeDays = days,
+                            facts = digest.facts,
+                            requested = true,
+                            note = "Wally chưa kể được câu chuyện đủ chắc chắn từ dữ liệu này, nên chỉ hiện số liệu do ứng dụng tính."
+                        )
+                    }
                     is CoachCheck.Rejected -> CoachUiState(rangeDays = days, facts = digest.facts, requested = true,
                         note = "Wally chưa kể được câu chuyện đủ chắc chắn từ dữ liệu này, nên chỉ hiện số liệu do ứng dụng tính.")
                 }
@@ -2736,6 +2763,49 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
 
     fun dismissCoachSuggestion(index: Int) {
         _uiState.update { it.copy(coach = it.coach.copy(suggestions = it.coach.suggestions.filterIndexed { i, _ -> i != index })) }
+    }
+
+    /** Action Item của Coach chỉ mở biểu mẫu/màn hình tương ứng (hoặc điền sẵn bản nháp mới), không tự ghi vào sổ cái. */
+    fun triggerCoachAction(action: CoachActionItem) {
+        val current = _uiState.value
+        when (action.kind) {
+            CoachActionKind.PLAN -> {
+                if (current.pendingManualDraft != null) {
+                    openManualEntry(action.targetCategoryKey)
+                    showToast("Đang có bản nháp nhập dở; hoàn tất hoặc Clean trước khi lên lịch mới.")
+                    return
+                }
+                val mins = action.durationMinutes ?: 30
+                val draftForm = ManualEntryState(
+                    categoryKey = action.targetCategoryKey,
+                    hoursText = (mins / 60).takeIf { it > 0 }?.toString().orEmpty(),
+                    minutesText = (mins % 60).takeIf { it > 0 || mins < 60 }?.toString().orEmpty(),
+                    dateLocal = current.todayDateLocal,
+                    note = action.targetLabel ?: action.title,
+                    mode = ManualMode.DURATION,
+                    tagId = action.targetTagId,
+                    saveAsPlanned = true
+                )
+                _uiState.update { it.copy(manualEntry = draftForm) }
+            }
+            CoachActionKind.TIMER -> {
+                if (current.activeTimer != null) {
+                    _uiState.update { it.copy(currentTab = AppTab.TIMER) }
+                    showToast("Đồng hồ đang đo phiên hiện tại.")
+                    return
+                }
+                _uiState.update {
+                    it.copy(
+                        currentTab = AppTab.TIMER,
+                        timerInputTitle = action.targetLabel ?: action.title,
+                        timerInputCategoryKey = action.targetCategoryKey ?: it.timerInputCategoryKey,
+                        timerInputTagId = action.targetTagId ?: it.timerInputTagId
+                    )
+                }
+            }
+            CoachActionKind.TAG -> openTagManager()
+            CoachActionKind.REFLECT -> openDailyReview(current.todayDateLocal)
+        }
     }
 
     fun clearCrashReport() {

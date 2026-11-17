@@ -13,6 +13,7 @@ import com.timewallet.mvp.domain.usecase.ApiKeyHygiene
 import com.timewallet.mvp.domain.usecase.CoachCheck
 import com.timewallet.mvp.domain.usecase.CoachDigestBuilder
 import com.timewallet.mvp.domain.usecase.CoachGuard
+import com.timewallet.mvp.domain.usecase.CoachStructuredCheck
 import com.timewallet.mvp.domain.usecase.GoalRules
 import com.timewallet.mvp.domain.usecase.ReplyGuard
 import com.timewallet.mvp.domain.usecase.TagRules
@@ -106,12 +107,23 @@ class V110CoachLiveEvalTest {
                 val ms = (System.nanoTime() - t0) / 1_000_000L
                 total++
                 val check = if (raw.fault == null) CoachGuard.check(raw.story, digest) else CoachCheck.Rejected("fault=${raw.fault}")
+                val structuredCheck = if (check is CoachCheck.Ok) {
+                    CoachGuard.checkStructured(
+                        rawStory = raw.story,
+                        rawHeadline = raw.headline,
+                        rawHighlights = raw.highlights,
+                        rawWatchout = raw.watchout,
+                        rawActions = raw.actionItems,
+                        digest = digest,
+                        tags = tags
+                    )
+                } else null
                 val story = raw.story.orEmpty()
                 val folded = story.lowercase()
                 val suggestions = CoachGuard.validSuggestions(raw.suggestions, tags, sc.goals)
                 val rubric = ArrayList<String>()
                 if (raw.fault != null) faults++
-                if (check is CoachCheck.Ok) {
+                if (check is CoachCheck.Ok && structuredCheck is CoachStructuredCheck.Ok) {
                     guardOk++
                     if (sc.needsGoalMention != null && !folded.contains(sc.needsGoalMention)) rubric += "không nhắc mục tiêu '${sc.needsGoalMention}'"
                     if (sc.expectCaution && cautionWords.none { folded.contains(it) }) rubric += "dữ liệu mỏng nhưng không nêu sự thận trọng"
@@ -120,16 +132,22 @@ class V110CoachLiveEvalTest {
                     if (CoachGuard.claimsOwnChange(story)) rubric += "khẳng định đã ghi/đổi dữ liệu"
                 }
                 if (rubric.isNotEmpty()) rubricFail++
+                val brief = (structuredCheck as? CoachStructuredCheck.Ok)?.brief
                 val line = JSONObject()
                     .put("scenario", sc.id).put("repeat", r).put("model", model).put("latency_ms", ms).put("fault", raw.fault?.name ?: JSONObject.NULL)
                     .put("prompt_tokens", raw.usage?.promptTokens ?: JSONObject.NULL).put("completion_tokens", raw.usage?.completionTokens ?: JSONObject.NULL)
-                    .put("guard", if (check is CoachCheck.Ok) "OK" else (check as CoachCheck.Rejected).reason)
+                    .put("guard", if (check is CoachCheck.Ok && structuredCheck is CoachStructuredCheck.Ok) "OK" else (check as? CoachCheck.Rejected)?.reason ?: (structuredCheck as CoachStructuredCheck.Rejected).reason)
                     .put("rubric_failures", rubric.joinToString("; ").ifEmpty { JSONObject.NULL })
+                    .put("headline", brief?.headline ?: raw.headline ?: JSONObject.NULL)
+                    .put("highlights_count", brief?.highlights?.size ?: raw.highlights.size)
+                    .put("action_items_count", brief?.actionItems?.size ?: 0)
+                    .put("action_items_titles", brief?.actionItems?.joinToString(" | ") { "${it.kind.storageKey}:${it.title}" } ?: "")
                     .put("suggestions_raw", raw.suggestions.size).put("suggestions_valid", suggestions.size)
+                    .put("story_chars", story.length)
                     .put("story", story)
                     .toString()
                 out.appendText(line + "\n", Charsets.UTF_8)
-                println("[coach] ${sc.id}#$r ${ms}ms fault=${raw.fault} guard=${if (check is CoachCheck.Ok) "OK" else (check as CoachCheck.Rejected).reason} rubric=${rubric.size}")
+                println("[coach] ${sc.id}#$r ${ms}ms fault=${raw.fault} chars=${story.length} actions=${brief?.actionItems?.size ?: 0} guard=${if (check is CoachCheck.Ok && structuredCheck is CoachStructuredCheck.Ok) "OK" else "REJECT"} rubric=${rubric.size}")
                 Thread.sleep(500)
             }
         }

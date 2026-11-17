@@ -3,13 +3,23 @@ package com.timewallet.mvp
 import com.timewallet.mvp.domain.model.BudgetPeriod
 import com.timewallet.mvp.domain.model.CategoryTimeBudget
 import com.timewallet.mvp.domain.model.ConfirmationState
+import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.model.TimeLayer
 import com.timewallet.mvp.domain.usecase.BudgetPolicy
+import com.timewallet.mvp.domain.usecase.CoachActionKind
+import com.timewallet.mvp.domain.usecase.CoachDigestBuilder
+import com.timewallet.mvp.domain.usecase.CoachGuard
+import com.timewallet.mvp.domain.usecase.CoachStructuredCheck
 import com.timewallet.mvp.domain.usecase.ConfirmationActionResult
 import com.timewallet.mvp.domain.usecase.ConfirmationEngine
 import com.timewallet.mvp.domain.usecase.LedgerValidator
+import com.timewallet.mvp.domain.usecase.TagRules
 import com.timewallet.mvp.domain.usecase.ValidationResult
+import com.timewallet.mvp.data.ai.GeminiProposalClient
+import kotlinx.coroutines.runBlocking
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.time.LocalDate
 import java.time.ZoneId
@@ -147,5 +157,107 @@ class V121UiIntegrationTest {
         assertTrue(main.contains("shouldShowBackToTop(scrollState.value)"))
         assertTrue(main.contains("Hỏi nhanh Wally"))
         assertTrue(main.contains("Ghi giờ thủ công") && main.contains("Bắt đầu đồng hồ") && main.contains("Nhìn lại ngày hôm nay"))
+        assertTrue(main.contains("onTriggerAction = viewModel::triggerCoachAction"))
+
+        val personal = readSrc("ui/screens/PersonalScreens.kt")
+        assertTrue(personal.contains("Wally AI Coach"))
+        assertTrue(personal.contains("ActionItemCard("))
+        assertTrue(personal.contains("◆ ACTION ITEMS"))
+        assertTrue(chat.contains("◆ BƯỚC TIẾP THEO"))
+        assertTrue(chat.contains("text = \"✦\"") && personal.contains("✦ WALLY AI"))
+    }
+
+    @Test
+    fun `checkStructured keeps concise CoachBrief style and verifies every field plus action items`() {
+        val runTag = TagRules.newTag("Chạy bộ", TagRules.nameKey("Chạy bộ"), TimeCategory.HEALTH, 1L, "t_run")
+        val rec = LedgerRecord(
+            id = "r1", source = "manual", layer = TimeLayer.REPORTED_UNTIMED, createdAt = nowMs, userConfirmedAt = nowMs,
+            category = TimeCategory.HEALTH, title = "Chạy bộ", date = today.toString(), durationSeconds = 35L * 60L,
+            startedAt = null, endedAt = null, timezone = zone.id, status = "CONFIRMED", idempotencyKey = "k_r1", tagId = runTag.id
+        )
+        val digest = CoachDigestBuilder.build(listOf(rec), listOf(runTag), emptyList(), 7, nowMs, zone)
+
+        val structured = CoachGuard.checkStructured(
+            rawStory = "Chạy bộ đã ghi nhận 35 phút trong kỳ.",
+            rawHeadline = "Nhịp chạy bộ hôm nay: 35 phút.",
+            rawHighlights = listOf("Đã ghi nhận 35 phút Chạy bộ."),
+            rawWatchout = "Có dữ liệu 1/7 ngày.",
+            rawActions = listOf(
+                mapOf("title" to "Lên lịch thêm một buổi chạy 35 phút nếu hợp lịch", "kind" to "PLAN", "target" to "Chạy bộ", "minutes" to 35),
+                mapOf("title" to "Bị số lạ 999 phút không có trong dữ liệu", "kind" to "PLAN", "target" to "Chạy bộ", "minutes" to 999)
+            ),
+            digest = digest,
+            tags = listOf(runTag)
+        )
+        assertTrue(structured is CoachStructuredCheck.Ok)
+        val ok = structured as CoachStructuredCheck.Ok
+        assertEquals("Nhịp chạy bộ hôm nay: 35 phút.", ok.brief.headline)
+        assertEquals(1, ok.brief.highlights.size)
+        assertEquals("Có dữ liệu 1/7 ngày.", ok.brief.watchout)
+        // Action item thứ 2 có số 999 phút bị CoachGuard chặn; chỉ giữ action item hợp lệ thứ 1
+        assertEquals(1, ok.brief.actionItems.size)
+        assertEquals(CoachActionKind.PLAN, ok.brief.actionItems[0].kind)
+        assertEquals("t_run", ok.brief.actionItems[0].targetTagId)
+        assertEquals(35, ok.brief.actionItems[0].durationMinutes)
+
+        // Nếu headline hoặc watchout chứa lời phán xét -> từ chối toàn bộ
+        val rejected = CoachGuard.checkStructured(
+            rawStory = "Chạy bộ đã ghi nhận 35 phút.",
+            rawHeadline = "Bạn hơi lười trong 6 ngày còn lại.",
+            digest = digest,
+            tags = listOf(runTag)
+        )
+        assertTrue(rejected is CoachStructuredCheck.Rejected)
+
+        // Prompt giữ đủ ràng buộc ngắn gọn & schema actionItems
+        val prompt = GeminiProposalClient.coachSystemPrompt
+        assertTrue(prompt.contains("actionItems") && prompt.contains("headline") && prompt.contains("highlights"))
+    }
+
+    @Test
+    fun `requestCoach parses structured brief and actionItems from OpenAI-compatible payload`() {
+        val coachJson = JSONObject()
+            .put("headline", "Hôm nay đã ghi nhận 35 phút Chạy bộ.")
+            .put("highlights", JSONArray().put("Hoàn thành 35 phút theo mục tiêu đã ghi."))
+            .put("watchout", "Có dữ liệu 1/7 ngày trong kỳ.")
+            .put(
+                "actionItems",
+                JSONArray().put(
+                    JSONObject()
+                        .put("title", "Đặt lịch thêm 35 phút Chạy bộ nếu phù hợp")
+                        .put("kind", "PLAN")
+                        .put("target", "Chạy bộ")
+                        .put("minutes", 35)
+                )
+            )
+            .put("suggestions", JSONArray())
+            .toString()
+
+        val httpBody = JSONObject()
+            .put(
+                "choices",
+                JSONArray().put(
+                    JSONObject().put(
+                        "message",
+                        JSONObject().put("role", "assistant").put("content", coachJson)
+                    )
+                )
+            )
+            .toString()
+
+        val outcome = runBlocking {
+            GeminiProposalClient.requestCoach(
+                digestText = "Hôm nay đã ghi nhận 35 phút Chạy bộ.",
+                optInEnabled = true,
+                apiKey = "sk-test-synthetic-1234",
+                connectionFactory = { url -> AndroidLikeConnection(url, status = 200, body = httpBody) }
+            )
+        }
+        assertEquals(null, outcome.fault)
+        assertEquals("Hôm nay đã ghi nhận 35 phút Chạy bộ.", outcome.headline)
+        assertEquals(1, outcome.highlights.size)
+        assertEquals("Có dữ liệu 1/7 ngày trong kỳ.", outcome.watchout)
+        assertEquals(1, outcome.actionItems.size)
+        assertTrue(!outcome.story.isNullOrBlank())
     }
 }

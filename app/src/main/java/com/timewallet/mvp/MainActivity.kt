@@ -396,7 +396,8 @@ fun TimeWalletAppRoot(
                                 onAskCoach = viewModel::requestCoach,
                                 onDismissCoach = viewModel::dismissCoach,
                                 onConfirmSuggestion = viewModel::confirmCoachSuggestion,
-                                onDismissSuggestion = viewModel::dismissCoachSuggestion
+                                onDismissSuggestion = viewModel::dismissCoachSuggestion,
+                                onTriggerAction = viewModel::triggerCoachAction
                             )
                         }
                     }

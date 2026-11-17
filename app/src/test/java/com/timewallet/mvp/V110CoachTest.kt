@@ -171,7 +171,7 @@ class V110CoachTest {
         listOf("CHƯA GHI NHẬN", "Không phán xét", "Không khẳng định hay đoán nguyên nhân","chỉ nhắc các con số CÓ TRONG khối dữ liệu", "không tự đặt mục tiêu").forEach {
             assertTrue("thiếu quy tắc: $it", p.contains(it, ignoreCase = true))
         }
-        assertEquals("wally-coach-4",GeminiProposalClient.COACH_PROMPT_VERSION)
+        assertEquals("wally-coach-5", GeminiProposalClient.COACH_PROMPT_VERSION)
         assertEquals("wally-prompt-8", GeminiProposalClient.PROMPT_VERSION)   // tách biệt với prompt chat
     }
 }
