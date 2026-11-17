@@ -3,6 +3,7 @@ package com.timewallet.mvp.domain.usecase
 import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.model.TimeCategory
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.random.Random
 
@@ -164,13 +165,14 @@ object DopamineTimeDiceEngine {
     ): DiceBehavioralContext {
         val todayRecords = records.filter { it.date == todayDateLocal && it.layer.countsAsUsedTime }
 
+        // Chỉ phần đã xảy ra và đã xác nhận (ACTIVE: không tính phần chưa tới hay phần quá giờ chưa xác nhận), như LedgerAnalyticsCalculator.
         val focusSeconds = todayRecords
             .filter { it.category == TimeCategory.WORK || it.category == TimeCategory.LEARN }
-            .sumOf { it.durationSeconds }
+            .sumOf { it.actualElapsedSecondsAt(nowEpochMs, todayDateLocal) }
 
         val restFunSeconds = todayRecords
             .filter { it.category == TimeCategory.REST || it.category == TimeCategory.FUN }
-            .sumOf { it.durationSeconds }
+            .sumOf { it.actualElapsedSecondsAt(nowEpochMs, todayDateLocal) }
 
         val threeHoursAgoMs = nowEpochMs - 3 * 3_600_000L
         val recentFocusSeconds = todayRecords
@@ -180,7 +182,7 @@ object DopamineTimeDiceEngine {
             }
             .sumOf { record ->
                 val start = max(record.startedAt ?: threeHoursAgoMs, threeHoursAgoMs)
-                val end = record.endedAt ?: nowEpochMs
+                val end = min(record.confirmedCutoffEpochMsAt(nowEpochMs), nowEpochMs)
                 max(0L, (end - start) / 1000L)
             }
 

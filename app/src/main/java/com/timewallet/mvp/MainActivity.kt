@@ -16,8 +16,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -36,12 +39,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -54,14 +59,26 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.timewallet.mvp.ui.AppTab
 import com.timewallet.mvp.ui.TimeWalletViewModel
 import com.timewallet.mvp.ui.screens.AiSettingsDialog
+import com.timewallet.mvp.ui.screens.BudgetDeleteConfirmDialog
+import com.timewallet.mvp.ui.screens.BudgetEditorDraft
 import com.timewallet.mvp.ui.screens.ChatScreen
 import com.timewallet.mvp.ui.screens.DailyReviewScreen
+import com.timewallet.mvp.ui.screens.DataManagementDialog
 import com.timewallet.mvp.ui.screens.EditRecordDialog
 import com.timewallet.mvp.ui.screens.ExportJsonDialog
 import com.timewallet.mvp.ui.screens.HistoryScreen
 import com.timewallet.mvp.ui.screens.InsightsScreen
 import com.timewallet.mvp.ui.screens.ManualEntrySheet
 import com.timewallet.mvp.ui.screens.OverviewScreen
+import com.timewallet.mvp.ui.screens.GoalEditorDialog
+import com.timewallet.mvp.ui.screens.GoalsDialog
+import com.timewallet.mvp.ui.screens.PersonalHubCard
+import com.timewallet.mvp.ui.screens.TagManagerDialog
+import com.timewallet.mvp.domain.usecase.GoalRules
+import com.timewallet.mvp.domain.usecase.TagRules
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import com.timewallet.mvp.ui.screens.ProductInfoDialog
 import com.timewallet.mvp.ui.screens.TimeBudgetEditorDialog
 import com.timewallet.mvp.ui.screens.TimeWalletBottomBar
@@ -81,12 +98,24 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * v1.0.12 (P1-NAV): thanh tab chỉ ẩn khi bàn phím THẬT (ime inset ở đáy > 0) đang hiện ở Wally. Mọi trường hợp khác — kể cả khi hệ thống
+ * không chuyển inset cho Compose (Android trước 15, LDPlayer Android 9) — thanh tab luôn hiện để người dùng không bị kẹt trong Wally.
+ */
+internal fun shouldShowBottomBar(currentTab: AppTab, imeBottomPx: Int): Boolean =
+    !(imeBottomPx > 0 && currentTab == AppTab.CHAT)
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scrollState = rememberScrollState()
+    // v1.0.12 (P1-NAV): KHÔNG dùng `WindowInsets.isImeVisible`. Đo trên Android 9 (WallyQA): isImeVisible = true ngay cả ở tab Tổng quan trong khi
+    // ime inset = 0 và không có bàn phím (mInputShown=false): khi hệ thống không chuyển inset cho Compose (app chưa edge-to-edge trước Android 15)
+    // cờ đó đứng yên ở giá trị khởi tạo `true`. Chỉ coi bàn phím là đang hiện khi có phần inset THẬT ở đáy.
+    val imeBottomPx = WindowInsets.ime.getBottom(LocalDensity.current)
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -107,6 +136,16 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
     }
 
     var pendingJsonToWrite by remember { mutableStateOf<String?>(null) }
+    var pendingBudgetDelete by remember { mutableStateOf<String?>(null) }
+    var showDataDialog by remember { mutableStateOf(false) }
+    // Tin nhắn vừa gửi ở Wally (chỉ để hiển thị bong bóng): sống qua đổi tab và xoay màn hình.
+    var lastChatUserMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    var preservedBudgetDraft by remember { mutableStateOf<BudgetEditorDraft?>(null) }
+    LaunchedEffect(state.showBudgetDialog) {
+        if (!state.showBudgetDialog) {
+            preservedBudgetDraft = null
+        }
+    }
     val createDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
     ) { uri: Uri? ->
@@ -129,9 +168,22 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
         scrollState.scrollTo(0)
     }
 
-    // WALLY: nút thêm giờ nhanh ở Tổng quan và Nhật ký (không hiện trong Daily Review để không che nội dung).
-    val showFab = (state.currentTab == AppTab.OVERVIEW && !state.isShowingDailyReview) ||
-        state.currentTab == AppTab.HISTORY
+    // v1.1.0: tóm tắt mục tiêu (tiến độ do ứng dụng tính) và gợi ý Tag gần đây/thường dùng; tính lại khi sổ cái/Tag/mục tiêu đổi.
+    val goalSummaries = remember(state.goals, state.records, state.tags, state.todayDateLocal) {
+        val zone = ZoneId.systemDefault()
+        GoalRules.summaries(
+            goals = state.goals, records = state.records,
+            tagNameOf = { id -> state.tags.firstOrNull { it.id == id }?.name },
+            today = LocalDate.now(zone), nowEpochMs = System.currentTimeMillis(), zone = zone
+        )
+    }
+    val activeTags = remember(state.tags) { state.tags.filter { !it.isArchived } }
+    val tagSuggestions = remember(state.tags, state.records) {
+        TagRules.suggestions(state.tags, state.records, System.currentTimeMillis(), ZoneId.systemDefault())
+    }
+
+    // v1.0.11: nút ＋ nổi chỉ ở Nhật ký; Tổng quan đã có ô "Thêm giờ" ở màn hình đầu nên không để nút nổi che nội dung.
+    val showFab = state.currentTab == AppTab.HISTORY
 
     Box(
         modifier = Modifier
@@ -150,7 +202,8 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
                     isTimerRunning = state.activeTimer != null,
                     timerSeconds = state.timerElapsedSeconds,
                     onTimerBadgeClick = { viewModel.selectTab(AppTab.TIMER) },
-                    onExportClick = { viewModel.prepareExportJson() },
+                    onDataClick = { showDataDialog = true },
+                    onAiSettingsClick = { viewModel.toggleAiSettingsDialog(true) },
                     onInfoClick = { viewModel.toggleProductInfoDialog(true) }
                 )
             },
@@ -167,18 +220,23 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
                 }
             },
             bottomBar = {
-                TimeWalletBottomBar(
-                    currentTab = state.currentTab,
-                    isTimerRunning = state.activeTimer != null,
-                    onSelectTab = { viewModel.selectTab(it) }
-                )
+                // Khi bàn phím THẬT đang hiện ở Wally, ẩn thanh tab để nhường chỗ cho hội thoại; mọi trường hợp khác thanh tab luôn hiện.
+                if (shouldShowBottomBar(state.currentTab, imeBottomPx)) {
+                    TimeWalletBottomBar(
+                        currentTab = state.currentTab,
+                        isTimerRunning = state.activeTimer != null,
+                        onSelectTab = { viewModel.selectTab(it) }
+                    )
+                }
             }
         ) { innerPadding ->
+            // v1.0.11: Wally là màn hình hội thoại với ô nhập ghim đáy nên không nằm trong khối cuộn chung.
+            val isChatTab = state.currentTab == AppTab.CHAT
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .verticalScroll(scrollState)
+                    .then(if (isChatTab) Modifier else Modifier.verticalScroll(scrollState))
                     .padding(horizontal = 16.dp, vertical = 4.dp)
             ) {
                 when (state.currentTab) {
@@ -209,6 +267,17 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
                                 onAddManual = { viewModel.openManualEntry() },
                                 onNavigateToTab = { viewModel.selectTab(it) }
                             )
+                            PersonalHubCard(
+                                goalSummaries = goalSummaries,
+                                coach = state.coach,
+                                aiEnabled = state.aiPreferences.optInEnabled && state.aiPreferences.apiKey.isNotBlank(),
+                                onOpenGoals = viewModel::openGoals,
+                                onOpenTags = viewModel::openTagManager,
+                                onAskCoach = viewModel::requestCoach,
+                                onDismissCoach = viewModel::dismissCoach,
+                                onConfirmSuggestion = viewModel::confirmCoachSuggestion,
+                                onDismissSuggestion = viewModel::dismissCoachSuggestion
+                            )
                         }
                     }
 
@@ -229,7 +298,10 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
                         onApplyDiceAndStartTimer = viewModel::applyDiceRollAndStartTimer,
                         onStartTimer = viewModel::startTimer,
                         onStopAndSaveTimer = viewModel::stopAndSaveTimer,
-                        onCancelTimer = viewModel::cancelRunningTimer
+                        onCancelTimer = viewModel::cancelRunningTimer,
+                        tagSuggestions = tagSuggestions,
+                        selectedTagId = state.timerInputTagId,
+                        onSelectTag = viewModel::selectTimerTag
                     )
 
                     AppTab.CHAT -> ChatScreen(
@@ -254,7 +326,9 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
                         onDiscardProposal = viewModel::discardProposal,
                         onClearAllProposals = viewModel::clearAllProposals,
                         onConfirmSingleProposal = viewModel::confirmSingleProposal,
-                        onConfirmAllProposals = viewModel::confirmAllProposals
+                        onConfirmAllProposals = viewModel::confirmAllProposals,
+                        lastUserMessage = lastChatUserMessage,
+                        onLastUserMessageChange = { lastChatUserMessage = it }
                     )
 
                     AppTab.HISTORY -> HistoryScreen(
@@ -265,18 +339,16 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
                         onConfirmPlannedOrActiveRecord = viewModel::confirmPlannedOrActiveRecord,
                         onEditRecord = viewModel::openEditRecord,
                         onDeleteRecord = viewModel::deleteRecord,
-                        onLoadSampleData = viewModel::loadSampleData,
-                        onExportJsonClick = viewModel::prepareExportJson,
-                        onClearAllData = viewModel::clearAllData
+                        onAddManual = { viewModel.openManualEntry() }
                     )
 
                     AppTab.INSIGHTS -> InsightsScreen(
                         weeklyInsights = state.weeklyInsights,
                         onOpenBudgetEditor = viewModel::openBudgetEditor,
-                        onDeleteBudget = viewModel::deleteCategoryBudget
+                        onDeleteBudget = { pendingBudgetDelete = it }
                     )
                 }
-                Spacer(modifier = Modifier.height(if (showFab) 88.dp else 16.dp))
+                if (!isChatTab) Spacer(modifier = Modifier.height(if (showFab) 88.dp else 16.dp))
             }
         }
 
@@ -286,8 +358,8 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = if (showFab) 148.dp else 72.dp, start = 16.dp, end = 16.dp)
+                .align(Alignment.TopCenter)
+                .padding(top = 64.dp, start = 16.dp, end = 16.dp)
         ) {
             state.toastMessage?.let { msg ->
                 Box(
@@ -362,9 +434,57 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
     state.manualEntry?.let { form ->
         ManualEntrySheet(
             state = form,
+            suggestions = tagSuggestions,
+            allActiveTags = activeTags,
             onChange = viewModel::updateManualEntry,
+            onSelectTag = viewModel::selectManualTag,
+            onCreateTag = viewModel::createTagFromManualEntry,
             onSave = viewModel::saveManualEntry,
             onDismiss = viewModel::closeManualEntry
+        )
+    }
+
+    state.tagManager?.let { tm ->
+        TagManagerDialog(
+            state = tm,
+            tags = state.tags,
+            onChange = viewModel::updateTagManager,
+            onCreate = viewModel::createTagFromManager,
+            onRename = viewModel::renameTag,
+            onSetCategory = viewModel::setTagCategory,
+            onArchive = viewModel::archiveTag,
+            onRestore = viewModel::restoreTag,
+            onDismiss = viewModel::closeTagManager
+        )
+    }
+
+    if (state.showGoals && state.goalEditor == null) {
+        GoalsDialog(
+            summaries = goalSummaries,
+            onCreate = { viewModel.openGoalEditor(null) },
+            onEdit = { viewModel.openGoalEditor(it) },
+            onPause = viewModel::pauseGoal,
+            onResume = viewModel::resumeGoal,
+            onEnd = viewModel::endGoal,
+            onDismiss = viewModel::closeGoals
+        )
+    }
+    state.goalEditor?.let { ed ->
+        GoalEditorDialog(
+            state = ed,
+            activeTags = activeTags,
+            onChange = viewModel::updateGoalEditor,
+            onSave = viewModel::saveGoalEditor,
+            onDismiss = viewModel::closeGoalEditor
+        )
+    }
+
+    if (showDataDialog) {
+        DataManagementDialog(
+            onDismiss = { showDataDialog = false },
+            onExportJson = { viewModel.prepareExportJson() },
+            onLoadSampleData = viewModel::loadSampleData,
+            onClearAllData = viewModel::clearAllData
         )
     }
 
@@ -376,13 +496,40 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
         )
     }
 
-    if (state.showBudgetDialog) {
+    // v1.0.10: chỉ một dialog ngân sách hiển thị tại một thời điểm; hủy xác nhận quay lại đúng trạng thái sửa Budget.
+    val activeDeleteKey = pendingBudgetDelete
+    if (activeDeleteKey != null) {
+        BudgetDeleteConfirmDialog(
+            categoryKey = activeDeleteKey,
+            onConfirm = {
+                viewModel.deleteCategoryBudget(activeDeleteKey)
+                pendingBudgetDelete = null
+                preservedBudgetDraft = null
+            },
+            onDismiss = {
+                pendingBudgetDelete = null
+            }
+        )
+    } else if (state.showBudgetDialog) {
         TimeBudgetEditorDialog(
             initialCategory = state.editingBudgetCategory,
             existingBudgets = state.budgets,
-            onDismiss = viewModel::closeBudgetEditor,
-            onSave = viewModel::saveCategoryBudget,
-            onDelete = viewModel::deleteCategoryBudget
+            preservedDraft = preservedBudgetDraft,
+            onDismiss = {
+                preservedBudgetDraft = null
+                viewModel.closeBudgetEditor()
+            },
+            onSave = { categoryKey, period, hoursText, minutesText, isPriority ->
+                preservedBudgetDraft = null
+                viewModel.saveCategoryBudget(categoryKey, period, hoursText, minutesText, isPriority)
+            },
+            onDelete = { categoryKey ->
+                pendingBudgetDelete = categoryKey
+            },
+            onDeleteWithDraft = { draft ->
+                preservedBudgetDraft = draft
+                pendingBudgetDelete = draft.categoryKey
+            }
         )
     }
 }

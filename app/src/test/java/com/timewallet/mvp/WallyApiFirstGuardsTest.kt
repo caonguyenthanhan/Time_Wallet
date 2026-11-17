@@ -243,7 +243,10 @@ class WallyApiFirstGuardsTest {
     @Test
     fun `offline features do not depend on the API key`() {
         val vm = File("src/main/java/com/timewallet/mvp/ui/TimeWalletViewModel.kt").readText()
-        val manual = vm.substring(vm.indexOf("fun saveManualEntry()"), vm.indexOf("fun clearCrashReport()"))
+        // v1.1.0: sau saveManualEntry là phần Tag/Mục tiêu/Coach (Coach là chức năng AI có chủ đích, tách riêng ở cuối); chỉ kiểm phần nhập thủ công.
+        val manual = vm.substring(vm.indexOf("fun saveManualEntry()"), vm.indexOf("// ------------------- v1.1.0: TAG CÁ NHÂN"))
+        val tagGoalSection = vm.substring(vm.indexOf("// ------------------- v1.1.0: TAG CÁ NHÂN"), vm.indexOf("// ------------------- v1.1.0: AI TIME COACH"))
+        assertFalse("Tag và Mục tiêu hoạt động offline", tagGoalSection.contains("aiPreferences") || tagGoalSection.contains("apiKey") || tagGoalSection.contains("GeminiProposalClient"))
         assertFalse(manual.contains("aiPreferences") || manual.contains("apiKey") || manual.contains("GeminiProposalClient"))
         listOf("fun startTimer", "fun stopAndSaveTimer", "fun saveCategoryBudget").forEach {
             val i = vm.indexOf(it); assertTrue("thiếu $it", i > 0)

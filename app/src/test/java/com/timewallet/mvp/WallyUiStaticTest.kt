@@ -69,7 +69,8 @@ class WallyUiStaticTest {
         assertTrue(components.contains("heightIn(min = 48.dp)"))
         assertTrue(components.split("minimumInteractiveComponentSize()").size - 1 >= 8)
         val sheet = src("ManualEntrySheet.kt")
-        assertTrue(sheet.contains("minimumInteractiveComponentSize()"))
+        // v1.1.0: chip dùng chung (ChoiceChip) nằm trong PersonalScreens.kt; form dùng nó cho mọi lựa chọn.
+        assertTrue(sheet.contains("ChoiceChip(") && src("PersonalScreens.kt").contains("minimumInteractiveComponentSize()"))
         assertTrue(sheet.contains("imePadding()") && sheet.contains("navigationBarsPadding()"))
         assertTrue(File("src/main/java/com/timewallet/mvp/MainActivity.kt").readText().contains("contentDescription = \"Thêm giờ thủ công\""))
     }

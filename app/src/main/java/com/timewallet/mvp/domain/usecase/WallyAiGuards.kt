@@ -4,6 +4,7 @@ import com.timewallet.mvp.domain.model.ActivityProposal
 import com.timewallet.mvp.domain.model.TimeCategory
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.format.DateTimeParseException
 import java.time.temporal.ChronoUnit
 import java.util.Locale
@@ -81,12 +82,22 @@ object AiQueryValidator {
  * - Lệnh hủy / câu sửa lại thời lượng: không đề xuất nào được sống sót (hỏi lại).
  * - Mệnh đề phủ định ("không học 2h"): đề xuất tương ứng bị bỏ; nếu không còn mệnh đề hợp lệ nào thì bỏ hết.
  * - Thời lượng AI đưa ra phải khớp thời lượng người dùng nêu (khi câu có thể đọc chắc chắn).
+ *   v1.0.13 (C2): câu gõ KHÔNG dấu được khôi phục dấu trước khi đọc (xem VietnameseChatParser.restoreUnaccented) và "1h rưỡi" = 90 phút,
+ *   nên đề xuất đúng không bị bỏ nhầm và đề xuất sai thời lượng vẫn bị bắt; câu đã có dấu được xử lý đúng như trước.
  */
 object AiProposalGuard {
 
     data class Result(val proposals: List<ActivityProposal>, val warnings: List<String>)
 
-    fun apply(userText: String, proposals: List<ActivityProposal>): Result {
+    /**
+     * @param today/nowTime ngày và giờ hiện tại do ứng dụng cung cấp (null = không đối chiếu "đến giờ").
+     */
+    fun apply(
+        userText: String,
+        proposals: List<ActivityProposal>,
+        today: LocalDate? = null,
+        nowTime: LocalTime? = null
+    ): Result {
         if (proposals.isEmpty()) return Result(proposals, emptyList())
         val text = userText.trim()
 
@@ -117,18 +128,107 @@ object AiProposalGuard {
             warnings += screened.warnings
         }
 
-        if (!VietnameseChatParser.hasUnnormalizedWordDuration(text)) {
-            val stated = VietnameseChatParser.allDurationMinutes(text)
+        // v1.0.13 (C2): câu gõ không dấu ("nghi luc 3h chieu 2 tieng") được khôi phục dấu trước khi đọc số liệu; câu có dấu không đổi.
+        val figText = VietnameseChatParser.restoreUnaccented(text)
+        if (!VietnameseChatParser.hasUnnormalizedWordDuration(figText)) {
+            val stated = VietnameseChatParser.allDurationMinutes(figText)
             if (stated.isNotEmpty()) {
                 val allowed = stated.toSet() + stated.sum()
                 val before = kept.size
-                kept = kept.filter { it.durationMinutes in allowed }
+                val openStarts = openEndedStartCandidates(text)
+                kept = kept.filter { it.durationMinutes in allowed || isOpenEndedRange(it, openStarts, today) }
                 if (kept.size < before) {
                     warnings += "Đã bỏ ${before - kept.size} đề xuất của AI có thời lượng không khớp với câu bạn nhập."
                 }
             }
         }
+        kept = reconcileOpenEnded(text, kept, today, nowTime, warnings)
         return Result(kept, warnings)
+    }
+
+    private val OPEN_END_PHRASE = Rx.uni("(?:đến|tới)\\s+(?:bây\\s+giờ|giờ|nay|lúc\\s+này)")
+    private val OPEN_END_FILLER = setOf("rồi", "này", "nè", "luôn", "đấy", "hiện", "tại")
+    private val CLAUSE_CLOCK = Rx.ascii("(\\d{1,2})\\s*(?:h|:)\\s*(\\d{0,2})")
+    private val PUNCT = setOf(',', ';', '.', '!', '?', '…')
+
+    /** Vị trí kết thúc (chỉ số trong [t]) của các cụm "đến giờ / đến bây giờ / đến nay / tới giờ" đứng ở cuối mệnh đề (không phải "đến giờ làm việc"). */
+    private fun openEndedPhraseMatches(t: String): List<MatchResult> = OPEN_END_PHRASE.findAll(t).filter { m ->
+        val rest = t.substring(m.range.last + 1).trimStart()
+        val words = rest.split(Rx.uni("\\s+")).filter { it.isNotEmpty() }
+        rest.isEmpty() || rest.first() in PUNCT || words.all { w -> OPEN_END_FILLER.contains(w.trimEnd(',', ';', '.', '!', '?', '…')) }
+    }.toList()
+
+    internal fun hasOpenEndedToNow(text: String): Boolean =
+        openEndedPhraseMatches(VietnameseChatParser.restoreUnaccented(text.lowercase(Locale("vi")))).isNotEmpty()
+
+    /**
+     * Giờ bắt đầu (phút trong ngày) có thể có của mệnh đề chứa "đến giờ": số giờ viết ngay trước cụm đó ("14h", "14h30", "14:30", "2h chiều").
+     * Chỉ trả giá trị khi đọc được chắc chắn; không có từ chỉ buổi thì chấp nhận cả giờ viết và giờ viết + 12 (vì "2h" có thể là 2h hoặc 14h).
+     */
+    internal fun openEndedStartCandidates(text: String): Set<Int> {
+        val t = VietnameseChatParser.restoreUnaccented(text.lowercase(Locale("vi")))
+        val out = mutableSetOf<Int>()
+        for (m in openEndedPhraseMatches(t)) {
+            val before = t.substring(0, m.range.first)
+            val clauseStart = (before.lastIndexOfAny(charArrayOf(',', ';', '.', '\n', '!', '?')) + 1)
+            val clause = before.substring(clauseStart)
+            val clock = CLAUSE_CLOCK.findAll(clause).lastOrNull() ?: continue
+            val h = clock.groupValues[1].toIntOrNull() ?: continue
+            val min = clock.groupValues[2].ifBlank { "0" }.toIntOrNull() ?: continue
+            if (h !in 0..23 || min !in 0..59) continue
+            val tail = clause.substring(clock.range.last + 1)
+            val period = listOf("sáng", "trưa", "chiều", "tối", "đêm").firstOrNull { tail.contains(it) }
+            when {
+                h > 12 -> out += h * 60 + min
+                period == "chiều" || period == "tối" -> out += (if (h < 12) h + 12 else h) * 60 + min
+                period == "sáng" || period == "đêm" -> out += h * 60 + min
+                period == "trưa" -> out += (if (h < 11) h + 12 else h) * 60 + min
+                else -> { out += h * 60 + min; if (h in 1..11) out += (h + 12) * 60 + min }
+            }
+        }
+        return out
+    }
+
+    private fun parseHm(s: String?): Int? = try {
+        s?.let { LocalTime.parse(it) }?.let { it.hour * 60 + it.minute }
+    } catch (_: Exception) {
+        null
+    }
+
+    /** Đề xuất khoảng giờ của hôm nay có giờ bắt đầu khớp mệnh đề "đến giờ": thời lượng của nó đến từ đồng hồ, không phải từ con số nào trong câu. */
+    private fun isOpenEndedRange(p: ActivityProposal, starts: Set<Int>, today: LocalDate?): Boolean =
+        starts.isNotEmpty() && p.timeEvidence == "explicit_range" && (today == null || p.dateLocal == today.toString()) &&
+            parseHm(p.startLocal)?.let { it in starts } == true
+
+    /**
+     * v1.0.12: "Code từ lúc 14h đến giờ" — giờ kết thúc là NGHĨA ĐEN của câu (giờ hiện tại do ứng dụng cung cấp), không phải điều AI đoán.
+     * Chỉ chỉnh đề xuất khoảng giờ của HÔM NAY có giờ bắt đầu khớp mệnh đề "đến giờ" (liên kết theo giờ bắt đầu, không theo thứ tự hay số lượng),
+     * khi bắt đầu nằm trước bây giờ và giờ kết thúc AI đưa lệch quá 2 phút. Bắt đầu không trước bây giờ thì giữ nguyên và cảnh báo.
+     */
+    private fun reconcileOpenEnded(
+        text: String,
+        proposals: List<ActivityProposal>,
+        today: LocalDate?,
+        nowTime: LocalTime?,
+        warnings: MutableList<String>
+    ): List<ActivityProposal> {
+        if (today == null || nowTime == null) return proposals
+        val starts = openEndedStartCandidates(text)
+        if (starts.isEmpty()) return proposals
+        val nowMin = nowTime.hour * 60 + nowTime.minute
+        val nowHm = "%02d:%02d".format(nowTime.hour, nowTime.minute)
+        return proposals.map { p ->
+            if (!isOpenEndedRange(p, starts, today)) return@map p
+            val end = parseHm(p.endLocal) ?: return@map p
+            if (kotlin.math.abs(end - nowMin) <= 2) return@map p
+            val startMin = parseHm(p.startLocal) ?: return@map p
+            if (startMin >= nowMin) {
+                warnings += "Câu có \"đến giờ\" (bây giờ là $nowHm) nhưng mốc bắt đầu ${p.startLocal} chưa tới. Hãy kiểm tra kỹ mốc giờ trước khi xác nhận."
+                return@map p
+            }
+            warnings += "Giờ kết thúc được đặt theo \"đến giờ\" = $nowHm (AI đề xuất ${p.endLocal})."
+            p.copy(endLocal = nowHm, durationSeconds = (nowMin - startMin) * 60L, isFuturePlanned = false)
+        }
     }
 
     private class Screened(val kept: List<ActivityProposal>, val warnings: List<String>)
@@ -203,12 +303,26 @@ object AiProposalGuard {
 }
 
 /**
- * Lời đáp tự do của AI (WALLY v1.0.6, F-V105-08 / R03). Lời đáp chỉ để diễn giải, KHÔNG phải nguồn sự thật:
- *  1. AI không được khẳng định đã ghi/lưu/sửa/xóa/hủy (chỉ ứng dụng mới được báo thành công, sau khi commit) và không được
- *     bảo "không cần xác nhận".
+ * Lời đáp tự do của AI (WALLY v1.0.6, F-V105-08 / R03; v1.0.13 G1). Lời đáp chỉ để diễn giải, KHÔNG phải nguồn sự thật:
+ *  1. AI không được khẳng định đã ghi/lưu/sửa/xóa/hủy (chỉ ứng dụng mới báo thành công, sau khi commit) và không được
+ *     bảo "không cần xác nhận". Áp dụng cho MỌI câu, kể cả câu hỏi: "Mình đã ghi xong rồi nhé?" vẫn bị chặn.
  *  2. Số liệu cá nhân (thời gian bằng chữ số HOẶC bằng chữ, phần trăm, số lần/buổi/bản ghi) chỉ đến từ LedgerQueryEngine.
- *     Chỉ một ngoại lệ: thời lượng của chính đề xuất đang chờ xác nhận (hiển thị lại cho khớp thẻ đề xuất).
- *     Số xuất hiện trong câu hỏi của người dùng KHÔNG phải căn cứ (AI lặp lại số trong câu hỏi cũng bị bỏ).
+ *     Hai ngoại lệ:
+ *      (a) thời lượng/giờ của chính đề xuất đang chờ xác nhận (hiển thị lại cho khớp thẻ đề xuất);
+ *      (b) v1.0.13: trong một CÂU HỎI (kết thúc bằng "?" hoặc có từ để hỏi: mấy, bao nhiêu, lúc nào, hay, đúng không, phải không...)
+ *          AI được nhắc lại số/thời lượng/giờ đồng hồ mà CHÍNH NGƯỜI DÙNG đã viết trong câu của họ (chữ số hoặc số bằng chữ,
+ *          có dấu hoặc không dấu, so theo số phút) để hỏi lại cho rõ: "Bạn muốn ghi 2 giờ hay 3 giờ?" khi người dùng nói "2h, à không, 3h".
+ *          Câu KHẲNG ĐỊNH vẫn không có ngoại lệ này ("Hôm nay bạn học 3 tiếng" bị bỏ dù người dùng có nói 3 tiếng; số trong câu hỏi
+ *          của người dùng không phải căn cứ), và số AI tự nghĩ ra không "rửa" được bằng cách đặt thành câu hỏi ("Hôm nay bạn đã dùng
+ *          5 giờ phải không?" khi người dùng không nói 5). Phần trăm, số lần/buổi, số tiếng Anh: không bao giờ có ngoại lệ.
+ *          v1.0.13 (G2), cũng CHỈ trong câu hỏi, "số của người dùng" gồm thêm: (i) GIỜ HIỆN TẠI mà ứng dụng đã đưa cho AI ("16:30", "16h30", "4h30 chiều",
+ *          "4 rưỡi chiều", "bây giờ mới 4 rưỡi"; phải đúng bằng giờ đó, xem [stripNowClock]); (ii) hai số "hay/hoặc" chung một đơn vị ("30 hay 40 phút");
+ *          (iii) số suy ra CHÍNH XÁC từ mốc giờ người dùng đã viết: độ dài và hai đầu (24h) của "từ 8h đến 9h", giờ có buổi ("7h tối" = 19:00).
+ *  3. "xong" / "hoàn thành" / "hoàn tất" đứng một mình KHÔNG phải động từ ghi sổ. Ở mệnh đề có từ để hỏi chúng là câu hỏi về việc của
+ *     người dùng ("Bạn đã làm xong lúc mấy giờ?", "Bạn đã hoàn thành chưa?") nên không bị coi là báo thành công; ở câu khẳng định
+ *     ("Xong xuôi rồi nhé.", "Đã hoàn thành.") vẫn bị chặn như trước. Động từ ghi sổ (ghi, lưu, thêm, xóa, sửa, cập nhật, hủy...) luôn bị chặn.
+ *  4. Lời đáp nhiều câu: mỗi câu được xét riêng và CHỈ CẦN MỘT câu vi phạm là bỏ CẢ lời đáp (không cắt bớt: câu hỏi còn lại có thể dựa trên
+ *     một tiền đề do AI bịa).
  */
 object ReplyGuard {
     private const val MAX_LENGTH = 400
@@ -235,42 +349,62 @@ object ReplyGuard {
     private val halfWord = Rx.uni("""$B(?:rưỡi|nửa\s+(?:giờ|tiếng))(?!\p{L})""", RegexOption.IGNORE_CASE)
 
     // Khẳng định đã thay đổi sổ cái / bỏ qua bước xác nhận. Cho phép tối đa 3 từ chen giữa ("đã giúp bạn lưu", "đã được Wally ghi lại").
-    private val verbs =
-        "ghi\\s*nhận|ghi\\s*lại|ghi\\s*chép|ghi|lưu\\s*trữ|lưu\\s*giữ|lưu\\s*lại|lưu|thêm|xóa|xoá|sửa|chỉnh\\s*sửa|chỉnh|cập\\s*nhật|hủy|huỷ|hoàn\\s*tất|hoàn\\s*thành|xử\\s*lý\\s+xong|đã\\s+xử\\s+lý|tiếp\\s*nhận|chốt|nạp|đồng\\s*bộ|cất|chép|note|nhập\\s*liệu"
+    // v1.0.13: động từ GHI SỔ tách khỏi động từ HOÀN TẤT ("hoàn tất/hoàn thành/xử lý xong" không phải thao tác lên sổ cái).
+    private val ledgerVerbs =
+        "ghi\\s*nhận|ghi\\s*lại|ghi\\s*chép|ghi|lưu\\s*trữ|lưu\\s*giữ|lưu\\s*lại|lưu|thêm|xóa|xoá|sửa|chỉnh\\s*sửa|chỉnh|cập\\s*nhật|hủy|huỷ|tiếp\\s*nhận|chốt|nạp|đồng\\s*bộ|cất|chép|note|nhập\\s*liệu"
+    private val completionVerbs = "hoàn\\s*tất|hoàn\\s*thành|xử\\s*lý\\s+xong|đã\\s+xử\\s+lý"
+    private val completionOnly =
+        "xong\\s+xuôi|xong\\s+hết|xong\\s+cả|tất\\s+cả\\s+(?:đã\\s+)?xong|mọi\\s+thứ\\s+(?:đã\\s+)?xong|xong\\s+rồi|hoàn\\s*tất\\s+rồi|hoàn\\s*thành\\s+rồi|đã\\s+xong"
     private val destinations =
         "(?:sổ(?:\\s*cái)?|nhật\\s*ký|danh\\s*sách|lịch\\s*sử|báo\\s*cáo|thống\\s*kê|dữ\\s*liệu|hệ\\s*thống|bộ\\s*nhớ|ví\\s+thời\\s+gian)"
     private val safeNegatedMarker = "(?<!chưa\\s)(?<!không\\s)(?<!chẳng\\s)"
-    private val claims = listOf(
-        // 1. Khẳng định trong một mệnh đề có (đã/vừa/vừa mới) + động từ ghi/lưu/cập nhật/hoàn tất (cho phép xen từ/số liệu trong cùng mệnh đề, không giới hạn 3 từ).
-        Rx.uni(
-            """$safeNegatedMarker$B(?:đã|vừa(?:\s+mới)?)\s+(?:(?!(?:chưa|không|chẳng|để|muốn|cần|chờ|trước\s+khi)\b)[^,.;!?\n]){0,70}?(?:$verbs)(?!\p{L})""",
-            RegexOption.IGNORE_CASE
-        ),
+
+    /**
+     * Các mẫu có thể trúng chỉ vì "xong/hoàn thành/hoàn tất" (mẫu 1, 3, 5, 8 cũ). [verbs] là tập động từ, [completion] là các cụm hoàn tất đứng một mình
+     * (rỗng = bỏ). Bản đầy đủ dùng cho câu khẳng định; bản chỉ-động-từ-ghi-sổ dùng cho mệnh đề có từ để hỏi.
+     */
+    private fun completionSensitive(verbs: String, completion: String): List<Regex> {
+        val co = if (completion.isEmpty()) "" else "$completion|"
+        val xo = if (completion.isEmpty()) "" else "|xong(?:\\s+việc)?"
+        return listOf(
+            // 1. Khẳng định trong một mệnh đề có (đã/vừa/vừa mới) + động từ ghi/lưu/cập nhật/hoàn tất (cho phép xen từ/số liệu trong cùng mệnh đề, không giới hạn 3 từ).
+            Rx.uni(
+                """$safeNegatedMarker$B(?:đã|vừa(?:\s+mới)?)\s+(?:(?!(?:chưa|không|chẳng|để|muốn|cần|chờ|trước\s+khi)\b)[^,.;!?\n]){0,70}?(?:$verbs)(?!\p{L})""",
+                RegexOption.IGNORE_CASE
+            ),
+            // 3. Trạng thái hoàn thành ngay sau động từ ("ghi xong", "lưu thành công", "xử lý xong").
+            Rx.uni("""$B(?:$verbs)(?:\s+lại)?\s+(?:xong|rồi|thành\s*công|hoàn\s*tất|hoàn\s*thành)(?!\p{L})""", RegexOption.IGNORE_CASE),
+            // 5. Cách nói gián tiếp hoàn tất hoặc giữ giúp người dùng ("xong xuôi", "tất cả xong rồi", "giữ giúp bạn rồi", "tự động hoàn tất").
+            Rx.uni(
+                """$B$safeNegatedMarker(?:${co}tự\s*động\s+(?:hoàn\s*tất|hoàn\s*thành|ghi|lưu|thêm|xử\s*lý|cập\s*nhật|xác\s*nhận|chốt)|(?:giữ|lưu\s*giữ|cất|chốt|giữ\s+hộ|giữ\s+lại)\s+(?:hộ|giúp|dùm|cho)\s+bạn(?:\s+\p{L}+){0,2}\s*(?:rồi|nhé|nha)?)(?!\p{L})""",
+                RegexOption.IGNORE_CASE
+            ),
+            // 8. "Ghi nhận ... cho bạn rồi nhé", "Hoàn tất cho bạn rồi nhé!", "Xong việc ghi nhận cho bạn rồi đó" (không có đã/vừa, không có số).
+            Rx.uni(
+                """(?<!sẽ\s)(?<!để\s)(?<!muốn\s)(?<!cần\s)(?<!chưa\s)(?<!không\s)$B(?:$verbs$xo)\s+(?:(?!(?:sẽ|để|khi|nếu|muốn|cần|chờ)\b)[^,.;!?\n]){0,30}?(?:cho|giúp|hộ|dùm)\s+bạn\s+(?:rồi|nhé|nha|đó|xong)(?!\p{L})""",
+                RegexOption.IGNORE_CASE
+            )
+        )
+    }
+
+    private val strictClaims = completionSensitive("$ledgerVerbs|$completionVerbs", completionOnly)
+    private val askBackClaims = completionSensitive(ledgerVerbs, "")
+
+    /** Các mẫu không phụ thuộc "xong/hoàn thành": luôn áp dụng cho cả câu, hỏi hay khẳng định. */
+    private val alwaysClaims = listOf(
         // 2. Chủ ngữ là hệ thống / sổ cái đã tiếp nhận hoặc giữ giúp người dùng.
         Rx.uni(
             """$B$destinations\s+(?:[^,.;!?\n]{0,35}?)$safeNegatedMarker(?:đã|vừa(?:\s+mới)?)\s+(?:[^,.;!?\n]{0,25}?)(?:nhận|tiếp\s*nhận|ghi|lưu|thêm|cập\s*nhật|giữ)(?!\p{L})""",
             RegexOption.IGNORE_CASE
         ),
-        // 3. Trạng thái hoàn thành ngay sau động từ ("ghi xong", "lưu thành công", "xử lý xong").
-        Rx.uni("""$B(?:$verbs)(?:\s+lại)?\s+(?:xong|rồi|thành\s*công|hoàn\s*tất|hoàn\s*thành)(?!\p{L})""", RegexOption.IGNORE_CASE),
         // 4. Khẳng định bản ghi đã/đang nằm trong sổ / nhật ký / danh sách / lịch sử / hệ thống.
         Rx.uni(
             """$safeNegatedMarker$B(?:(?:đã|vừa|đang)\s+(?:[^,.;!?\n]{0,45}?)?)?(?:nằm\s+trong|có\s+mặt\s+trong|ở\s+trong|xuất\s+hiện\s+trong|lưu\s+(?:vào|trong)|ghi\s+(?:vào|trong|lên)|thêm\s+(?:vào|lên)|đưa\s+(?:vào|lên)|cập\s+nhật\s+(?:vào|trong|lên)|đã\s+vào|đã\s+lên)\s+$destinations""",
             RegexOption.IGNORE_CASE
         ),
-        // 5. Cách nói gián tiếp hoàn tất hoặc giữ giúp người dùng ("xong xuôi", "tất cả xong rồi", "giữ giúp bạn rồi", "tự động hoàn tất").
-        Rx.uni(
-            """$B$safeNegatedMarker(?:xong\s+xuôi|xong\s+hết|xong\s+cả|tất\s+cả\s+(?:đã\s+)?xong|mọi\s+thứ\s+(?:đã\s+)?xong|xong\s+rồi|hoàn\s*tất\s+rồi|hoàn\s*thành\s+rồi|đã\s+xong|tự\s*động\s+(?:hoàn\s*tất|hoàn\s*thành|ghi|lưu|thêm|xử\s*lý|cập\s*nhật|xác\s*nhận|chốt)|(?:giữ|lưu\s*giữ|cất|chốt|giữ\s+hộ|giữ\s+lại)\s+(?:hộ|giúp|dùm|cho)\s+bạn(?:\s+\p{L}+){0,2}\s*(?:rồi|nhé|nha)?)(?!\p{L})""",
-            RegexOption.IGNORE_CASE
-        ),
         // 6. Bảo người dùng không cần xác nhận / không cần làm gì thêm.
         Rx.uni(
             """(?<!không\sphải\s)$B(?:(?:không\s+cần|khỏi(?:\s+cần)?|không\s+phải|bỏ\s+qua|miễn)\s+(?:bước\s+)?(?:xác\s*nhận|bấm(?:\s+(?:gì|xác\s*nhận|nữa))?|làm\s+gì(?:\s+thêm)?|thao\s*tác(?:\s+thêm)?|chờ|kiểm\s*tra)|bạn\s+(?:không|chẳng|chưa)\s+cần\s+(?:bấm|xác\s*nhận|làm\s+gì))(?!\p{L})""",
-            RegexOption.IGNORE_CASE
-        ),
-        // 8. "Ghi nhận ... cho bạn rồi nhé", "Hoàn tất cho bạn rồi nhé!", "Xong việc ghi nhận cho bạn rồi đó" (không có đã/vừa, không có số).
-        Rx.uni(
-            """(?<!sẽ\s)(?<!để\s)(?<!muốn\s)(?<!cần\s)(?<!chưa\s)(?<!không\s)$B(?:$verbs|xong(?:\s+việc)?)\s+(?:(?!(?:sẽ|để|khi|nếu|muốn|cần|chờ)\b)[^,.;!?\n]){0,30}?(?:cho|giúp|hộ|dùm)\s+bạn\s+(?:rồi|nhé|nha|đó|xong)(?!\p{L})""",
             RegexOption.IGNORE_CASE
         ),
         // 9. "mọi việc ổn thỏa hết rồi đó", "tất cả xong hết rồi", "yên tâm nhé, ... rồi".
@@ -289,7 +423,73 @@ object ReplyGuard {
         )
     )
 
+    // Tách câu sau . ! ? khi đứng trước khoảng trắng (không tách "1.5 giờ", "14:30"); không tách ở "…" (mẫu cũ không dừng ở đó).
+    private val sentenceSplit = Rx.uni("""(?<=[.!?])\s+|\n+""")
+    private val clauseSplit = Rx.uni("""[,;]\s+|;""")   // dấu phẩy thập phân ("1,5 giờ") không phải ranh giới mệnh đề
+
+    // Từ để hỏi. Cố ý không gồm các trợ từ cuối câu (nhé, nhỉ, à, hả): chúng cũng gắn được vào một câu khẳng định.
+    private val askCue = Rx.uni(
+        """$B(?:mấy|bao\s+nhiêu|bao\s+lâu|khi\s+nào|lúc\s+nào|nào|hay(?:\s+là)?|có\s+phải|phải\s+không|đúng\s+không|đúng\s+chứ|chưa|gì|sao|thế\s+nào|ở\s+đâu)(?![\p{L}\p{N}])""",
+        RegexOption.IGNORE_CASE
+    )
+
+    // v1.0.13 (C3a): giờ hiện tại do ứng dụng cung cấp cho AI ("16:30", "16h30", "4h30 chiều", "4 rưỡi chiều", "bây giờ mới 4 rưỡi").
+    private const val DAY_PERIOD = "sáng|trưa|chiều|tối|đêm"
+    private const val NOW_CUE = """(?:bây\s+giờ|hiện\s+tại|hiện\s+giờ|lúc\s+này|giờ\s+là)(?:\s+(?:là|mới|đã|đang))?\s*"""
+    private val nowClockRegex = Rx.uni(
+        """$B($NOW_CUE)?(\d{1,2})\s*(?:h|g|giờ|:)\s*(\d{2})?(?:\s*($DAY_PERIOD))?(?![\p{L}\p{N}])(?!\s*(?:phút|p(?![\p{L}])|rưỡi))""",
+        RegexOption.IGNORE_CASE
+    )
+    private val nowHalfRegex = Rx.uni(
+        """$B($NOW_CUE)?(\d{1,2})\s*(?:(h|g|giờ)\s+)?rưỡi(?:\s*($DAY_PERIOD))?(?![\p{L}\p{N}])""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /**
+     * Bỏ khỏi câu HỎI các cách viết GIỜ HIỆN TẠI [now] (giờ đồng hồ, không phải thời lượng) để chúng không bị coi là số liệu không có căn cứ.
+     * Giờ 24h ("16:30", "16h30") hoặc có buổi ("4h30 chiều") phải bằng đúng [now]; giờ 12h không buổi ("4h30") chỉ được nhận khi đứng ngay sau
+     * "bây giờ / hiện tại / lúc này / giờ là"; "N rưỡi" trần là giờ đồng hồ N:30 và chỉ khớp khi [now] có phút = 30. "4 tiếng rưỡi" là thời lượng, không đụng tới.
+     */
+    private fun stripNowClock(s: String, now: LocalTime): String {
+        val nowMin = now.hour * 60 + now.minute
+        val vi = Locale("vi", "VN")
+        val a = nowClockRegex.replace(s) { m ->
+            val h = m.groupValues[2].toInt()
+            val mm = m.groupValues[3].ifEmpty { "0" }.toInt()
+            val period = m.groupValues[4].lowercase(vi).ifEmpty { null }
+            val cue = m.groupValues[1].isNotEmpty()
+            val ok = h <= 23 && mm <= 59 && when {
+                period != null -> VietnameseChatParser.shiftHourForPeriod(h, period) * 60 + mm == nowMin
+                h > 12 -> h * 60 + mm == nowMin
+                else -> h * 60 + mm == nowMin || (cue && (h % 12) * 60 + mm == nowMin % 720)
+            }
+            if (ok) " " else m.value
+        }
+        return nowHalfRegex.replace(a) { m ->
+            val h = m.groupValues[2].toInt()
+            val hasUnit = m.groupValues[3].isNotEmpty()
+            val period = m.groupValues[4].lowercase(vi).ifEmpty { null }
+            val cue = m.groupValues[1].isNotEmpty()
+            val ok = now.minute == 30 && h <= 23 && when {
+                period != null -> VietnameseChatParser.shiftHourForPeriod(h, period) == now.hour
+                h > 12 || h == 0 -> h == now.hour
+                !hasUnit || cue -> h % 12 == now.hour % 12
+                else -> false
+            }
+            if (ok) " " else m.value
+        }
+    }
+
     private fun nfc(s: String) = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFC)
+
+    private fun splitSentences(text: String): List<String> = text.split(sentenceSplit).filter { it.isNotBlank() }
+
+    private fun endsWithQuestionMark(sentence: String): Boolean = sentence.trimEnd(' ', '"', '”', ')', '\'').endsWith('?')
+
+    private fun isQuestion(sentence: String): Boolean = endsWithQuestionMark(sentence) || askCue.containsMatchIn(sentence)
+
+    /** Các câu kết thúc bằng "?" trong lời đáp (đã qua [sanitize]); dùng để hiện lời hỏi lại của AI (xem WallyTurnPolicy). Từ để hỏi không đủ: "Hay quá!" không phải câu hỏi. */
+    fun questionSentences(text: String): List<String> = splitSentences(nfc(text)).map { it.trim() }.filter(::endsWithQuestionMark)
 
     private fun minutesOf(value: String, unit: String): Int {
         val v = value.replace(',', '.').toDoubleOrNull() ?: return -1
@@ -299,18 +499,67 @@ object ReplyGuard {
 
     private fun hmOf(hm: String?): Int? = hm?.takeIf { Rx.ascii("""\d{1,2}:\d{2}""").matches(it) }?.split(':')?.let { it[0].toInt() * 60 + it[1].toInt() }
 
-    /** True nếu lời đáp khẳng định đã ghi/sửa/xóa (hoặc bỏ qua xác nhận). */
-    fun claimsStateChange(text: String): Boolean = nfc(text).let { t -> claims.any { it.containsMatchIn(t) } }
+    /**
+     * True nếu lời đáp khẳng định đã ghi/sửa/xóa (hoặc bỏ qua xác nhận). Xét từng câu, và trong câu xét từng mệnh đề (tách ở , ;):
+     * mệnh đề có từ để hỏi chỉ bị chặn vì động từ GHI SỔ, không bị chặn chỉ vì "xong/hoàn thành".
+     */
+    fun claimsStateChange(text: String): Boolean = splitSentences(nfc(text)).any { sentence ->
+        alwaysClaims.any { it.containsMatchIn(sentence) } ||
+            sentence.split(clauseSplit).any { clause ->
+                (if (askCue.containsMatchIn(clause)) askBackClaims else strictClaims).any { it.containsMatchIn(clause) }
+            }
+    }
+
+    /** Các số phút / số đếm tìm thấy trong [text]; số đếm null = không bao giờ có căn cứ (không phải số lần/buổi... hoặc đơn vị lạ). */
+    private class Figures(val minutes: List<Int>, val counts: List<Int?>)
+
+    private fun figuresIn(text: String): Figures {
+        val minutes = mutableListOf<Int>()
+        val counts = mutableListOf<Int?>()
+        // "2h30" / "2 giờ 30p": gộp thành một số phút, rồi bỏ khỏi chuỗi để không bị đọc lại như "2h".
+        hourMinute.findAll(text).forEach { minutes += it.groupValues[1].toInt() * 60 + it.groupValues[2].toInt() }
+        var rest = hourMinute.replace(text, " ")
+        clock.findAll(rest).forEach { minutes += it.groupValues[1].toInt() * 60 + it.groupValues[2].toInt() }
+        rest = clock.replace(rest, " ")
+        otherDigitFigure.findAll(rest).forEach { m ->
+            val v = m.value.trim()
+            val time = figure.matchEntire(v)
+            if (time != null) {
+                minutes += minutesOf(time.groupValues[1], time.groupValues[2])
+            } else {
+                counts += if (countFigure.matchEntire(v) == null) null else digitsOnly.find(v)?.value?.toIntOrNull()
+            }
+        }
+        return Figures(minutes, counts)
+    }
+
+    /**
+     * Số phút (thời lượng hoặc giờ đồng hồ) mà người dùng đã viết trong câu của họ, bằng chữ số hoặc số bằng chữ, có dấu hoặc không dấu.
+     * Đây là tập số được phép nhắc lại trong CÂU HỎI của AI (xem KDoc đầu lớp, mục 2b).
+     */
+    internal fun userFigureMinutes(userText: String): Set<Int> {
+        // Người dùng gõ không dấu ("hoc hai tieng"): khôi phục dấu để dùng chung bộ đọc số bằng chữ của bộ phân tích (xem VietnameseChatParser.restoreUnaccented).
+        val t = VietnameseChatParser.restoreUnaccented(nfc(userText))
+        // v1.0.13 (C3b) "30 hay 40 phút" => cả 30 và 40 phút; (C3c) "từ 8h đến 9h" => 60 phút và hai đầu 08:00/09:00 theo 24h.
+        return (figuresIn(VietnameseChatParser.normalizeSpelledDurations(VietnameseChatParser.expandSharedUnitAlternatives(t))).minutes +
+            VietnameseChatParser.userClockMinutes(t)).toSet()
+    }
 
     /**
      * True nếu có số liệu không có căn cứ: phần trăm, số/thời lượng bằng chữ (Việt, Anh), "2h30"/"2:30", hoặc số + đơn vị mà không phải
-     * (a) thời lượng hay giờ bắt đầu/kết thúc của chính đề xuất đang chờ xác nhận (chỉ khi [allowProposalDurations]) hay
-     * (b) số đề xuất (chỉ khi có ít nhất một đề xuất).
+     * (a) thời lượng hay giờ bắt đầu/kết thúc của chính đề xuất đang chờ xác nhận (chỉ khi [allowProposalDurations]),
+     * (b) số phút trong [userMinutes] (số người dùng đã viết; người gọi chỉ truyền cho CÂU HỎI, và đã đổi số bằng chữ sang chữ số), hay
+     * (c) số đề xuất (chỉ khi có ít nhất một đề xuất).
      */
-    fun hasUnbackedFigure(rawText: String, proposals: List<ActivityProposal>, allowProposalDurations: Boolean): Boolean {
+    fun hasUnbackedFigure(
+        rawText: String,
+        proposals: List<ActivityProposal>,
+        allowProposalDurations: Boolean,
+        userMinutes: Set<Int> = emptySet()
+    ): Boolean {
         val text = nfc(rawText)
         if (percent.containsMatchIn(text) || wordFigure.containsMatchIn(text) || enWordFigure.containsMatchIn(text) || halfWord.containsMatchIn(text)) return true
-        val allowed: Set<Int> = if (allowProposalDurations) {
+        val allowed: Set<Int> = userMinutes + (if (allowProposalDurations) {
             buildSet {
                 proposals.forEach { p ->
                     add(p.durationMinutes)
@@ -318,36 +567,18 @@ object ReplyGuard {
                     hmOf(p.endLocal)?.let(::add)
                 }
             }
-        } else emptySet()
-
-        // "2h30" / "2 giờ 30p": gộp thành một số phút, rồi bỏ khỏi chuỗi để không bị đọc lại như "2h".
-        var rest = text
-        val combined = hourMinute.findAll(text).toList()
-        if (combined.any { (it.groupValues[1].toInt() * 60 + it.groupValues[2].toInt()) !in allowed }) return true
-        rest = hourMinute.replace(rest, " ")
-        val clocks = clock.findAll(rest).toList()
-        if (clocks.any { (it.groupValues[1].toInt() * 60 + it.groupValues[2].toInt()) !in allowed }) return true
-        rest = clock.replace(rest, " ")
-
-        return otherDigitFigure.findAll(rest).any { m ->
-            val v = m.value.trim()
-            val time = figure.matchEntire(v)
-            if (time != null) {
-                minutesOf(time.groupValues[1], time.groupValues[2]) !in allowed
-            } else {
-                val n = digitsOnly.find(v)?.value?.toIntOrNull()
-                countFigure.matchEntire(v) == null ||
-                    n == null || proposals.isEmpty() || n != proposals.size
-            }
-        }
+        } else emptySet())
+        val f = figuresIn(text)
+        return f.minutes.any { it !in allowed } || f.counts.any { it == null || proposals.isEmpty() || it != proposals.size }
     }
 
     /** @return (lời đáp đã làm sạch hoặc null, ghi chú nếu đã bỏ). */
     fun sanitize(
         reply: String?,
-        @Suppress("UNUSED_PARAMETER") userText: String,
+        userText: String,
         proposals: List<ActivityProposal>,
-        hasQueries: Boolean
+        hasQueries: Boolean,
+        nowTime: LocalTime? = null
     ): Pair<String?, String?> {
         val text = reply?.replace(Rx.ascii("""\s+"""), " ")?.trim()?.take(MAX_LENGTH)?.takeIf { it.isNotEmpty() }
             ?: return null to null
@@ -357,7 +588,19 @@ object ReplyGuard {
         }
         // Có query: mọi số liệu thời gian/phần trăm phải đến từ engine, nên lời đáp của AI không được tự nêu.
         // Không có query: chỉ thời lượng/giờ của đề xuất đang chờ xác nhận mới được nhắc lại.
-        if (hasUnbackedFigure(text, proposals, allowProposalDurations = !hasQueries)) {
+        // Ngoại lệ chung: CÂU HỎI được nhắc lại số của chính người dùng (mục 2b). Chỉ cần một câu có số không căn cứ là bỏ cả lời đáp (mục 4).
+        val userMinutes by lazy { userFigureMinutes(userText) }
+        val unbacked = splitSentences(nfc(text)).any { s ->
+            val question = isQuestion(s)
+            // v1.0.13 (C3a): trong CÂU HỎI, AI được nhắc lại giờ hiện tại mà ứng dụng đã đưa cho nó (không phải số của sổ cái).
+            val t = if (question && nowTime != null) stripNowClock(s, nowTime) else s
+            if (question && userMinutes.isNotEmpty()) {
+                hasUnbackedFigure(VietnameseChatParser.normalizeSpelledDurations(t), proposals, allowProposalDurations = !hasQueries, userMinutes = userMinutes)
+            } else {
+                hasUnbackedFigure(t, proposals, allowProposalDurations = !hasQueries)
+            }
+        }
+        if (unbacked) {
             return null to if (hasQueries) "Đã bỏ phần lời đáp có số liệu của AI; số liệu bên dưới được tính từ sổ cái."
             else "Đã bỏ lời đáp của AI vì có số liệu không có căn cứ trong sổ cái."
         }

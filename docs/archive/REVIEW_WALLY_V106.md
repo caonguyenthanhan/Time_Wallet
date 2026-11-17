@@ -39,7 +39,7 @@ Candidate v1.0.6 (`versionCode 7`, `versionName 1.0.6`) đã khắc phục có k
 
 ### 2.2 Kiểm tra sự cố `rm -f` ở thư mục gốc (Incident Check)
 
-Kiểm tra trực tiếp hệ thống tệp hiện tại tại `D:\desktop\Time_Wallet`:
+Kiểm tra trực tiếp hệ thống tệp hiện tại tại `<PROJECT_ROOT>/`:
 - Ở thư mục gốc chỉ tồn tại 2 tệp APK: `TimeWallet-MVP-debug.apk` và `TimeWallet-MVP-v1.0.1-debug.apk` (cùng kích thước `11,877,812` bytes, SHA-256 `730DC2699DC5DF110BD2ADFD7C7EDEE29B858AE26855646AC7A8859AFDE2752D`).
 - Không còn tệp `*v1.0.5*` nào ở thư mục gốc (khớp báo cáo Master đã chạy `rm -f` nhầm tên tệp v1.0.5 ở root; Reviewer không phục hồi hay suy đoán lịch sử xóa ngoài filesystem hiện tại).
 - Toàn bộ artifact gốc v1.0.5 trong `out/wally_candidate_origin/`, `out/wally_v106_snapshot_pre/` và `out/wally_evidence_origin/` còn nguyên vẹn và khớp đúng SHA-256 v1.0.5 gốc (`e80f7522...`).

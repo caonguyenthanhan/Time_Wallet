@@ -1,7 +1,7 @@
 # BÁO CÁO THẨM ĐỊNH ĐỘC LẬP — TIME WALLET AI-01 (BẢN ĐỐI SOÁT CUỐI CÙNG)
 
 > **Tài liệu:** Báo cáo Thẩm định Độc lập Candidate AI-01 — Final Reconciliation (Mode: `REVIEW` & `VERIFY`)  
-> **Candidate APK:** [TimeWallet-MVP-v1.0.1-AI01-candidate-debug.apk](file:///d:/desktop/Time_Wallet/out/ai01_candidate/TimeWallet-MVP-v1.0.1-AI01-candidate-debug.apk)  
+> **Candidate APK:** [TimeWallet-MVP-v1.0.1-AI01-candidate-debug.apk](out/ai01_candidate/TimeWallet-MVP-v1.0.1-AI01-candidate-debug.apk)
 > **Chuẩn áp dụng:** `SKILL.md` (AI Architecture Handbook v1.0 — Tư duy kỹ sư & Production)  
 > **Trạng thái kiểm định:** `ACCEPTED WITH OBSERVATIONS` — Nghiệm thu kỹ thuật Candidate AI-01; ghi nhận 1 phát hiện ngữ nghĩa câu phủ định chuyển Builder xử lý  
 > **Ngày cập nhật:** 2026-11-12
@@ -72,7 +72,7 @@ Chỉ thay thế việc dùng `String.format` có `%` bằng phép cộng chuỗ
 + println("Intent Accuracy: " + intentAccuracy + "% (" + totalCorrectIntent + "/" + testCases.size + ")")
 + assertTrue("Intent accuracy phải >= 95%", intentAccuracy >= 95.0)
 ```
-- **Cam kết:** **100% KHÔNG THAY ĐỔI** bất kỳ câu input nào, không thay đổi expected route, expected metric, kỳ truy vấn, danh mục hay số liệu tính tay nào. Fixture và test cases được bảo lưu nguyên vẹn tại [Ai01IndependentVerificationHarnessTest.kt](file:///d:/desktop/Time_Wallet/out/ai01_evidence/independent_verification/Ai01IndependentVerificationHarnessTest.kt).
+- **Cam kết:** **100% KHÔNG THAY ĐỔI** bất kỳ câu input nào, không thay đổi expected route, expected metric, kỳ truy vấn, danh mục hay số liệu tính tay nào. Fixture và test cases được bảo lưu nguyên vẹn tại [Ai01IndependentVerificationHarnessTest.kt](out/ai01_evidence/independent_verification/Ai01IndependentVerificationHarnessTest.kt).
 
 ---
 
@@ -160,7 +160,7 @@ Khi gọi `stopAndSaveTimer()` gặp xung đột giờ trong SQLite (`DbCommitOu
 - Nó chưa phải là bài test gọi trực tiếp instance `TimeWalletViewModel.analyzeChatInput()` do ViewModel trong kiến trúc hiện tại khởi tạo trực tiếp Room DB (`TimeWalletDatabase.getInstance`) và SharedPreferences trong constructor, không thể khởi tạo trực tiếp trong môi trường JVM Test stub của Gradle mà không có Robolectric.
 
 ### 6.2. Chứng minh Kiểm soát Ranh giới (Static Control Flow Proof)
-Mặc dù không khởi tạo trực tiếp instance `ViewModel` trong test JVM, tính an toàn **Zero DB Write / Zero Network** của luồng Query được chứng minh bằng cấu trúc mã nguồn thực tế tại [TimeWalletViewModel.kt:634-664](file:///d:/desktop/Time_Wallet/app/src/main/java/com/timewallet/mvp/ui/TimeWalletViewModel.kt#L634-L664):
+Mặc dù không khởi tạo trực tiếp instance `ViewModel` trong test JVM, tính an toàn **Zero DB Write / Zero Network** của luồng Query được chứng minh bằng cấu trúc mã nguồn thực tế tại [TimeWalletViewModel.kt:634-664](app/src/main/java/com/timewallet/mvp/ui/TimeWalletViewModel.kt#L634-L664):
 ```kotlin
 when (val route = ChatRouter.route(text, today, _uiState.value.lastQueryContext)) {
     is ChatRoute.Query -> {
@@ -178,7 +178,7 @@ when (val route = ChatRouter.route(text, today, _uiState.value.lastQueryContext)
 // TOÀN BỘ PHẦN BẢO VỆ GUARD, COROUTINE MẠNG VÀ COMMIT DB NẰM SAU KHỐI LỆNH NÀY
 ```
 - Hai nhánh `Query` và `Clarify` đều có câu lệnh `return` thoát hàm ngay lập tức.
-- Bài test [Ai01ConversationalAnalyticsTest.kt:384](file:///d:/desktop/Time_Wallet/app/src/test/java/com/timewallet/mvp/Ai01ConversationalAnalyticsTest.kt#L384) đã kiểm tra phân tích tĩnh toàn bộ mã nguồn ViewModel và xác nhận: không có bất kỳ lệnh gọi `GeminiProposalClient` hay `ledgerDao` nào trước hoặc bên trong nhánh Query.
+- Bài test [Ai01ConversationalAnalyticsTest.kt:384](app/src/test/java/com/timewallet/mvp/Ai01ConversationalAnalyticsTest.kt#L384) đã kiểm tra phân tích tĩnh toàn bộ mã nguồn ViewModel và xác nhận: không có bất kỳ lệnh gọi `GeminiProposalClient` hay `ledgerDao` nào trước hoặc bên trong nhánh Query.
 
 ---
 
@@ -196,4 +196,4 @@ when (val route = ChatRouter.route(text, today, _uiState.value.lastQueryContext)
 | **Kiểm tra trên Thiết bị thật** | Bắt buộc trước release | Giữ nguyên nhãn tuân thủ quy tắc Agent | **DEVICE_NOT_TESTED** |
 
 ### PHÁN QUYẾT: **`ACCEPTED / PASS (READY TO CLOSE WAVE AI-01)`**
-Candidate APK [TimeWallet-MVP-v1.0.1-AI01-candidate-debug.apk](file:///d:/desktop/Time_Wallet/out/ai01_candidate/TimeWallet-MVP-v1.0.1-AI01-candidate-debug.apk) đạt đầy đủ các tiêu chuẩn kỹ thuật đề ra. Đề xuất Manager đóng Wave AI-01 và chuyển giao hạng mục xử lý câu phủ định sang backlog cải tiến tiếp theo.
+Candidate APK [TimeWallet-MVP-v1.0.1-AI01-candidate-debug.apk](out/ai01_candidate/TimeWallet-MVP-v1.0.1-AI01-candidate-debug.apk) đạt đầy đủ các tiêu chuẩn kỹ thuật đề ra. Đề xuất Manager đóng Wave AI-01 và chuyển giao hạng mục xử lý câu phủ định sang backlog cải tiến tiếp theo.

@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,6 +35,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -56,13 +60,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.timewallet.mvp.data.diagnostics.CrashRecorder
+import com.timewallet.mvp.data.diagnostics.CrashReportInfo
 import com.timewallet.mvp.R
 import com.timewallet.mvp.data.local.AiPreferences
 import com.timewallet.mvp.domain.model.BudgetPeriod
@@ -71,6 +80,7 @@ import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.model.TimeBudgetProgress
 import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.model.TimeLayer
+import com.timewallet.mvp.domain.usecase.ApiKeyHygiene
 import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
 import com.timewallet.mvp.ui.AppTab
 import com.timewallet.mvp.ui.theme.WalletCardBg
@@ -93,17 +103,20 @@ fun TimeWalletTopBar(
     isTimerRunning: Boolean,
     timerSeconds: Long,
     onTimerBadgeClick: () -> Unit,
-    onExportClick: () -> Unit,
+    onDataClick: () -> Unit,
+    onAiSettingsClick: () -> Unit,
     onInfoClick: () -> Unit
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(Color(0xFFF5F7F3))
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // v1.0.11: header gọn một dòng (bỏ dòng khẩu hiệu).
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(9.dp)
@@ -114,30 +127,21 @@ fun TimeWalletTopBar(
                 contentDescription = "Biểu tượng Time Wallet",
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
-                    .size(34.dp)
+                    .size(32.dp)
                     .clip(RoundedCornerShape(10.dp))
             )
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "time wallet",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = WalletInk
-                    )
-                    Text(
-                        text = ".",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = WalletMint
-                    )
-                }
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "THỜI GIAN LÀ TÀI SẢN",
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = WalletMuted,
-                    letterSpacing = 0.4.sp
+                    text = "time wallet",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = WalletInk
+                )
+                Text(
+                    text = ".",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = WalletMint
                 )
             }
         }
@@ -154,48 +158,64 @@ fun TimeWalletTopBar(
                         .background(WalletMintSoft)
                         .semantics { role = Role.Button }
                         .clickable(onClickLabel = "Mở tab Đồng hồ đang chạy") { onTimerBadgeClick() }
-                        .padding(horizontal = 9.dp, vertical = 5.dp)
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     val m = (timerSeconds / 60).toString().padStart(2, '0')
                     val s = (timerSeconds % 60).toString().padStart(2, '0')
                     Text(
                         text = "● $m:$s",
                         color = WalletMint,
-                        fontSize = 10.5.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
             }
 
-            TopBarCircleButton(symbol = "⇩", contentDescription = "Xuất JSON", onClick = onExportClick)
-            TopBarCircleButton(symbol = "ⓘ", contentDescription = "Thông tin", onClick = onInfoClick)
+            // Menu phụ: dữ liệu & sao lưu, cấu hình AI, thông tin (không còn khối quản trị dữ liệu trong Nhật ký).
+            Box {
+                TopBarCircleButton(glyph = WalletGlyph.MORE, contentDescription = "Menu", onClick = { menuOpen = true })
+                DropdownMenu(
+                    expanded = menuOpen,
+                    onDismissRequest = { menuOpen = false },
+                    containerColor = Color.White,
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Dữ liệu & sao lưu") },
+                        onClick = { menuOpen = false; onDataClick() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Cấu hình AI") },
+                        onClick = { menuOpen = false; onAiSettingsClick() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Thông tin & nhật ký lỗi") },
+                        onClick = { menuOpen = false; onInfoClick() }
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
 private fun TopBarCircleButton(
-    symbol: String,
+    glyph: WalletGlyph,
     contentDescription: String,
     onClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
             .minimumInteractiveComponentSize()
-            .size(32.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .size(36.dp)
+            .clip(RoundedCornerShape(12.dp))
             .background(Color.White)
-            .border(1.dp, WalletStroke, RoundedCornerShape(10.dp))
+            .border(1.dp, WalletStroke, RoundedCornerShape(12.dp))
             .semantics { this.contentDescription = contentDescription; role = Role.Button }
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = symbol,
-            fontSize = 14.5.sp,
-            fontWeight = FontWeight.Bold,
-            color = WalletInk
-        )
+        GlyphIcon(glyph = glyph, color = WalletInk, size = 20.dp)
     }
 }
 
@@ -208,20 +228,20 @@ fun TimeWalletBottomBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.White.copy(alpha = 0.98f))
-            .border(1.dp, WalletStroke, RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
-            .padding(horizontal = 4.dp, vertical = 7.dp),
+            .background(Color.White)
+            .border(1.dp, WalletStroke, RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
+            .padding(horizontal = 6.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
         AppTab.entries.forEach { tab ->
             val selected = tab == currentTab
-            val tint = if (selected) WalletMint else Color(0xFF91A097)
+            val tint = if (selected) WalletMint else Color(0xFF7F9087)
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .heightIn(min = 48.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(RoundedCornerShape(14.dp))
                     .semantics {
                         contentDescription = "Tab ${tab.label}"
                         role = Role.Tab
@@ -232,27 +252,32 @@ fun TimeWalletBottomBar(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Box {
-                    Text(
-                        text = tab.iconSymbol,
-                        fontSize = 17.5.sp,
-                        fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Medium,
-                        color = tint
-                    )
+                // Viên thuốc nền cho tab đang chọn; biểu tượng cùng kiểu nét, cùng kích thước.
+                Box(
+                    modifier = Modifier
+                        .width(56.dp)
+                        .height(30.dp)
+                        .clip(RoundedCornerShape(15.dp))
+                        .background(if (selected) WalletMintSoft else Color.Transparent),
+                    contentAlignment = Alignment.Center
+                ) {
+                    GlyphIcon(glyph = tab.glyph(), color = tint, size = 22.dp, filled = selected)
                     if (tab == AppTab.TIMER && isTimerRunning) {
                         Box(
                             modifier = Modifier
-                                .size(6.dp)
+                                .align(Alignment.TopEnd)
+                                .padding(top = 3.dp, end = 12.dp)
+                                .size(7.dp)
                                 .clip(CircleShape)
                                 .background(WalletMint)
-                                .align(Alignment.TopEnd)
                         )
                     }
                 }
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = tab.label,
-                    fontSize = 10.sp,
+                    // trên màn hẹp (<360dp) nhãn tab giữ đúng 11dp để "Tổng quan" không bị cắt dù cỡ chữ hệ thống lớn
+                    fontSize = cappedSp(11f, if (LocalConfiguration.current.screenWidthDp < 360) 1.0f else 1.1f),
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                     color = if (selected) tint else Color(0xFF5F7168),
                     maxLines = 1,
@@ -282,7 +307,15 @@ fun SectionHeader(
             text = title,
             fontSize = 14.sp,
             fontWeight = FontWeight.Bold,
-            color = WalletInk
+            color = WalletInk,
+            // v1.0.10: tiêu đề nhường chỗ (xuống dòng) thay vì bị đo trước rồi ép nút/ghi chú bên phải thành cột 1 chữ.
+            modifier = if ((actionText != null && onActionClick != null) || subtitleOrRightText != null) {
+                Modifier
+                    .weight(1f, fill = false)
+                    .padding(end = 8.dp)
+            } else {
+                Modifier
+            }
         )
         if (actionText != null && onActionClick != null) {
             Text(
@@ -290,6 +323,8 @@ fun SectionHeader(
                 fontSize = 11.5.sp,
                 fontWeight = FontWeight.Bold,
                 color = WalletMint,
+                maxLines = 1,
+                softWrap = false,
                 modifier = Modifier
                     .minimumInteractiveComponentSize()
                     .clip(RoundedCornerShape(8.dp))
@@ -301,7 +336,9 @@ fun SectionHeader(
             Text(
                 text = subtitleOrRightText,
                 fontSize = 10.5.sp,
-                color = WalletMuted
+                color = WalletMuted,
+                textAlign = TextAlign.End,
+                modifier = Modifier.widthIn(max = 150.dp)
             )
         }
     }
@@ -360,6 +397,7 @@ fun WalletSurfaceCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ActivityRecordRow(
     record: LedgerRecord,
@@ -422,7 +460,7 @@ fun ActivityRecordRow(
                 }
             )
             .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(9.dp)
     ) {
         Box(
@@ -436,52 +474,103 @@ fun ActivityRecordRow(
         }
 
         Column(modifier = Modifier.weight(1f)) {
+            // Dòng 1 (v1.0.10): TÊN chiếm toàn bộ chiều rộng còn lại (tối đa 2 dòng), thời lượng nằm bên phải.
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
                     text = record.title,
                     fontSize = 12.5.sp,
                     fontWeight = FontWeight.Bold,
                     color = WalletInk,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
+                    modifier = Modifier.weight(1f)
                 )
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(badgeBg)
-                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                Text(
+                    text = durationText,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (resolvedLayer == TimeLayer.PLANNED) WalletMuted else WalletInk,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+            // Dòng 2: nhãn trạng thái + mô tả thời gian bên trái; sửa/xóa (>= 48dp) bên phải.
+            Row(
+                modifier = Modifier.padding(top = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // v1.0.11: nhãn trạng thái và mốc giờ nằm cùng một dòng (tự xuống dòng khi hẹp); nhãn đã nêu tầng dữ liệu nên bỏ phần lặp.
+                val rangeOnly = resolvedLayer == TimeLayer.MEASURED || resolvedLayer == TimeLayer.REPORTED_TIMED
+                val shownWhen = when {
+                    rangeOnly -> timeDescription.substringBefore(" · ")
+                    resolvedLayer == TimeLayer.REPORTED_UNTIMED && timeDescription.startsWith("Chưa gắn giờ · ") ->
+                        timeDescription.removePrefix("Chưa gắn giờ · ")
+                    else -> timeDescription
+                }
+                FlowRow(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(7.dp))
+                            .background(badgeBg)
+                            .padding(horizontal = 7.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = badgeLabel,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = badgeTextColor,
+                            maxLines = 2
+                        )
+                    }
                     Text(
-                        text = badgeLabel,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = badgeTextColor
+                        text = shownWhen,
+                        // khoảng giờ giữ cỡ cố định theo dp (không phình theo cỡ chữ hệ thống) để luôn vừa một dòng cạnh nút sửa/xóa
+                        fontSize = if (rangeOnly) cappedSp(12f) else 12.sp,
+                        color = WalletMuted,
+                        // khoảng giờ là một khối không xuống dòng giữa chừng: nếu không vừa thì cả khối xuống dòng dưới nhãn
+                        maxLines = if (rangeOnly) 1 else 3,
+                        softWrap = !rangeOnly,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 3.dp)
                     )
                 }
+                if (showEditAndDelete) {
+                    if (onEditClick != null) {
+                        Box(
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .clip(RoundedCornerShape(10.dp))
+                                .semantics { contentDescription = "Sửa ${record.title}"; role = Role.Button }
+                                .clickable { onEditClick(record) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            GlyphIcon(WalletGlyph.EDIT, color = WalletMint, size = 20.dp)
+                        }
+                    }
+                    if (onDeleteClick != null) {
+                        Box(
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .clip(RoundedCornerShape(10.dp))
+                                .semantics { contentDescription = "Xóa ${record.title}"; role = Role.Button }
+                                .clickable { onDeleteClick(record) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            GlyphIcon(WalletGlyph.CLOSE, color = Color(0xFF6B7770), size = 20.dp)
+                        }
+                    }
+                }
             }
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = timeDescription,
-                fontSize = 10.sp,
-                color = WalletMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-
-        Column(horizontalAlignment = Alignment.End) {
-            Text(
-                text = durationText,
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = if (resolvedLayer == TimeLayer.PLANNED) WalletMuted else WalletInk
-            )
+            // Dòng 3 (hiếm): nút chốt thực tế nằm riêng để không ép dòng 1-2.
             if (canConfirmToActual) {
-                Spacer(modifier = Modifier.height(3.dp))
                 Box(
                     modifier = Modifier
                         .minimumInteractiveComponentSize()
@@ -493,41 +582,11 @@ fun ActivityRecordRow(
                 ) {
                     Text(
                         text = "✓ Chốt thực tế",
-                        fontSize = 9.sp,
+                        fontSize = cappedSp(12f),
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
                 }
-            }
-        }
-
-        if (showEditAndDelete) {
-            if (onEditClick != null) {
-                Text(
-                    text = "✎",
-                    fontSize = 14.sp,
-                    color = WalletMint,
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .clip(RoundedCornerShape(6.dp))
-                        .semantics { contentDescription = "Sửa ${record.title}"; role = Role.Button }
-                        .clickable { onEditClick(record) }
-                        .padding(horizontal = 5.dp, vertical = 3.dp)
-                )
-            }
-            if (onDeleteClick != null) {
-                Text(
-                    text = "×",
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF6B7770),
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .clip(RoundedCornerShape(6.dp))
-                        .semantics { contentDescription = "Xóa ${record.title}"; role = Role.Button }
-                        .clickable { onDeleteClick(record) }
-                        .padding(horizontal = 5.dp, vertical = 2.dp)
-                )
             }
         }
     }
@@ -919,6 +978,8 @@ fun AiSettingsDialog(
     val currentValidatedHost = remember(baseUrl) {
         AiPreferences.extractValidatedHttpsHost(baseUrl)
     }
+    // v1.0.12 (P1-AI): báo NGAY trong hộp thoại (thông báo dạng toast nằm sau hộp thoại nên người dùng không thấy) và không cho lưu/kiểm tra khóa hỏng.
+    val keyProblem = remember(apiKey) { ApiKeyHygiene.check(ApiKeyHygiene.normalize(apiKey)) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1007,6 +1068,13 @@ fun AiSettingsDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
                     modifier = Modifier.fillMaxWidth()
                 )
+                if (keyProblem != null) {
+                    Text(
+                        text = "Khóa API có ký tự không hợp lệ ở vị trí ${keyProblem.position} (${keyProblem.kindVi}). Hãy dán lại khóa.",
+                        fontSize = 11.sp, color = Color(0xFFB3261E), lineHeight = 15.sp,
+                        modifier = Modifier.semantics { contentDescription = "Lỗi khóa API" }
+                    )
+                }
                 if (initialPreferences.keyUnavailable && apiKey.isEmpty()) {
                     Text(
                         text = "Khóa đã lưu không đọc được trên thiết bị này. Hãy nhập lại. Sổ cái và nhập thủ công không bị ảnh hưởng.",
@@ -1026,7 +1094,7 @@ fun AiSettingsDialog(
                 // WALLY: kiểm tra kết nối bằng payload tổng hợp "ping"; không gửi nhật ký của bạn.
                 OutlinedButton(
                     onClick = { onTestConnection(baseUrl, apiKey, modelName) },
-                    enabled = !connectionTesting && currentValidatedHost != null && apiKey.isNotBlank(),
+                    enabled = !connectionTesting && currentValidatedHost != null && apiKey.isNotBlank() && keyProblem == null,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                 ) {
                     Text(if (connectionTesting) "Đang kiểm tra…" else "Kiểm tra kết nối", fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -1047,7 +1115,7 @@ fun AiSettingsDialog(
         confirmButton = {
             Button(
                 onClick = { onSave(optIn, baseUrl, apiKey, modelName) },
-                enabled = !optIn || currentValidatedHost != null,
+                enabled = (!optIn || currentValidatedHost != null) && keyProblem == null,
                 colors = ButtonDefaults.buttonColors(containerColor = WalletMint)
             ) {
                 Text("Xác nhận & Lưu", fontWeight = FontWeight.Bold)
@@ -1125,6 +1193,10 @@ fun ProductInfoDialog(
                     lineHeight = 16.sp
                 )
                 if (!crashReport.isNullOrBlank()) {
+                    // v1.0.10: hiện THỜI ĐIỂM và PHIÊN BẢN thực sự phát sinh lỗi. Bản ghi cũ chưa có phiên bản => "không xác định",
+                    // tuyệt đối không gán cho bản đang cài. Văn bản thô bên dưới giữ nguyên; không có gì bị xóa hay sửa tự động.
+                    val latestHeader = remember(crashReport) { CrashReportInfo.parse(crashReport).header() }
+                    val previousReport = remember(crashReport) { CrashRecorder.readPrevious() }
                     HorizontalDivider(color = WalletStroke)
                     Text(
                         text = "Nhật ký lỗi gần nhất (đã che nội dung riêng tư, không chứa khóa API hay nhật ký của bạn)",
@@ -1133,15 +1205,48 @@ fun ProductInfoDialog(
                         color = WalletInk
                     )
                     Text(
+                        text = latestHeader,
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = WalletInk,
+                        lineHeight = 14.sp
+                    )
+                    Text(
                         text = crashReport.take(900),
                         fontSize = 9.sp,
                         color = WalletMicroText,
                         lineHeight = 12.sp
                     )
+                    if (!previousReport.isNullOrBlank()) {
+                        Text(
+                            text = "Bản ghi lỗi trước đó (được giữ lại, không bị ghi đè)",
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = WalletInk
+                        )
+                        Text(
+                            text = CrashReportInfo.parse(previousReport).header(),
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = WalletInk,
+                            lineHeight = 14.sp
+                        )
+                        Text(
+                            text = previousReport.take(600),
+                            fontSize = 9.sp,
+                            color = WalletMicroText,
+                            lineHeight = 12.sp
+                        )
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(onClick = {
                             val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            cm.setPrimaryClip(ClipData.newPlainText("time-wallet-error-log", crashReport))
+                            val copied = latestHeader + "\n" + crashReport + if (!previousReport.isNullOrBlank()) {
+                                "\n\n--- Bản ghi lỗi trước đó ---\n" + CrashReportInfo.parse(previousReport).header() + "\n" + previousReport
+                            } else {
+                                ""
+                            }
+                            cm.setPrimaryClip(ClipData.newPlainText("time-wallet-error-log", copied))
                         }) { Text("Sao chép", fontSize = 12.sp) }
                         TextButton(onClick = onClearCrashReport) { Text("Xóa nhật ký", fontSize = 12.sp) }
                     }
@@ -1180,6 +1285,7 @@ fun DangerOutlineButton(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TimeBudgetItemCard(
     progress: TimeBudgetProgress,
@@ -1197,14 +1303,17 @@ fun TimeBudgetItemCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color(0xFFF9FBF9))
-            .border(1.dp, Color(0xFFE3ECE5), RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White)
+            .border(1.dp, Color(0xFFE8EEE9), RoundedCornerShape(20.dp))
             .semantics { role = Role.Button }
             .heightIn(min = 48.dp)
             .clickable { onEditClick(cat) }
-            .padding(if (compactMode) 11.dp else 13.dp)
+            .padding(if (compactMode) 14.dp else 16.dp)
     ) {
+        // v1.0.10 - bố cục XẾP CHỒNG (không còn một hàng ngang ép chữ):
+        // hàng 1 = biểu tượng + TÊN (tối đa 2 dòng) + sửa/xóa; hàng 2 = chip kỳ hạn/ưu tiên + nhãn còn/vượt (tự xuống dòng nguyên khối);
+        // hàng 3 = câu tiến độ ở TOÀN BỘ chiều rộng thẻ; sau đó là thanh tiến độ như cũ.
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -1212,63 +1321,88 @@ fun TimeBudgetItemCard(
         ) {
             Box(
                 modifier = Modifier
-                    .size(if (compactMode) 30.dp else 34.dp)
-                    .clip(RoundedCornerShape(9.dp))
+                    .size(if (compactMode) 38.dp else 42.dp)
+                    .clip(RoundedCornerShape(12.dp))
                     .background(catColor.copy(alpha = 0.15f)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(text = cat.emoji, fontSize = if (compactMode) 14.sp else 16.sp)
+                Text(text = cat.emoji, fontSize = if (compactMode) 18.sp else 20.sp)
             }
 
-            Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+            Text(
+                text = cat.displayName,
+                fontSize = if (compactMode) 15.sp else 16.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = WalletInk,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+
+            Box(
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .clip(RoundedCornerShape(10.dp))
+                    .semantics { contentDescription = "Sửa ngân sách ${cat.displayName}"; role = Role.Button }
+                    .clickable { onEditClick(cat) },
+                contentAlignment = Alignment.Center
+            ) {
+                GlyphIcon(WalletGlyph.EDIT, color = WalletMint, size = 20.dp)
+            }
+
+            if (!compactMode && onDeleteClick != null) {
+                Box(
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .clip(RoundedCornerShape(10.dp))
+                        .semantics { contentDescription = "Xóa ngân sách ${cat.displayName}"; role = Role.Button }
+                        .clickable { onDeleteClick(cat) },
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = cat.displayName,
-                        fontSize = if (compactMode) 12.sp else 13.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = WalletInk
-                    )
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(5.dp))
-                            .background(Color(0xFFEDF2EE))
-                            .padding(horizontal = 5.dp, vertical = 1.5.dp)
-                    ) {
-                        Text(
-                            text = progress.period.labelVi,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = WalletMuted
-                        )
-                    }
-                    if (!compactMode && progress.budget.isPriority) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(5.dp))
-                                .background(Color(0xFFE7F5ED))
-                                .padding(horizontal = 5.dp, vertical = 1.5.dp)
-                        ) {
-                            Text(
-                                text = "★ Ưu tiên",
-                                fontSize = 8.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = WalletMint
-                            )
-                        }
-                    }
+                    GlyphIcon(WalletGlyph.CLOSE, color = Color(0xFF6B7770), size = 20.dp)
                 }
-                Spacer(modifier = Modifier.height(2.dp))
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFFEDF2EE))
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+            ) {
                 Text(
-                    text = "Đã ghi nhận: ${progress.combinedUsedFormatted} / Mục tiêu: ${progress.targetFormatted}",
-                    fontSize = 10.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = WalletMuted
+                    text = progress.period.labelVi,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = WalletMuted,
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
-
+            if (!compactMode && progress.budget.isPriority) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFFE7F5ED))
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = "★ Ưu tiên",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = WalletMint,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
@@ -1277,39 +1411,22 @@ fun TimeBudgetItemCard(
             ) {
                 Text(
                     text = progress.combinedDifferenceLabelVi,
-                    fontSize = 10.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = diffBadgeText
-                )
-            }
-
-            Text(
-                text = "✎",
-                fontSize = 13.5.sp,
-                color = WalletMint,
-                modifier = Modifier
-                    .minimumInteractiveComponentSize()
-                    .clip(RoundedCornerShape(6.dp))
-                    .semantics { contentDescription = "Sửa ngân sách ${cat.displayName}"; role = Role.Button }
-                    .clickable { onEditClick(cat) }
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
-            )
-
-            if (!compactMode && onDeleteClick != null) {
-                Text(
-                    text = "×",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF6B7770),
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .clip(RoundedCornerShape(6.dp))
-                        .semantics { contentDescription = "Xóa ngân sách ${cat.displayName}"; role = Role.Button }
-                        .clickable { onDeleteClick(cat) }
-                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                    color = diffBadgeText,
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
         }
+
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "Đã ghi nhận: ${progress.combinedUsedFormatted} / Mục tiêu: ${progress.targetFormatted}",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = WalletMuted
+        )
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -1322,8 +1439,8 @@ fun TimeBudgetItemCard(
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .height(10.dp)
+                    .clip(RoundedCornerShape(10.dp))
                     .background(Color(0xFFE6EDE8))
             ) {
                 if (progress.combinedProgressFraction > 0f) {
@@ -1338,9 +1455,11 @@ fun TimeBudgetItemCard(
             }
             Text(
                 text = "$percentInt%",
-                fontSize = 9.5.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                color = WalletMuted
+                color = WalletMuted,
+                maxLines = 1,
+                softWrap = false
             )
         }
 
@@ -1364,12 +1483,20 @@ fun TimeBudgetItemCard(
             }.joinToString(" · ")
             Text(
                 text = extraParts + if (progress.plannedSeconds > 0L) " (dự kiến không tính vào đã ghi nhận)" else "",
-                fontSize = 9.5.sp,
+                fontSize = 11.5.sp,
                 color = Color(0xFF7B8C81)
             )
         }
     }
 }
+
+data class BudgetEditorDraft(
+    val categoryKey: String,
+    val period: BudgetPeriod,
+    val hoursText: String,
+    val minutesText: String,
+    val isPriority: Boolean
+)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -1384,28 +1511,42 @@ fun TimeBudgetEditorDialog(
         targetMinutesText: String,
         isPriority: Boolean
     ) -> Unit,
-    onDelete: (categoryKey: String) -> Unit
+    onDelete: (categoryKey: String) -> Unit,
+    preservedDraft: BudgetEditorDraft? = null,
+    onDeleteWithDraft: ((BudgetEditorDraft) -> Unit)? = null
 ) {
     val startCategory = initialCategory ?: existingBudgets.firstOrNull()?.category ?: TimeCategory.WORK
-    var selectedCategoryKey by remember { mutableStateOf(startCategory.key) }
+    val seedCategoryKey = preservedDraft?.categoryKey ?: startCategory.key
+    var selectedCategoryKey by remember { mutableStateOf(seedCategoryKey) }
 
     val matchedBudget = remember(selectedCategoryKey, existingBudgets) {
         existingBudgets.firstOrNull { it.category.key == selectedCategoryKey }
     }
+    val usePreserved = preservedDraft != null && preservedDraft.categoryKey == seedCategoryKey
 
-    var selectedPeriod by remember(selectedCategoryKey, matchedBudget) {
-        mutableStateOf(matchedBudget?.period ?: BudgetPeriod.WEEKLY)
+    var selectedPeriod by remember {
+        mutableStateOf(
+            if (usePreserved) preservedDraft!!.period
+            else matchedBudget?.period ?: BudgetPeriod.WEEKLY
+        )
     }
-    var hoursText by remember(selectedCategoryKey, matchedBudget) {
-        val initH = (matchedBudget?.targetMinutes ?: 600) / 60
-        mutableStateOf(initH.toString())
+    var hoursText by remember {
+        mutableStateOf(
+            if (usePreserved) preservedDraft!!.hoursText
+            else ((matchedBudget?.targetMinutes ?: 600) / 60).toString()
+        )
     }
-    var minutesText by remember(selectedCategoryKey, matchedBudget) {
-        val initM = (matchedBudget?.targetMinutes ?: 0) % 60
-        mutableStateOf(initM.toString())
+    var minutesText by remember {
+        mutableStateOf(
+            if (usePreserved) preservedDraft!!.minutesText
+            else ((matchedBudget?.targetMinutes ?: 0) % 60).toString()
+        )
     }
-    var isPriority by remember(selectedCategoryKey, matchedBudget) {
-        mutableStateOf(matchedBudget?.isPriority ?: true)
+    var isPriority by remember {
+        mutableStateOf(
+            if (usePreserved) preservedDraft!!.isPriority
+            else matchedBudget?.isPriority ?: true
+        )
     }
 
     AlertDialog(
@@ -1434,7 +1575,16 @@ fun TimeBudgetEditorDialog(
                 )
                 CategorySelectorGrid(
                     selectedKey = selectedCategoryKey,
-                    onSelectCategory = { selectedCategoryKey = it }
+                    onSelectCategory = { nextKey ->
+                        if (nextKey != selectedCategoryKey) {
+                            selectedCategoryKey = nextKey
+                            val nextBudget = existingBudgets.firstOrNull { it.category.key == nextKey }
+                            selectedPeriod = nextBudget?.period ?: BudgetPeriod.WEEKLY
+                            hoursText = ((nextBudget?.targetMinutes ?: 600) / 60).toString()
+                            minutesText = ((nextBudget?.targetMinutes ?: 0) % 60).toString()
+                            isPriority = nextBudget?.isPriority ?: true
+                        }
+                    }
                 )
 
                 Text(
@@ -1573,7 +1723,20 @@ fun TimeBudgetEditorDialog(
                     DangerOutlineButton(
                         text = "Xóa ngân sách danh mục này",
                         modifier = Modifier.fillMaxWidth(),
-                        onClick = { onDelete(selectedCategoryKey) }
+                        onClick = {
+                            val draft = BudgetEditorDraft(
+                                categoryKey = selectedCategoryKey,
+                                period = selectedPeriod,
+                                hoursText = hoursText,
+                                minutesText = minutesText,
+                                isPriority = isPriority
+                            )
+                            if (onDeleteWithDraft != null) {
+                                onDeleteWithDraft(draft)
+                            } else {
+                                onDelete(selectedCategoryKey)
+                            }
+                        }
                     )
                 }
             }
@@ -1598,6 +1761,39 @@ fun TimeBudgetEditorDialog(
             TextButton(onClick = onDismiss) {
                 Text("Hủy", color = WalletMuted)
             }
+        }
+    )
+}
+
+/** v1.0.10: xác nhận ngắn trước khi xóa MỤC TIÊU ngân sách (từ nút × ở Phân tích và từ hộp thoại sửa). Không đụng bản ghi thời gian. */
+@Composable
+fun BudgetDeleteConfirmDialog(
+    categoryKey: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val name = TimeCategory.fromKeyOrDefault(categoryKey).displayName
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color.White,
+        title = { Text("Xóa ngân sách?", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
+        text = {
+            Text(
+                text = "Xóa mục tiêu ngân sách \"$name\"? Các bản ghi thời gian đã lưu không bị ảnh hưởng.",
+                fontSize = 12.sp,
+                color = WalletMuted
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(containerColor = WalletDangerText)
+            ) {
+                Text("Xóa", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Hủy", color = WalletMuted) }
         }
     )
 }

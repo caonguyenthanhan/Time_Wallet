@@ -55,6 +55,13 @@ object V109Corpus {
         "$s.",
         s + " \u000B",
         "\u000C" + s,
+        s + 0x85.toChar(),
+        s + "\r",
+        s + "\n\n",
+        s + 0x0B.toChar() + "x",
+        s + 0x0C.toChar(),
+        s + 0x2029.toChar(),
+        "x\n" + s,
         Normalizer.normalize(s, Normalizer.Form.NFD),
         s.replace(" ", " "),
         "tiền tố $s hậu tố"

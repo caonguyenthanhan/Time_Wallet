@@ -6,6 +6,7 @@ import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.data.ai.GuardUnavailableException
 import com.timewallet.mvp.domain.usecase.AiFault
 import com.timewallet.mvp.domain.usecase.AnalysisEpoch
+import com.timewallet.mvp.domain.usecase.CancelArming
 import com.timewallet.mvp.domain.usecase.ChatAnalysisFeedback
 import com.timewallet.mvp.domain.usecase.ChatEvent
 import com.timewallet.mvp.domain.usecase.ChatPhaseMachine
@@ -41,6 +42,7 @@ class QueryBasis(
  *  2. Lượt cũ (đã hủy/bị vô hiệu) KHÔNG ghi vào trạng thái: không đổi loading, input, câu trả lời, draft, lỗi; không toast;
  *     và không nhả quyền sở hữu của lượt mới.
  *  3. Số liệu truy vấn được tính NGOÀI luồng chính (cả khi phải tính lại vì sổ cái/timer/ngân sách vừa đổi).
+ *  4. (v1.0.13) Hủy trong cửa sổ [CancelArming] ngay sau khi gửi bị bỏ qua (cú chạm thứ hai của bấm đúp Gửi không hủy yêu cầu vừa gửi).
  */
 class WallyChatRunner(
     private val scope: CoroutineScope,
@@ -50,7 +52,9 @@ class WallyChatRunner(
     private val onUnexpected: (Throwable) -> Unit = {},
     private val computeContext: CoroutineContext = Dispatchers.Default,
     private val launchContext: CoroutineContext = EmptyCoroutineContext,
-    val owner: ChatRequestOwner = ChatRequestOwner()
+    val owner: ChatRequestOwner = ChatRequestOwner(),
+    // v1.0.13 (F4): mặc định armMs = 0 (Hủy có hiệu lực ngay) cho test/F3-F5; ViewModel truyền CancelArming() = 700 ms để bấm đúp Gửi không tự hủy.
+    private val cancelArming: CancelArming = CancelArming(armMs = 0L)
 ) {
     val epoch: AnalysisEpoch get() = owner.epoch
 
@@ -63,6 +67,7 @@ class WallyChatRunner(
     /** @return true nếu lượt mới được nhận; false nếu đang có lượt còn hiệu lực (chống bấm đúp). */
     fun submit(text: String, analyze: suspend () -> ParseChatOutcome): Boolean {
         val ticket = owner.tryBegin() ?: return false
+        cancelArming.onSendStarted() // chỉ lượt được nhận mới đặt lại cửa sổ; lần bấm trùng (return false ở trên) không động vào
         state.update {
             it.copy(
                 isAnalyzingChat = true,
@@ -75,8 +80,9 @@ class WallyChatRunner(
         return true
     }
 
-    /** Nút "Hủy". @return true nếu có lượt còn hiệu lực bị hủy. */
+    /** Nút "Hủy". @return true nếu có lượt còn hiệu lực bị hủy; false nếu không có lượt nào hoặc Hủy chưa "lên đạn" (xem [CancelArming]). */
     fun cancel(): Boolean {
+        if (!cancelArming.isArmed()) return false
         if (!owner.cancel()) return false
         cancelStaleJob()
         state.update {
@@ -100,7 +106,8 @@ class WallyChatRunner(
         try {
             val outcome = analyze()
             if (!owner.isCurrent(ticket)) return
-            val newDrafts = outcome.proposals.map { EditableProposalDraft.fromProposal(it) }
+            val tagsNow = state.value.tags
+            val newDrafts = outcome.proposals.map { EditableProposalDraft.fromProposal(it).withTagMatch(tagsNow) }
             val needsAnswers = outcome.fault == null && outcome.queries.isNotEmpty()
             var attempts = 0
             var effective = outcome

@@ -12,6 +12,9 @@ package com.timewallet.mvp.domain.usecase
  *  - QUERY    (chỉ truy vấn): lời đáp AI (đã qua ReplyGuard) chỉ là phần mở đầu; số liệu do engine tính.
  *  - TRANSACTION_CHAT (không đề xuất, không truy vấn, nhưng câu liên quan ghi nhận / hỏi đã lưu chưa / đang còn đề xuất chờ):
  *             thẻ do ỨNG DỤNG tạo, là nội dung chính; lời đáp AI bị bỏ hoàn toàn (không đứng cạnh, không bị "chú thích" bên dưới).
+ *             Ngoại lệ duy nhất (v1.0.13, G2): CÂU HỎI LẠI của AI đã qua ReplyGuard ("Bạn muốn ghi 2 giờ hay 3 giờ?") là nội dung chính của thẻ,
+ *             và dòng "Chưa có gì được lưu..." do ứng dụng đứng ngay dưới nó. Chỉ lấy các câu hỏi; câu khẳng định của AI vẫn không bao giờ hiện,
+ *             và khi người dùng hỏi "đã lưu chưa" thì luôn do ứng dụng trả lời. Lời đáp bị ReplyGuard bỏ thì vẫn là thẻ chung của ứng dụng.
  *  - PLAIN_CHAT: hội thoại không liên quan giao dịch: giữ nguyên lời đáp tự nhiên của AI.
  */
 object WallyTurnPolicy {
@@ -74,7 +77,7 @@ object WallyTurnPolicy {
      * Thẻ trạng thái do ứng dụng tạo (TRANSACTION_CHAT). Là nội dung chính (headline), không phải chú thích.
      * Đánh dấu [ChatAnswer.isTransactionStatus] để ViewModel xóa thẻ khi danh sách đề xuất đổi (tránh số "đang chờ" bị cũ).
      */
-    fun statusCard(question: String, pendingDrafts: Int, notes: List<String>): ChatAnswer {
+    fun statusCard(question: String, pendingDrafts: Int, notes: List<String>, askBack: String? = null): ChatAnswer {
         val statusQ = isStatusQuestion(question)
         val headline = if (pendingDrafts > 0) {
             "Chưa có gì được lưu. Còn $pendingDrafts đề xuất đang chờ bạn xác nhận."
@@ -91,6 +94,19 @@ object WallyTurnPolicy {
                 add("Hãy nêu rõ hoạt động và thời lượng, ví dụ \"Học 45p\", hoặc dùng Ghi thủ công.")
             }
         }
+        if (askBack != null) {
+            // Câu hỏi của AI là nội dung chính (nhãn mặc định "Cần hỏi lại"); trạng thái "chưa lưu" do ứng dụng nói ở dòng dưới.
+            val below = if (pendingDrafts > 0) listOf(headline) + lines
+            else listOf("Chưa có gì được lưu. Hãy nhập lại cả câu cho rõ (hoạt động và thời lượng), hoặc dùng Ghi thủ công.")
+            return ChatAnswer(
+                question = question,
+                headline = askBack,
+                lines = below,
+                notes = notes.distinct(),
+                isClarification = true,
+                isTransactionStatus = true
+            )
+        }
         return ChatAnswer(
             question = question,
             headline = headline,
@@ -101,6 +117,11 @@ object WallyTurnPolicy {
             isTransactionStatus = true
         )
     }
+
+    /** Các câu hỏi của lời đáp AI (đã qua ReplyGuard) nối thành một; null nếu không có câu hỏi nào hoặc người dùng đang hỏi trạng thái lưu. */
+    internal fun askBackOf(question: String, reply: String?): String? =
+        if (reply.isNullOrBlank() || isStatusQuestion(question)) null
+        else ReplyGuard.questionSentences(reply).joinToString(" ").takeIf { it.isNotBlank() }
 
     /**
      * Dựng thẻ trả lời của một lượt AI thành công (không lỗi). Dùng cho cả ViewModel (qua reducer) và test pipeline.
@@ -120,7 +141,7 @@ object WallyTurnPolicy {
                 val reply = outcome.reply?.takeUnless { pendingDrafts > 0 && hasCompletionSemantics(it) }
                 WallyAnswerBuilder.build(question, reply, answers, outcome.warnings, proposalCount = 0)
             }
-            Kind.TRANSACTION_CHAT -> statusCard(question, pendingDrafts, outcome.warnings)
+            Kind.TRANSACTION_CHAT -> statusCard(question, pendingDrafts, outcome.warnings, askBack = askBackOf(question, outcome.reply))
             Kind.PLAIN_CHAT -> WallyAnswerBuilder.build(question, outcome.reply, answers, outcome.warnings, proposalCount = 0)
         }
     }

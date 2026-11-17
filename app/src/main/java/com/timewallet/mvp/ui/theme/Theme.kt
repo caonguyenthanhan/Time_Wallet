@@ -21,6 +21,9 @@ val WalletMicroText = Color(0xFF4D7660)
 val WalletDangerBg = Color(0xFFFFF3F0)
 val WalletDangerBorder = Color(0xFFF5D4CA)
 val WalletDangerText = Color(0xFFAD4433)
+// v1.0.11 UI polish
+val WalletMintTint = Color(0xFFE8F5EE)
+val WalletRing = Color(0xFFE9EFEA)
 
 private val LightColorScheme = lightColorScheme(
     primary = WalletMint,

@@ -1,31 +1,24 @@
 package com.timewallet.mvp.ui.screens
 
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.Role
-import androidx.compose.material3.minimumInteractiveComponentSize
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
-import com.timewallet.mvp.domain.usecase.JournalDayTotal
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -37,19 +30,33 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.model.TimeLayer
+import com.timewallet.mvp.domain.usecase.JournalDayTotal
+import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
 import com.timewallet.mvp.ui.HistoryFilter
 import com.timewallet.mvp.ui.theme.WalletDangerText
 import com.timewallet.mvp.ui.theme.WalletInk
+import com.timewallet.mvp.ui.theme.WalletMint
 import com.timewallet.mvp.ui.theme.WalletMuted
+import com.timewallet.mvp.ui.theme.WalletStroke
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+
+/** Nhãn bộ lọc ngắn để không xuống dòng; nhãn đầy đủ vẫn nằm trong HistoryFilter.label (đọc cho trình đọc màn hình). */
+private fun HistoryFilter.shortLabel(): String = when (this) {
+    HistoryFilter.ALL -> "Tất cả"
+    HistoryFilter.ACTUAL_TIMED -> "Có giờ"
+    HistoryFilter.UNTIMED -> "Chưa gắn giờ"
+    HistoryFilter.ACTIVE_OR_PLANNED -> "Đang & dự kiến"
+}
 
 @Composable
 fun HistoryScreen(
@@ -60,12 +67,9 @@ fun HistoryScreen(
     onConfirmPlannedOrActiveRecord: (LedgerRecord) -> Unit,
     onEditRecord: (LedgerRecord) -> Unit,
     onDeleteRecord: (String) -> Unit,
-    onLoadSampleData: () -> Unit,
-    onExportJsonClick: () -> Unit,
-    onClearAllData: () -> Unit
+    onAddManual: () -> Unit = {}
 ) {
     var recordPendingDelete by remember { mutableStateOf<LedgerRecord?>(null) }
-    var showConfirmClearAll by remember { mutableStateOf(false) }
     val nowMs = System.currentTimeMillis()
 
     val filteredRecords = remember(records, selectedFilter, nowMs, todayDateLocal) {
@@ -89,168 +93,120 @@ fun HistoryScreen(
             .toSortedMap(compareByDescending { it })
     }
 
-    Column(modifier = Modifier.fillMaxWidth()) {
-        PageIntroHeader(
-            eyebrow = "SỔ GIAO DỊCH THỜI GIAN",
-            title = "Nhật ký hoạt động.",
-            subtitle = "Phân biệt rõ hoạt động Thực tế (đã đo / có giờ / chưa gắn giờ), Đang diễn ra và Dự kiến."
-        )
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        ScreenTitle("Nhật ký")
 
-        // Filter Tabs (Việt hóa 100%)
+        // Bộ lọc gọn: một hàng cuộn ngang, nhãn không xuống dòng.
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             HistoryFilter.entries.forEach { filter ->
                 val selected = filter == selectedFilter
-                val bg = if (selected) Color(0xFF205F4B) else Color.White
-                val textColor = if (selected) Color.White else Color(0xFF657A6C)
-                val borderColor = if (selected) Color(0xFF205F4B) else Color(0xFFE2E9E2)
-
                 Box(
                     modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .weight(1f)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(bg)
-                        .border(1.dp, borderColor, RoundedCornerShape(10.dp))
-                        .semantics { role = Role.Button }
-                        .clickable { onSelectFilter(filter) }
-                        .padding(vertical = 8.dp, horizontal = 3.dp),
+                        .clip(RoundedCornerShape(100.dp))
+                        .background(if (selected) Color(0xFF205F4B) else Color.White)
+                        .border(1.dp, if (selected) Color(0xFF205F4B) else WalletStroke, RoundedCornerShape(100.dp))
+                        .semantics { this.selected = selected }
+                        .walletClickable(onClickLabel = "Lọc ${filter.label}", role = Role.Tab) { onSelectFilter(filter) }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = filter.label,
-                        fontSize = 9.5.sp,
+                        text = filter.shortLabel(),
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = textColor,
-                        textAlign = TextAlign.Center,
-                        lineHeight = 12.sp
+                        color = if (selected) Color.White else Color(0xFF657A6C),
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
-
-        WalletSurfaceCard(paddingValues = PaddingValues(horizontal = 14.dp, vertical = 10.dp)) {
-            if (groupedByDate.isEmpty()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "Chưa có hoạt động trong nhóm bộ lọc này.",
-                        fontSize = 11.5.sp,
-                        color = Color(0xFF7D9086),
-                        textAlign = TextAlign.Center
-                    )
-                }
-            } else {
-                groupedByDate.entries.forEachIndexed { groupIdx, (dateStr, dayRecords) ->
-                    if (groupIdx > 0) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
-                    val dayTotalSeconds = JournalDayTotal.seconds(dayRecords, nowMs)
+        if (records.isEmpty()) {
+            SoftCard {
+                EmptyState(
+                    glyph = WalletGlyph.LIST,
+                    title = "Chưa có hoạt động nào",
+                    hint = "Ghi lại hoạt động đầu tiên của bạn.",
+                    actionLabel = "Ghi hoạt động đầu tiên",
+                    onAction = onAddManual
+                )
+            }
+        } else if (groupedByDate.isEmpty()) {
+            SoftCard {
+                EmptyState(glyph = WalletGlyph.LIST, title = "Không có hoạt động trong bộ lọc này")
+            }
+        } else {
+            groupedByDate.entries.forEach { (dateStr, dayRecords) ->
+                val dayTotalSeconds = JournalDayTotal.seconds(dayRecords, nowMs)
+                Column {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 4.dp, bottom = 2.dp),
+                            .padding(bottom = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = formatFriendlyDayHeader(dateStr, todayDateLocal),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF4F6A5C),
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = WalletInk,
                             modifier = Modifier.weight(1f)
                         )
                         if (dayTotalSeconds > 0L) {
                             Text(
-                                text = "Tổng ${LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(dayTotalSeconds)}",
-                                fontSize = 11.sp,
+                                text = LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(dayTotalSeconds),
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.ExtraBold,
-                                color = WalletInk,
+                                color = WalletMint,
                                 maxLines = 1,
                                 softWrap = false
                             )
                         }
                     }
+                    // Timeline: trục dọc + chấm màu danh mục, mỗi bản ghi là một thẻ.
                     dayRecords.forEachIndexed { itemIdx, record ->
-                        ActivityRecordRow(
-                            record = record,
-                            nowEpochMs = nowMs,
-                            todayDateLocal = todayDateLocal,
-                            showEditAndDelete = true,
-                            onConfirmActualClick = onConfirmPlannedOrActiveRecord,
-                            onEditClick = onEditRecord,
-                            onDeleteClick = { recordPendingDelete = it }
-                        )
-                        if (itemIdx < dayRecords.lastIndex) {
-                            HorizontalDivider(color = Color(0xFFEFF2EE))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .timelineRail(
+                                    color = Color(record.category.colorHex),
+                                    isFirst = itemIdx == 0,
+                                    isLast = itemIdx == dayRecords.lastIndex
+                                )
+                        ) {
+                            Spacer(modifier = Modifier.width(28.dp))
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(vertical = 4.dp)
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(Color.White)
+                                    .padding(horizontal = 12.dp, vertical = 2.dp)
+                            ) {
+                                ActivityRecordRow(
+                                    record = record,
+                                    nowEpochMs = nowMs,
+                                    todayDateLocal = todayDateLocal,
+                                    showEditAndDelete = true,
+                                    onConfirmActualClick = onConfirmPlannedOrActiveRecord,
+                                    onEditClick = onEditRecord,
+                                    onDeleteClick = { recordPendingDelete = it }
+                                )
+                            }
                         }
                     }
                 }
             }
-        }
-
-        SectionHeader(title = "Quản lý dữ liệu")
-
-        WalletSurfaceCard {
-            Text(
-                text = "Dữ liệu lưu cục bộ qua Room SQLite và được bảo toàn khi nâng cấp. Khoảng giờ dự kiến chỉ chuyển sang thực tế khi bạn bấm \"✓ Chốt thực tế\".",
-                fontSize = 10.5.sp,
-                color = Color(0xFF7D8E83),
-                lineHeight = 15.sp
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    onClick = onLoadSampleData,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, Color(0xFFDCE8DF)),
-                    contentPadding = PaddingValues(vertical = 10.dp)
-                ) {
-                    Text(
-                        text = "Nạp dữ liệu mẫu",
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF27644D)
-                    )
-                }
-
-                OutlinedButton(
-                    onClick = onExportJsonClick,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, Color(0xFFDCE8DF)),
-                    contentPadding = PaddingValues(vertical = 10.dp)
-                ) {
-                    Text(
-                        text = "Xuất JSON",
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF27644D)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            DangerOutlineButton(
-                text = "Xóa toàn bộ dữ liệu",
-                modifier = Modifier.fillMaxWidth(),
-                onClick = { showConfirmClearAll = true }
-            )
         }
     }
 
@@ -286,49 +242,17 @@ fun HistoryScreen(
             }
         )
     }
-
-    if (showConfirmClearAll) {
-        AlertDialog(
-            onDismissRequest = { showConfirmClearAll = false },
-            containerColor = Color.White,
-            title = {
-                Text("Xóa toàn bộ dữ liệu?", fontWeight = FontWeight.ExtraBold, color = WalletInk)
-            },
-            text = {
-                Text(
-                    "Xóa toàn bộ dữ liệu Time Wallet trên thiết bị này? Thao tác này không thể hoàn tác.",
-                    fontSize = 12.sp,
-                    color = WalletMuted
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showConfirmClearAll = false
-                        onClearAllData()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = WalletDangerText)
-                ) {
-                    Text("Xóa toàn bộ", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showConfirmClearAll = false }) {
-                    Text("Hủy", color = WalletMuted)
-                }
-            }
-        )
-    }
 }
 
 private fun formatFriendlyDayHeader(dateStr: String, todayDateLocal: String): String {
     return try {
         val today = LocalDate.parse(todayDateLocal)
         val date = LocalDate.parse(dateStr)
+        val short = date.format(DateTimeFormatter.ofPattern("dd/MM"))
         when (date) {
-            today -> "Hôm nay ($dateStr)"
-            today.minusDays(1) -> "Hôm qua ($dateStr)"
-            today.plusDays(1) -> "Ngày mai · Dự kiến ($dateStr)"
+            today -> "Hôm nay, $short"
+            today.minusDays(1) -> "Hôm qua, $short"
+            today.plusDays(1) -> "Ngày mai, $short · Dự kiến"
             else -> {
                 val fmt = DateTimeFormatter.ofPattern("dd MMMM, yyyy", Locale("vi", "VN"))
                 date.format(fmt)

@@ -15,9 +15,12 @@ import java.util.concurrent.ConcurrentHashMap
  * `Pattern.compile` ở nơi khác). Mẫu nguồn viết bằng một "phương ngữ" nhỏ; `Rx` dịch nó thành MỘT chuỗi mẫu duy nhất chỉ dùng cấu
  * trúc có nghĩa GIỐNG HỆT trên JDK và ICU, nên cùng một chuỗi chạy trên cả hai bộ máy:
  *  - `uni`  = ngữ nghĩa Unicode (trước đây là tiền tố `(?U)`);   `ascii` = ngữ nghĩa ASCII mặc định của JDK (mẫu không có `(?U)`).
- *  - `\s` `\d` `\b` được thay bằng lớp ký tự/khẳng định tường minh (không còn phụ thuộc cờ của bộ máy).
+ *  - `\s` `\d` `\b` `$` `.` được thay bằng lớp ký tự/khẳng định tường minh (không còn phụ thuộc cờ hay định nghĩa "kết thúc dòng" của
+ *    bộ máy: ICU coi thêm U+000B/U+000C là kết thúc dòng, JDK thì không).
  *  - Cấu trúc ngoài tập con (cờ nội tuyến, nhóm đặt tên, `\w`, `&&`, `\p{Is..}`, lớp lồng nhau, `{` chưa thoát...) bị TỪ CHỐI với
  *    `IllegalArgumentException` thay vì chạy khác nhau giữa hai bộ máy.
+ *
+ * Ký tự không in được trong hằng số bên dưới được viết dạng `\x{hhhh}` (cả JDK lẫn ICU đều hiểu) để mã nguồn không chứa ký tự vô hình.
  */
 internal object Rx {
 
@@ -50,12 +53,34 @@ internal object Rx {
         return cache.getOrPut(key) { Entry(pattern, unicode, ignoreCase, portable, regex) }.regex
     }
 
-    private const val WS_UNI = """\t\n\u000B\f\r\u0085\p{Z}"""
-    private const val WS_ASCII = """ \t\n\u000B\f\r"""
-    private const val WORD_UNI = """\p{L}\p{M}\p{Nd}\p{Nl}\p{Pc}‌‍"""
+    // White_Space của Unicode = \t \n VT \f \r NEL + \p{Z}; ASCII mặc định của JDK = [ \t\n\x0B\f\r].
+    private const val WS_UNI = """\t\n\x{B}\f\r\x{85}\p{Z}"""
+    private const val WS_ASCII = """ \t\n\x{B}\f\r"""
+
+    // Ký tự từ Unicode ≈ Alphabetic | M | Nd | Pc | Join_Control (ZWNJ, ZWJ); ASCII = [A-Za-z0-9_].
+    private const val WORD_UNI = """\p{L}\p{M}\p{Nd}\p{Nl}\p{Pc}\x{200C}\x{200D}"""
     private const val WORD_ASCII = "A-Za-z0-9_"
+
+    // `$` (không MULTILINE) của JDK: khớp ở cuối chuỗi hoặc ngay trước dấu xuống dòng CUỐI (\r\n tính là một; không khớp giữa \r và \n).
+    private const val LINE_END = """(?=(?:\r\n|(?<!\r)\n|[\r\x{85}\x{2028}\x{2029}])?\z)"""
+
+    // `.` (không DOTALL, không UNIX_LINES) của JDK: mọi ký tự trừ \n \r NEL LS PS.
+    private const val ANY_BUT_EOL = """[^\n\r\x{85}\x{2028}\x{2029}]"""
+
     private val PROPERTIES = setOf("L", "N", "Nd", "Nl", "M", "Lu", "Ll", "Z", "Pc")
-    private val QUANTIFIER = Regex("""\{\d+(?:,\d*)?\}""")
+
+    /** Độ dài của bộ lượng từ `{n}` / `{n,}` / `{n,m}` bắt đầu tại [i]; -1 nếu không phải. (Không dùng Regex để phân tích Regex.) */
+    private fun quantifierLength(s: String, i: Int): Int {
+        var j = i + 1
+        val firstDigit = j
+        while (j < s.length && s[j] in '0'..'9') j++
+        if (j == firstDigit) return -1
+        if (j < s.length && s[j] == ',') {
+            j++
+            while (j < s.length && s[j] in '0'..'9') j++
+        }
+        return if (j < s.length && s[j] == '}') j - i + 1 else -1
+    }
 
     /** Phép dịch thuần (không đụng bộ máy regex nào ngoài kiểm tra bộ lượng từ); công khai trong module để test. */
     internal fun translate(src: String, unicode: Boolean): String {
@@ -94,7 +119,7 @@ internal object Rx {
                             sb.append(src, i, i + 6); i += 6
                         }
                         n.isLetterOrDigit() -> bad("escape \\$n is outside the portable subset")
-                        else -> { sb.append(c).append(n); i += 2 } // dấu câu đã thoát: \. \( \[ \{ \" \-
+                        else -> { sb.append(c).append(n); i += 2 } // dấu câu đã thoát: \. \( \[ \{ \" \- \$
                     }
                 }
                 // [\s\S] = "mọi ký tự" bất kể định nghĩa khoảng trắng; viết lại không phụ thuộc \s/\S.
@@ -111,14 +136,17 @@ internal object Rx {
                 c == '(' && src.startsWith("(?", i) -> {
                     val ok = src.startsWith("(?:", i) || src.startsWith("(?=", i) || src.startsWith("(?!", i) ||
                         src.startsWith("(?<=", i) || src.startsWith("(?<!", i)
-                    if (!ok) bad("group/flag syntax outside the portable subset (inline flags such as (?U) are not supported by ICU)")
+                    if (!ok) bad("group/flag syntax outside the portable subset (inline flags are not portable: ICU accepts only i d m s w x)")
                     sb.append(c); i++
                 }
                 c == '{' -> {
-                    val m = QUANTIFIER.matchAt(src, i) ?: bad("unescaped '{' that is not a quantifier")
-                    sb.append(m.value); i += m.value.length
+                    val len = quantifierLength(src, i)
+                    if (len < 0) bad("unescaped '{' that is not a quantifier")
+                    sb.append(src, i, i + len); i += len
                 }
                 c == '}' -> bad("unescaped '}'")
+                c == '$' -> { sb.append(LINE_END); i++ }
+                c == '.' -> { sb.append(ANY_BUT_EOL); i++ }
                 else -> { sb.append(c); i++ }
             }
         }

@@ -13,8 +13,8 @@ android {
         applicationId = "com.timewallet.mvp"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.0.8"
+        versionCode = 15
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -41,6 +41,11 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
+}
+
+// v1.1.0: Room xuất schema JSON để test L3 đối chiếu DDL migration với lược đồ Room thật.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {

@@ -13,8 +13,24 @@ import com.timewallet.mvp.data.local.DailyReviewEntity
 import com.timewallet.mvp.data.local.DbCommitOutcome
 import com.timewallet.mvp.data.local.LedgerJsonExporter
 import com.timewallet.mvp.data.local.LedgerRecordEntity
+import com.timewallet.mvp.data.local.GoalEntity
+import com.timewallet.mvp.data.local.TagEntity
 import com.timewallet.mvp.data.local.TimeWalletDatabase
 import com.timewallet.mvp.data.local.TimerAndSettingsStore
+import com.timewallet.mvp.domain.model.Goal
+import com.timewallet.mvp.domain.model.GoalGroupState
+import com.timewallet.mvp.domain.model.GoalKind
+import com.timewallet.mvp.domain.model.GoalPeriod
+import com.timewallet.mvp.domain.model.GoalTargetType
+import com.timewallet.mvp.domain.model.GoalVersionStatus
+import com.timewallet.mvp.domain.model.Tag
+import com.timewallet.mvp.domain.usecase.CoachCheck
+import com.timewallet.mvp.domain.usecase.CoachDigestBuilder
+import com.timewallet.mvp.domain.usecase.CoachGuard
+import com.timewallet.mvp.domain.usecase.CoachSuggestion
+import com.timewallet.mvp.domain.usecase.GoalRules
+import com.timewallet.mvp.domain.usecase.TagRules
+import com.timewallet.mvp.domain.usecase.TimeRange
 import com.timewallet.mvp.data.local.TimerCommit
 import com.timewallet.mvp.data.local.TimerCommitResult
 import com.timewallet.mvp.domain.model.ActiveTimerSession
@@ -28,6 +44,7 @@ import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.model.TimeBudgetProgress
 import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.model.TimeLayer
+import com.timewallet.mvp.domain.usecase.ApiKeyHygiene
 import com.timewallet.mvp.domain.usecase.BatchRecordInput
 import com.timewallet.mvp.domain.usecase.BatchValidationResult
 import com.timewallet.mvp.domain.usecase.CognitiveState
@@ -46,6 +63,7 @@ import com.timewallet.mvp.domain.usecase.ChatPhaseMachine
 import com.timewallet.mvp.domain.usecase.OutcomeSource
 import com.timewallet.mvp.domain.usecase.BudgetPolicy
 import com.timewallet.mvp.domain.usecase.DerivedStatsCalculator
+import com.timewallet.mvp.domain.usecase.CancelArming
 import com.timewallet.mvp.domain.usecase.CancelCommandParser
 import com.timewallet.mvp.domain.usecase.CancelOutcome
 import com.timewallet.mvp.domain.usecase.DraftRef
@@ -111,8 +129,16 @@ data class EditableProposalDraft(
     val endLocal: String,
     val hasInitialTimeEvidence: Boolean,
     val isFuturePlanned: Boolean,
-    val idempotencyKey: String = UUID.randomUUID().toString()
+    val idempotencyKey: String = UUID.randomUUID().toString(),
+    /** v1.1.0: Tag của người dùng khớp TIÊU ĐỀ đề xuất (khớp xác định, không dùng AI). null = không gắn. */
+    val tagId: String? = null
 ) {
+    /** Gắn Tag khớp tiêu đề; Tag là cách phân loại của người dùng nên Category theo Tag (người dùng vẫn sửa được ở khung sửa). */
+    fun withTagMatch(tags: List<Tag>): EditableProposalDraft {
+        val t = TagRules.matchTitle(title, tags) ?: return this
+        return copy(tagId = t.id, categoryKey = t.category.key)
+    }
+
     val durationMinutes: Int
         get() = durationMinutesText.trim().toIntOrNull()?.coerceIn(1, 1440) ?: 1
 
@@ -146,6 +172,51 @@ data class ManualEntryState(
     val dateLocal: String = LocalDate.now().toString(),
     val note: String = "",
     val saving: Boolean = false,
+    val error: String? = null,
+    // v1.1.0 (A): hai cách nhập — Khoảng giờ (tự tính phút, có "Bây giờ") và Thời lượng; Tag cá nhân; tìm/tạo Tag ngay trong form.
+    val mode: ManualMode = ManualMode.DURATION,
+    val tagId: String? = null,
+    val tagQuery: String = "",
+    val startText: String = "",
+    val endText: String = "",
+    val endIsNow: Boolean = false,
+    val creatingTag: Boolean = false,
+    val newTagName: String = ""
+)
+
+enum class ManualMode { RANGE, DURATION }
+
+/** v1.1.0 (D): trạng thái thẻ AI Time Coach. `facts` do ỨNG DỤNG viết (luôn có); `story` chỉ có khi AI trả lời và qua [CoachGuard]. */
+data class CoachUiState(
+    val loading: Boolean = false,
+    val rangeDays: Int = 1,
+    val facts: List<String> = emptyList(),
+    val story: String? = null,
+    val suggestions: List<CoachSuggestion> = emptyList(),
+    val note: String? = null,
+    val requested: Boolean = false
+)
+
+/** v1.1.0 (B): màn Quản lý Tag. */
+data class TagManagerState(
+    val newName: String = "",
+    val newCategoryKey: String? = null,
+    val renamingId: String? = null,
+    val renameText: String = "",
+    val recategorizingId: String? = null,
+    val showArchived: Boolean = false,
+    val error: String? = null
+)
+
+/** v1.1.0 (C): trình soạn mục tiêu. `editingGroupId` = null khi tạo mới. */
+data class GoalEditorState(
+    val editingGroupId: String? = null,
+    val targetType: GoalTargetType = GoalTargetType.TAG,
+    val targetKey: String? = null,
+    val kind: GoalKind = GoalKind.MIN,
+    val period: GoalPeriod = GoalPeriod.DAY,
+    val hoursText: String = "",
+    val minutesText: String = "30",
     val error: String? = null
 )
 
@@ -166,6 +237,8 @@ data class TimeWalletUiState(
     val timerClockSkewDetected: Boolean = false,
     val timerInputTitle: String = "Làm việc tập trung",
     val timerInputCategoryKey: String = TimeCategory.WORK.key,
+    /** v1.1.0: Tag đang chọn cho phiên đo sắp bắt đầu (null = không gắn). */
+    val timerInputTagId: String? = null,
     val diceCognitiveState: CognitiveState = CognitiveState.HIGH_ENERGY_BUILDUP,
     val diceFaceProbabilities: List<FaceProbabilityItem> = DopamineTimeDiceEngine
         .computeProbabilities(
@@ -211,6 +284,13 @@ data class TimeWalletUiState(
     val showProductInfoDialog: Boolean = false,
     val showAiSettingsDialog: Boolean = false,
     val manualEntry: ManualEntryState? = null,
+    // v1.1.0: Tag cá nhân, Mục tiêu (mọi phiên bản), Quản lý Tag, Mục tiêu, AI Coach.
+    val tags: List<Tag> = emptyList(),
+    val goals: List<Goal> = emptyList(),
+    val tagManager: TagManagerState? = null,
+    val showGoals: Boolean = false,
+    val goalEditor: GoalEditorState? = null,
+    val coach: CoachUiState = CoachUiState(),
     val lastCrashReport: String? = null,
     val aiConnectionTestMessage: String? = null,
     val aiConnectionTesting: Boolean = false,
@@ -224,6 +304,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
     private val ledgerDao = database.ledgerDao()
     private val budgetDao = database.budgetDao()
     private val dailyReviewDao = database.dailyReviewDao()
+    private val tagDao = database.tagDao()
+    private val goalDao = database.goalDao()
     private val settingsStore = TimerAndSettingsStore(application)
 
     private val confirmGuard = ChatAnalysisGuard()
@@ -266,7 +348,9 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             _uiState.update { it.copy(lastCrashReport = CrashRecorder.readLast()) }
             showToast("Có lỗi không mong muốn. Dữ liệu đã lưu không bị ảnh hưởng; xem \"Nhật ký lỗi\" trong mục Thông tin.")
         },
-        launchContext = safeHandler
+        launchContext = safeHandler,
+        // v1.0.13 (F4): nút Hủy chỉ có hiệu lực sau CancelArming.DEFAULT_ARM_MS kể từ lúc gửi (bấm đúp Gửi không tự hủy).
+        cancelArming = CancelArming()
     )
 
     // v1.0.9: khởi tạo guard NGOÀI luồng chính ngay khi mở app (không bao giờ ném); lần gửi đầu không phải biên dịch regex trên Main.
@@ -346,6 +430,14 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                     activityNotes = domainNotes
                 )
             }
+        }
+
+        // v1.1.0: Tag cá nhân và mục tiêu (mọi phiên bản) từ Room.
+        viewModelScope.launch(safeHandler) {
+            tagDao.observeAll().collect { entities -> _uiState.update { it.copy(tags = entities.map(TagEntity::toDomain)) } }
+        }
+        viewModelScope.launch(safeHandler) {
+            goalDao.observeAll().collect { entities -> _uiState.update { it.copy(goals = entities.map(GoalEntity::toDomain)) } }
         }
 
         // v1.0.6: vòng cập nhật đồng hồ KHÔNG chạy ngầm; chỉ chạy khi màn hình đang hiện (onAppResumed ... onAppPaused).
@@ -624,7 +716,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             startedAtEpochMs = nowEpoch,
             startedElapsedRealtimeMs = nowElapsed,
             timezone = ZoneId.systemDefault().id,
-            startedBootCount = currentBootCount
+            startedBootCount = currentBootCount,
+            tagId = current.timerInputTagId
         )
         settingsStore.saveActiveTimer(session)
         _uiState.update {
@@ -671,7 +764,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 categoryKey = session.categoryKey,
                 startedAtEpochMs = session.startedAtEpochMs,
                 endEpochMs = endEpochMs,
-                zone = zone
+                zone = zone,
+                tagId = session.tagId
             )) {
                 is TimerCommitResult.Overlap -> showToast(
                     result.message + " Phiên đo vẫn được giữ: hãy sửa hoặc xóa bản ghi trùng rồi bấm Dừng & Lưu lại."
@@ -757,13 +851,15 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
 
         // AI-01 CLOSURE cancel branch begin
         // Lệnh hủy chỉ tác động draft chưa lưu trong RAM (không Ledger/DB) và hủy cả kết quả phân tích đang chạy khi cần.
-        val cancelCommand = CancelCommandParser.parse(text)
+        // v1.0.13 (C1): "xóa X <thời lượng>" với X ngoài ứng dụng chỉ là lệnh khi X khớp một đề xuất đang chờ; còn lại đi lên cloud như mô tả hoạt động.
+        val toDraftRef = { p: EditableProposalDraft -> DraftRef(p.id, p.title, p.rawInput, p.durationMinutes) }
+        val cancelCommand = CancelCommandParser.parse(text) ?: CancelCommandParser.parseDraftReference(text, _uiState.value.proposals.map(toDraftRef))
         if (cancelCommand != null) {
             var outcome: CancelOutcome? = null
             _uiState.update { state ->
                 val (o, remaining) = ProposalLifecycle.applyCancel(
                     drafts = state.proposals,
-                    toRef = { DraftRef(it.id, it.title, it.rawInput, it.durationMinutes) },
+                    toRef = toDraftRef,
                     command = cancelCommand,
                     analysisInFlight = state.isAnalyzingChat,
                     epoch = chatRunner.epoch
@@ -1380,7 +1476,9 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             activeTimer = state.activeTimer,
             budgets = state.budgets,
             dailyReviews = state.dailyReviews,
-            activityNotes = state.activityNotes
+            activityNotes = state.activityNotes,
+            tags = state.tags,
+            goals = state.goals
         )
         _uiState.update { it.copy(exportedJsonContent = json) }
     }
@@ -1394,6 +1492,35 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
     fun openManualEntry(categoryKey: String? = null) {
         _uiState.update {
             it.copy(manualEntry = ManualEntryState(categoryKey = categoryKey, dateLocal = LocalDate.now().toString()))
+        }
+    }
+
+    /** v1.1.0: chọn Tag trong form — Category đi theo Tag (người dùng vẫn đổi được), tên Tag là tiêu đề mặc định. Chọn lại Tag đang chọn = bỏ chọn. */
+    fun selectManualTag(tagId: String?) {
+        updateManualEntry { f ->
+            if (tagId == null || f.tagId == tagId) f.copy(tagId = null)
+            else {
+                val tag = _uiState.value.tags.firstOrNull { it.id == tagId && !it.isArchived } ?: return@updateManualEntry f
+                f.copy(tagId = tag.id, categoryKey = tag.category.key)
+            }
+        }
+    }
+
+    /** Tạo Tag ngay trong form ghi nhận (Category = nhóm đang chọn) rồi chọn luôn Tag đó. */
+    fun createTagFromManualEntry() {
+        val form = _uiState.value.manualEntry ?: return
+        val category = TimeCategory.fromKeyOrNull(form.categoryKey)
+        if (category == null) {
+            _uiState.update { it.copy(manualEntry = it.manualEntry?.copy(error = "Hãy chọn nhóm cho Tag mới trước.")) }
+            return
+        }
+        viewModelScope.launch(safeHandler) {
+            when (val r = createTagInternal(form.newTagName, category)) {
+                is TagActionResult.Created -> _uiState.update {
+                    it.copy(manualEntry = it.manualEntry?.copy(tagId = r.tag.id, categoryKey = r.tag.category.key, creatingTag = false, newTagName = "", error = null))
+                }
+                is TagActionResult.Failed -> _uiState.update { it.copy(manualEntry = it.manualEntry?.copy(error = r.message)) }
+            }
         }
     }
 
@@ -1412,14 +1539,32 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         val form = _uiState.value.manualEntry ?: return
         if (form.saving) return
         val zone = ZoneId.systemDefault()
-        val validation = ManualEntry.validate(
-            categoryKey = form.categoryKey,
-            hoursText = form.hoursText,
-            minutesText = form.minutesText,
-            dateLocal = form.dateLocal,
-            note = form.note,
-            today = LocalDate.now(zone)
-        )
+        val tagName = form.tagId?.let { id -> _uiState.value.tags.firstOrNull { it.id == id }?.name }
+        val validation = if (form.mode == ManualMode.RANGE) {
+            ManualEntry.validateRange(
+                categoryKey = form.categoryKey,
+                tagId = form.tagId,
+                tagName = tagName,
+                startText = form.startText,
+                endText = form.endText,
+                endIsNow = form.endIsNow,
+                dateLocal = form.dateLocal,
+                note = form.note,
+                today = LocalDate.now(zone),
+                nowHm = TimeRange.formatHm(LocalTime.now(zone).hour * 60 + LocalTime.now(zone).minute)
+            )
+        } else {
+            ManualEntry.validate(
+                categoryKey = form.categoryKey,
+                hoursText = form.hoursText,
+                minutesText = form.minutesText,
+                dateLocal = form.dateLocal,
+                note = form.note,
+                today = LocalDate.now(zone),
+                tagId = form.tagId,
+                tagName = tagName
+            )
+        }
         if (validation is ManualEntryValidation.Invalid) {
             _uiState.update { it.copy(manualEntry = it.manualEntry?.copy(error = validation.message)) }
             return
@@ -1461,6 +1606,283 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    // ------------------- v1.1.0: TAG CÁ NHÂN -------------------
+
+    sealed class TagActionResult {
+        data class Created(val tag: Tag) : TagActionResult()
+        data class Failed(val message: String) : TagActionResult()
+    }
+
+    /** Tạo (hoặc khôi phục nếu đã lưu trữ cùng tên) một Tag. Không bao giờ tạo trùng tên; không đụng bản ghi nào. */
+    private suspend fun createTagInternal(rawName: String, category: TimeCategory): TagActionResult {
+        val now = System.currentTimeMillis()
+        val existing = tagDao.getAllSnapshot().map { it.toDomain() }
+        return when (val check = TagRules.checkName(rawName, existing)) {
+            is TagRules.NameCheck.Invalid -> TagActionResult.Failed(check.message)
+            is TagRules.NameCheck.Duplicate -> {
+                if (check.existing.isArchived) {
+                    val restored = TagRules.restore(check.existing, now)
+                    tagDao.update(TagEntity.fromDomain(restored))
+                    showToast("Đã khôi phục Tag \"${restored.name}\" (đã có từ trước).")
+                    TagActionResult.Created(restored)
+                } else TagActionResult.Failed("Đã có Tag \"${check.existing.name}\".")
+            }
+            is TagRules.NameCheck.Ok -> {
+                val tag = TagRules.newTag(check.cleanName, check.nameKey, category, now)
+                try {
+                    tagDao.insert(TagEntity.fromDomain(tag))
+                    TagActionResult.Created(tag)
+                } catch (e: android.database.sqlite.SQLiteConstraintException) {
+                    TagActionResult.Failed("Đã có Tag trùng tên.")
+                }
+            }
+        }
+    }
+
+    fun openTagManager() { _uiState.update { it.copy(tagManager = TagManagerState()) } }
+    fun closeTagManager() { _uiState.update { it.copy(tagManager = null) } }
+    fun updateTagManager(transform: (TagManagerState) -> TagManagerState) {
+        _uiState.update { s -> s.tagManager?.let { s.copy(tagManager = transform(it).copy(error = null)) } ?: s }
+    }
+
+    fun createTagFromManager() {
+        val m = _uiState.value.tagManager ?: return
+        val category = TimeCategory.fromKeyOrNull(m.newCategoryKey)
+        if (category == null) {
+            _uiState.update { it.copy(tagManager = it.tagManager?.copy(error = "Chọn nhóm cho Tag trước khi tạo.")) }
+            return
+        }
+        viewModelScope.launch(safeHandler) {
+            when (val r = createTagInternal(m.newName, category)) {
+                is TagActionResult.Created -> {
+                    _uiState.update { it.copy(tagManager = it.tagManager?.copy(newName = "", error = null)) }
+                    showToast("Đã tạo Tag \"${r.tag.name}\".")
+                }
+                is TagActionResult.Failed -> _uiState.update { it.copy(tagManager = it.tagManager?.copy(error = r.message)) }
+            }
+        }
+    }
+
+    fun renameTag(tagId: String) {
+        val m = _uiState.value.tagManager ?: return
+        viewModelScope.launch(safeHandler) {
+            val all = tagDao.getAllSnapshot().map { it.toDomain() }
+            val tag = all.firstOrNull { it.id == tagId } ?: return@launch
+            when (val check = TagRules.checkName(m.renameText, all, excludeId = tagId)) {
+                is TagRules.NameCheck.Invalid -> _uiState.update { it.copy(tagManager = it.tagManager?.copy(error = check.message)) }
+                is TagRules.NameCheck.Duplicate -> _uiState.update { it.copy(tagManager = it.tagManager?.copy(error = "Đã có Tag \"${check.existing.name}\".")) }
+                is TagRules.NameCheck.Ok -> {
+                    tagDao.update(TagEntity.fromDomain(TagRules.rename(tag, check.cleanName, check.nameKey, System.currentTimeMillis())))
+                    _uiState.update { it.copy(tagManager = it.tagManager?.copy(renamingId = null, renameText = "", error = null)) }
+                    showToast("Đã đổi tên Tag. Lịch sử không thay đổi.")
+                }
+            }
+        }
+    }
+
+    fun setTagCategory(tagId: String, categoryKey: String) {
+        val category = TimeCategory.fromKeyOrNull(categoryKey) ?: return
+        viewModelScope.launch(safeHandler) {
+            val tag = tagDao.getAllSnapshot().map { it.toDomain() }.firstOrNull { it.id == tagId } ?: return@launch
+            tagDao.update(TagEntity.fromDomain(TagRules.recategorize(tag, category, System.currentTimeMillis())))
+            _uiState.update { it.copy(tagManager = it.tagManager?.copy(recategorizingId = null)) }
+            showToast("Đã đổi nhóm của Tag. Bản ghi cũ giữ nhóm đã ghi nhận.")
+        }
+    }
+
+    fun archiveTag(tagId: String) {
+        viewModelScope.launch(safeHandler) {
+            val tag = tagDao.getAllSnapshot().map { it.toDomain() }.firstOrNull { it.id == tagId } ?: return@launch
+            tagDao.update(TagEntity.fromDomain(TagRules.archive(tag, System.currentTimeMillis())))
+            showToast("Đã lưu trữ Tag \"${tag.name}\". Lịch sử và tiến độ được giữ nguyên.")
+        }
+    }
+
+    fun restoreTag(tagId: String) {
+        viewModelScope.launch(safeHandler) {
+            val tag = tagDao.getAllSnapshot().map { it.toDomain() }.firstOrNull { it.id == tagId } ?: return@launch
+            tagDao.update(TagEntity.fromDomain(TagRules.restore(tag, System.currentTimeMillis())))
+            showToast("Đã khôi phục Tag \"${tag.name}\".")
+        }
+    }
+
+    /** Chọn Tag cho phiên đồng hồ sắp bắt đầu: Category và tên hoạt động đi theo Tag (sửa lại được). Chọn lại Tag đang chọn = bỏ chọn. */
+    fun selectTimerTag(tagId: String?) {
+        _uiState.update { s ->
+            if (s.activeTimer != null) return@update s
+            if (tagId == null || s.timerInputTagId == tagId) s.copy(timerInputTagId = null)
+            else {
+                val tag = s.tags.firstOrNull { it.id == tagId && !it.isArchived } ?: return@update s
+                s.copy(timerInputTagId = tag.id, timerInputCategoryKey = tag.category.key, timerInputTitle = tag.name)
+            }
+        }
+    }
+
+    // ------------------- v1.1.0: MỤC TIÊU -------------------
+
+    fun openGoals() { _uiState.update { it.copy(showGoals = true) } }
+    fun closeGoals() { _uiState.update { it.copy(showGoals = false, goalEditor = null) } }
+
+    fun openGoalEditor(groupId: String? = null) {
+        val s = _uiState.value
+        val editing = groupId?.let { g -> GoalRules.latest(s.goals.filter { it.groupId == g }) }
+        _uiState.update {
+            it.copy(
+                goalEditor = if (editing == null) GoalEditorState()
+                else {
+                    val m = (editing.targetSeconds / 60L).toInt()
+                    GoalEditorState(editing.groupId, editing.targetType, editing.targetKey, editing.kind, editing.period,
+                        if (m >= 60) (m / 60).toString() else "", (m % 60).toString())
+                }
+            )
+        }
+    }
+
+    fun updateGoalEditor(transform: (GoalEditorState) -> GoalEditorState) {
+        _uiState.update { s -> s.goalEditor?.let { s.copy(goalEditor = transform(it).copy(error = null)) } ?: s }
+    }
+
+    fun closeGoalEditor() { _uiState.update { it.copy(goalEditor = null) } }
+
+    private fun persistGoalRows(rows: List<Goal>) {
+        viewModelScope.launch(safeHandler) {
+            database.withTransaction { rows.forEach { goalDao.upsert(GoalEntity.fromDomain(it)) } }
+        }
+    }
+
+    fun saveGoalEditor() {
+        val s = _uiState.value
+        val ed = s.goalEditor ?: return
+        val h = ed.hoursText.trim().ifEmpty { "0" }.toIntOrNull()
+        val m = ed.minutesText.trim().ifEmpty { "0" }.toIntOrNull()
+        if (h == null || m == null || h < 0 || m !in 0..59) {
+            _uiState.update { it.copy(goalEditor = it.goalEditor?.copy(error = "Hãy nhập giờ và phút hợp lệ.")) }
+            return
+        }
+        val seconds = (h * 60L + m) * 60L
+        (GoalRules.checkTarget(ed.period, seconds) as? GoalRules.Check.Invalid)?.let { bad ->
+            _uiState.update { it.copy(goalEditor = it.goalEditor?.copy(error = bad.message)) }
+            return
+        }
+        val zone = ZoneId.systemDefault()
+        val now = System.currentTimeMillis()
+        val today = LocalDate.now(zone)
+        if (ed.editingGroupId != null) {
+            val open = GoalRules.latest(s.goals.filter { it.groupId == ed.editingGroupId })
+            if (open == null || open.validTo != null) {
+                _uiState.update { it.copy(goalEditor = it.goalEditor?.copy(error = "Mục tiêu này đã kết thúc.")) }
+                return
+            }
+            persistGoalRows(GoalRules.change(open, today, now, newTargetSeconds = seconds, newKind = ed.kind, newPeriod = ed.period))
+            _uiState.update { it.copy(goalEditor = null) }
+            showToast("Đã cập nhật mục tiêu từ hôm nay. Dữ liệu quá khứ không đổi.")
+            return
+        }
+        val key = ed.targetKey
+        if (key == null) {
+            _uiState.update { it.copy(goalEditor = it.goalEditor?.copy(error = "Hãy chọn hoạt động (Tag) hoặc nhóm cho mục tiêu.")) }
+            return
+        }
+        val dup = s.goals.groupBy { it.groupId }.values.any { vs ->
+            val last = GoalRules.latest(vs)
+            last != null && last.validTo == null && last.targetType == ed.targetType && last.targetKey == key && last.kind == ed.kind && last.period == ed.period
+        }
+        if (dup) {
+            _uiState.update { it.copy(goalEditor = it.goalEditor?.copy(error = "Đã có mục tiêu giống vậy.")) }
+            return
+        }
+        persistGoalRows(listOf(GoalRules.create(ed.targetType, key, ed.kind, ed.period, seconds, today, now)))
+        _uiState.update { it.copy(goalEditor = null) }
+        showToast("Đã tạo mục tiêu.")
+    }
+
+    private fun openVersionOf(groupId: String): Goal? = GoalRules.latest(_uiState.value.goals.filter { it.groupId == groupId })?.takeIf { it.validTo == null }
+
+    fun pauseGoal(groupId: String) {
+        val open = openVersionOf(groupId) ?: return
+        if (open.status == GoalVersionStatus.PAUSED) return
+        persistGoalRows(GoalRules.change(open, LocalDate.now(), System.currentTimeMillis(), newStatus = GoalVersionStatus.PAUSED))
+        showToast("Đã tạm dừng mục tiêu. Tiến độ trước đây được giữ.")
+    }
+
+    fun resumeGoal(groupId: String) {
+        val open = openVersionOf(groupId) ?: return
+        if (open.status == GoalVersionStatus.ACTIVE) return
+        persistGoalRows(GoalRules.change(open, LocalDate.now(), System.currentTimeMillis(), newStatus = GoalVersionStatus.ACTIVE))
+        showToast("Đã tiếp tục mục tiêu từ hôm nay.")
+    }
+
+    fun endGoal(groupId: String) {
+        val open = openVersionOf(groupId) ?: return
+        persistGoalRows(listOf(GoalRules.end(open, LocalDate.now(), System.currentTimeMillis())))
+        showToast("Đã kết thúc mục tiêu. Lịch sử được giữ nguyên.")
+    }
+
+    // ------------------- v1.1.0: AI TIME COACH -------------------
+
+    private var coachJob: Job? = null
+
+    /** Số liệu do ứng dụng tính hiện ngay; AI chỉ kể chuyện (nếu đã bật). Câu chuyện chỉ hiện khi qua [CoachGuard]. */
+    fun requestCoach(days: Int) {
+        val s = _uiState.value
+        if (s.coach.loading) return
+        val zone = ZoneId.systemDefault()
+        val now = System.currentTimeMillis()
+        val digest = CoachDigestBuilder.build(s.records, s.tags, s.goals, days, now, zone)
+        val prefs = s.aiPreferences
+        if (!digest.hasAnyData) {
+            _uiState.update { it.copy(coach = CoachUiState(rangeDays = days, facts = digest.facts, requested = true,
+                note = "Chưa có dữ liệu trong kỳ này nên Wally chưa có gì để kể. Hãy ghi nhận vài hoạt động trước.")) }
+            return
+        }
+        if (!prefs.optInEnabled || prefs.apiKey.isBlank()) {
+            _uiState.update { it.copy(coach = CoachUiState(rangeDays = days, facts = digest.facts, requested = true,
+                note = "Bật AI trong Cấu hình AI để Wally kể câu chuyện từ số liệu. Số liệu bên trên do ứng dụng tính, không cần AI.")) }
+            return
+        }
+        _uiState.update { it.copy(coach = CoachUiState(loading = true, rangeDays = days, facts = digest.facts, requested = true)) }
+        coachJob?.cancel()
+        coachJob = viewModelScope.launch(safeHandler) {
+            val raw = GeminiProposalClient.requestCoach(
+                digestText = digest.text, optInEnabled = prefs.optInEnabled, baseUrl = prefs.baseUrl,
+                apiKey = prefs.apiKey, modelName = prefs.modelName, trustedHost = prefs.trustedHost
+            )
+            val fresh = _uiState.value
+            val coach = when {
+                raw.fault != null -> CoachUiState(rangeDays = days, facts = digest.facts, requested = true,
+                    note = (raw.fault.messageVi) + " Số liệu bên trên vẫn do ứng dụng tính.")
+                else -> when (val check = CoachGuard.check(raw.story, digest)) {
+                    CoachCheck.Ok -> CoachUiState(
+                        rangeDays = days, facts = digest.facts, requested = true, story = raw.story!!.trim(),
+                        suggestions = CoachGuard.validSuggestions(raw.suggestions, fresh.tags, fresh.goals)
+                    )
+                    is CoachCheck.Rejected -> CoachUiState(rangeDays = days, facts = digest.facts, requested = true,
+                        note = "Wally chưa kể được câu chuyện đủ chắc chắn từ dữ liệu này, nên chỉ hiện số liệu do ứng dụng tính.")
+                }
+            }
+            _uiState.update { it.copy(coach = coach) }
+        }
+    }
+
+    fun dismissCoach() { coachJob?.cancel(); _uiState.update { it.copy(coach = CoachUiState()) } }
+
+    /** Đề xuất của Coach chỉ thành mục tiêu khi người dùng bấm Xác nhận. */
+    fun confirmCoachSuggestion(index: Int) {
+        val s = _uiState.value
+        val sug = s.coach.suggestions.getOrNull(index) ?: return
+        val dup = s.goals.groupBy { it.groupId }.values.any { vs ->
+            val last = GoalRules.latest(vs)
+            last != null && last.validTo == null && last.targetType == sug.targetType && last.targetKey == sug.targetKey && last.kind == sug.kind && last.period == sug.period
+        }
+        if (!dup) persistGoalRows(listOf(GoalRules.create(sug.targetType, sug.targetKey, sug.kind, sug.period, sug.targetSeconds, LocalDate.now(), System.currentTimeMillis())))
+        _uiState.update { it.copy(coach = it.coach.copy(suggestions = it.coach.suggestions.filterIndexed { i, _ -> i != index })) }
+        showToast(if (dup) "Mục tiêu này đã có." else "Đã tạo mục tiêu từ gợi ý của Wally.")
+    }
+
+    fun dismissCoachSuggestion(index: Int) {
+        _uiState.update { it.copy(coach = it.coach.copy(suggestions = it.coach.suggestions.filterIndexed { i, _ -> i != index })) }
+    }
+
     fun clearCrashReport() {
         CrashRecorder.clear()
         _uiState.update { it.copy(lastCrashReport = null) }
@@ -1470,7 +1892,11 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         _uiState.update { it.copy(showProductInfoDialog = show) }
     }
 
+    // v1.0.13 (U2): kết quả của một lần kiểm tra thuộc về đúng phiên hộp thoại/khóa/URL đã bấm; đóng hộp thoại thì hủy lượt đang chạy để kết quả muộn không hiện vào phiên sau.
+    private var aiTestJob: Job? = null
+
     fun toggleAiSettingsDialog(show: Boolean) {
+        aiTestJob?.cancel()
         _uiState.update {
             it.copy(
                 showAiSettingsDialog = show,
@@ -1490,7 +1916,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
     fun testAiConnection(baseUrl: String, apiKey: String, modelName: String) {
         if (_uiState.value.aiConnectionTesting) return
         _uiState.update { it.copy(aiConnectionTesting = true, aiConnectionTestMessage = null) }
-        viewModelScope.launch(safeHandler) {
+        aiTestJob = viewModelScope.launch(safeHandler) {
             val result = try {
                 GeminiProposalClient.testConnection(baseUrl = baseUrl, apiKey = apiKey, modelName = modelName)
             } finally {
@@ -1518,7 +1944,13 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         val isHostChanged = currentPrefs.trustedHost.isNotBlank() &&
             !validatedHost.equals(currentPrefs.trustedHost, ignoreCase = true)
 
-        if (isHostChanged && apiKey.trim().isNotEmpty() && apiKey.trim() == currentPrefs.apiKey) {
+        // v1.0.12 (P1-AI): chuẩn hóa khóa dán vào và báo rõ nếu còn ký tự ngoài ASCII in được (quy tắc sản phẩm: khóa nhà cung cấp là ASCII; không lưu khóa hỏng).
+        val cleanKey = ApiKeyHygiene.normalize(apiKey)
+        ApiKeyHygiene.check(cleanKey)?.let { p ->
+            showToast("Khóa API có ký tự không hợp lệ ở vị trí ${p.position} (${p.kindVi}). Hãy dán lại khóa.")
+            return
+        }
+        if (isHostChanged && cleanKey.isNotEmpty() && cleanKey == currentPrefs.apiKey) {
             showToast("Bạn vừa đổi sang host mới ($validatedHost). Hãy nhập lại khóa API dành cho host này.")
             return
         }
@@ -1526,7 +1958,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         val candidate = AiPreferences(
             optInEnabled = optInEnabled,
             baseUrl = cleanUrl,
-            apiKey = apiKey.trim(),
+            apiKey = cleanKey,
             modelName = modelName.trim().ifEmpty { AiPreferences.DEFAULT_AI_MODEL },
             trustedHost = validatedHost
         )

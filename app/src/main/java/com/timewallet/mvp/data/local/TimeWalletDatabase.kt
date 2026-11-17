@@ -12,18 +12,59 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         LedgerRecordEntity::class,
         CategoryBudgetEntity::class,
         DailyReviewEntity::class,
-        ActivityReviewNoteEntity::class
+        ActivityReviewNoteEntity::class,
+        TagEntity::class,
+        GoalEntity::class
     ],
-    version = 3,
-    exportSchema = false
+    version = 4,
+    exportSchema = true   // v1.1.0: schema JSON trong app/schemas để test migration đối chiếu DDL với Room thật
 )
 abstract class TimeWalletDatabase : RoomDatabase() {
 
     abstract fun ledgerDao(): LedgerDao
     abstract fun budgetDao(): BudgetDao
     abstract fun dailyReviewDao(): DailyReviewDao
+    abstract fun tagDao(): TagDao
+    abstract fun goalDao(): GoalDao
 
     companion object {
+        // v1.1.0 (3 -> 4). DDL phải KHỚP CHÍNH XÁC cái Room kỳ vọng (đã đối chiếu với schemas/…/4.json bằng test).
+        const val SQL_ADD_LEDGER_TAG_ID = "ALTER TABLE `ledger_records` ADD COLUMN `tagId` TEXT"
+        const val SQL_CREATE_LEDGER_TAG_ID_INDEX = "CREATE INDEX IF NOT EXISTS `index_ledger_records_tagId` ON `ledger_records` (`tagId`)"
+
+        const val SQL_CREATE_TAGS_TABLE = """
+            CREATE TABLE IF NOT EXISTS `tags` (
+                `id` TEXT NOT NULL,
+                `name` TEXT NOT NULL,
+                `nameKey` TEXT NOT NULL,
+                `categoryKey` TEXT NOT NULL,
+                `archivedAt` INTEGER,
+                `createdAt` INTEGER NOT NULL,
+                `updatedAt` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+        """
+        const val SQL_CREATE_TAGS_NAMEKEY_INDEX = "CREATE UNIQUE INDEX IF NOT EXISTS `index_tags_nameKey` ON `tags` (`nameKey`)"
+
+        const val SQL_CREATE_GOALS_TABLE = """
+            CREATE TABLE IF NOT EXISTS `goals` (
+                `id` TEXT NOT NULL,
+                `groupId` TEXT NOT NULL,
+                `targetType` TEXT NOT NULL,
+                `targetKey` TEXT NOT NULL,
+                `kind` TEXT NOT NULL,
+                `period` TEXT NOT NULL,
+                `targetSeconds` INTEGER NOT NULL,
+                `status` TEXT NOT NULL,
+                `validFrom` TEXT NOT NULL,
+                `validTo` TEXT,
+                `createdAt` INTEGER NOT NULL,
+                `updatedAt` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+        """
+        const val SQL_CREATE_GOALS_GROUP_INDEX = "CREATE INDEX IF NOT EXISTS `index_goals_groupId` ON `goals` (`groupId`)"
+
         const val SQL_CREATE_CATEGORY_BUDGETS_TABLE = """
             CREATE TABLE IF NOT EXISTS `category_budgets` (
                 `categoryKey` TEXT NOT NULL,
@@ -91,6 +132,23 @@ abstract class TimeWalletDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Nâng cấp CSDL từ phiên bản 3 lên 4 (v1.1.0), chỉ THÊM, không phá hủy:
+         * - `ledger_records.tagId` (NULL cho mọi bản ghi cũ = chưa gắn Tag; không suy diễn lại) + chỉ mục.
+         * - Bảng `tags` và `goals`.
+         * Bảo toàn 100% `ledger_records`, `category_budgets`, `daily_reviews`, `activity_review_notes`.
+         */
+        val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(SQL_ADD_LEDGER_TAG_ID)
+                db.execSQL(SQL_CREATE_LEDGER_TAG_ID_INDEX)
+                db.execSQL(SQL_CREATE_TAGS_TABLE.trimIndent())
+                db.execSQL(SQL_CREATE_TAGS_NAMEKEY_INDEX)
+                db.execSQL(SQL_CREATE_GOALS_TABLE.trimIndent())
+                db.execSQL(SQL_CREATE_GOALS_GROUP_INDEX)
+            }
+        }
+
         @Volatile
         private var INSTANCE: TimeWalletDatabase? = null
 
@@ -101,7 +159,7 @@ abstract class TimeWalletDatabase : RoomDatabase() {
                     TimeWalletDatabase::class.java,
                     "time_wallet_ledger.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { INSTANCE = it }
             }

@@ -12,7 +12,8 @@ import com.timewallet.mvp.domain.model.TimeLayer
     indices = [
         Index(value = ["idempotencyKey"], unique = true),
         Index(value = ["date"]),
-        Index(value = ["startedAt", "endedAt"])
+        Index(value = ["startedAt", "endedAt"]),
+        Index(value = ["tagId"])
     ]
 )
 data class LedgerRecordEntity(
@@ -29,7 +30,8 @@ data class LedgerRecordEntity(
     val endedAt: Long?,
     val timezone: String,
     val status: String,
-    val idempotencyKey: String
+    val idempotencyKey: String,
+    val tagId: String? = null
 ) {
     fun toDomain(): LedgerRecord {
         val parsedLayer = TimeLayer.fromStorageString(layer, startedAt, endedAt)
@@ -47,7 +49,8 @@ data class LedgerRecordEntity(
             endedAt = endedAt,
             timezone = timezone,
             status = status,
-            idempotencyKey = idempotencyKey
+            idempotencyKey = idempotencyKey,
+            tagId = tagId
         )
     }
 
@@ -67,7 +70,8 @@ data class LedgerRecordEntity(
                 endedAt = record.endedAt,
                 timezone = record.timezone,
                 status = record.status,
-                idempotencyKey = record.idempotencyKey
+                idempotencyKey = record.idempotencyKey,
+                tagId = record.tagId
             )
         }
     }

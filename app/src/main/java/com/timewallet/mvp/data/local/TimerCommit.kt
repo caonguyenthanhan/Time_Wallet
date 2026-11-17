@@ -36,7 +36,8 @@ object TimerCommit {
         categoryKey: String,
         startedAtEpochMs: Long,
         endEpochMs: Long,
-        zone: ZoneId
+        zone: ZoneId,
+        tagId: String? = null
     ): TimerCommitResult {
         if (isCommitted(dao, startedAtEpochMs)) return TimerCommitResult.AlreadyCommitted
         val totalSeconds = (endEpochMs - startedAtEpochMs) / 1000L
@@ -61,7 +62,8 @@ object TimerCommit {
                 activeTimer = null,
                 nowEpochMs = endEpochMs,
                 zoneId = zone,
-                idempotencyKey = TimerSegments.idempotencyKey(startedAtEpochMs, seg.index)
+                idempotencyKey = TimerSegments.idempotencyKey(startedAtEpochMs, seg.index),
+                tagId = tagId
             )) {
                 is ValidationResult.Invalid -> return if (v.message.contains("trùng", ignoreCase = true)) {
                     if (isCommitted(dao, startedAtEpochMs)) TimerCommitResult.AlreadyCommitted else TimerCommitResult.Overlap(v.message)

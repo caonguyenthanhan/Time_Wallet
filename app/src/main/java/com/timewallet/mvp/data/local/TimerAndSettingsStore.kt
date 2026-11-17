@@ -10,6 +10,7 @@ import com.timewallet.mvp.domain.model.ActivityReviewNote
 import com.timewallet.mvp.domain.model.CategoryTimeBudget
 import com.timewallet.mvp.domain.model.DailyReviewRecord
 import com.timewallet.mvp.domain.model.LedgerRecord
+import com.timewallet.mvp.domain.usecase.ApiKeyHygiene
 import org.json.JSONObject
 import java.net.URI
 import java.security.KeyStore
@@ -211,7 +212,8 @@ class TimerAndSettingsStore(
             startedElapsedRealtimeMs = elapsedAtStart,
             timezone = tz,
             targetDurationSeconds = targetSecs,
-            startedBootCount = startedBootCount
+            startedBootCount = startedBootCount,
+            tagId = prefs.getString(KEY_TIMER_TAG_ID, null)?.takeIf { it.isNotBlank() }
         )
     }
 
@@ -230,8 +232,10 @@ class TimerAndSettingsStore(
                 remove(KEY_TIMER_TIMEZONE)
                 remove(KEY_TIMER_TARGET_SECONDS)
                 remove(KEY_TIMER_BOOT_COUNT)
+                remove(KEY_TIMER_TAG_ID)
             } else {
                 putBoolean(KEY_TIMER_ACTIVE, true)
+                if (session.tagId != null) putString(KEY_TIMER_TAG_ID, session.tagId) else remove(KEY_TIMER_TAG_ID)
                 putString(KEY_TIMER_TITLE, session.title)
                 putString(KEY_TIMER_CATEGORY, session.categoryKey)
                 putLong(KEY_TIMER_START_EPOCH, session.startedAtEpochMs)
@@ -283,7 +287,8 @@ class TimerAndSettingsStore(
                 null
             }
             keyUnavailable = decrypted == null
-            resolvedApiKey = decrypted ?: ""
+            // v1.0.12: khóa đã lưu có thể chứa ký tự rác do dán (khoảng trắng/gạch lạ): chuẩn hóa khi đọc để không gửi đi một khóa lẫn ký tự rác.
+            resolvedApiKey = ApiKeyHygiene.normalize(decrypted ?: "")
             resolvedTrustedHost = prefs.getString(KEY_AI_TRUSTED_HOST, null)
                 ?.trim()
                 ?.lowercase(Locale.US)
@@ -293,7 +298,7 @@ class TimerAndSettingsStore(
             }
         } else if (!legacyPlaintext.isNullOrBlank()) {
             // Migrate an toàn từ plaintext cũ sang AES-GCM và xóa ngay bản ghi plaintext
-            val cleanKey = legacyPlaintext.trim()
+            val cleanKey = ApiKeyHygiene.normalize(legacyPlaintext)
             val ciphertext = try {
                 apiKeyVault.encrypt(cleanKey)
             } catch (_: Exception) {
@@ -371,7 +376,7 @@ class TimerAndSettingsStore(
         val effectiveKey = if (isChangingHost && !hostChangeConfirmed) {
             ""
         } else {
-            aiPreferences.apiKey.trim()
+            ApiKeyHygiene.normalize(aiPreferences.apiKey)
         }
 
         val encryptedPayload = if (effectiveKey.isNotEmpty()) {
@@ -412,6 +417,7 @@ class TimerAndSettingsStore(
         private const val KEY_TIMER_TIMEZONE = "timer_timezone"
         private const val KEY_TIMER_TARGET_SECONDS = "timer_target_seconds"
         const val KEY_TIMER_BOOT_COUNT = "timer_boot_count"
+        const val KEY_TIMER_TAG_ID = "timer_tag_id"   // v1.1.0
 
         private const val KEY_AI_OPT_IN = "ai_opt_in_enabled"
         const val KEY_AI_BASE_URL = "ai_base_url"
@@ -453,7 +459,10 @@ object LedgerJsonExporter {
         exportedAtIso: String = Instant.now().toString(),
         budgets: List<CategoryTimeBudget> = emptyList(),
         dailyReviews: List<DailyReviewRecord> = emptyList(),
-        activityNotes: List<ActivityReviewNote> = emptyList()
+        activityNotes: List<ActivityReviewNote> = emptyList(),
+        // v1.1.0: chỉ xuất khi có (đầu ra cũ không đổi khi chưa dùng Tag/Mục tiêu).
+        tags: List<com.timewallet.mvp.domain.model.Tag> = emptyList(),
+        goals: List<com.timewallet.mvp.domain.model.Goal> = emptyList()
     ): String {
         val notesByRecordId = activityNotes.associateBy { it.recordId }
         val sb = StringBuilder()
@@ -489,6 +498,7 @@ object LedgerJsonExporter {
             sb.append("      \"endedAt\": ").append(r.endedAt?.toString() ?: "null").append(",\n")
             sb.append("      \"timezone\": ").append(serializeJsonString(r.timezone)).append(",\n")
             sb.append("      \"status\": ").append(serializeJsonString(r.status)).append(",\n")
+            if (r.tagId != null) sb.append("      \"tagId\": ").append(serializeJsonString(r.tagId)).append(",\n")
             sb.append("      \"outcomeNote\": ").append(note?.outcomeNote?.let { serializeJsonString(it) } ?: "null").append(",\n")
             sb.append("      \"feynmanPrompt\": ").append(
                 if (r.category.key == "learn") serializeJsonString("Bạn sẽ giải thích điều vừa học cho người chưa biết như thế nào?") else "null"
@@ -525,8 +535,34 @@ object LedgerJsonExporter {
             sb.append("      \"updatedAt\": ").append(dr.updatedAt).append("\n")
             sb.append("    }").append(if (index < dailyReviews.lastIndex) "," else "").append("\n")
         }
-        sb.append("  ]\n")
-        sb.append("}")
+        sb.append("  ]")
+        if (tags.isNotEmpty()) {
+            sb.append(",\n  \"tags\": [\n")
+            tags.forEachIndexed { index, t ->
+                sb.append("    {\"id\": ").append(serializeJsonString(t.id)).append(", \"name\": ").append(serializeJsonString(t.name))
+                    .append(", \"category\": ").append(serializeJsonString(t.category.key))
+                    .append(", \"archivedAt\": ").append(t.archivedAt?.toString() ?: "null")
+                    .append(", \"createdAt\": ").append(t.createdAt).append("}").append(if (index < tags.lastIndex) "," else "").append("\n")
+            }
+            sb.append("  ]")
+        }
+        if (goals.isNotEmpty()) {
+            sb.append(",\n  \"goals\": [\n")
+            goals.forEachIndexed { index, g ->
+                sb.append("    {\"id\": ").append(serializeJsonString(g.id)).append(", \"groupId\": ").append(serializeJsonString(g.groupId))
+                    .append(", \"targetType\": ").append(serializeJsonString(g.targetType.storageKey))
+                    .append(", \"target\": ").append(serializeJsonString(g.targetKey))
+                    .append(", \"kind\": ").append(serializeJsonString(g.kind.storageKey))
+                    .append(", \"period\": ").append(serializeJsonString(g.period.storageKey))
+                    .append(", \"targetSeconds\": ").append(g.targetSeconds)
+                    .append(", \"status\": ").append(serializeJsonString(g.status.storageKey))
+                    .append(", \"validFrom\": ").append(serializeJsonString(g.validFrom))
+                    .append(", \"validTo\": ").append(g.validTo?.let { serializeJsonString(it) } ?: "null").append("}")
+                    .append(if (index < goals.lastIndex) "," else "").append("\n")
+            }
+            sb.append("  ]")
+        }
+        sb.append("\n}")
         return sb.toString()
     }
 

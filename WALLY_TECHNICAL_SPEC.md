@@ -1,7 +1,7 @@
 # TIME WALLET / WALLY — ĐẶC TẢ KỸ THUẬT (Diagram, Use Case, Action Case)
 
-**Phiên bản mô tả:** candidate v1.0.7 (`versionCode 8`, package `com.timewallet.mvp`; mô tả v1.0.6/`versionCode 7` được giữ ở các đính chính dưới) · Android, Kotlin, Jetpack Compose, Room v3 · Ngày: 2026-11-14 (cập nhật từ bản mô tả v1.0.5 sau Review độc lập; các đính chính ở khung dưới)
-**Trạng thái:** CANDIDATE_UNVERIFIED. F6 (app dừng đột ngột) UNRESOLVED. Chưa chạy trên thiết bị thật, chưa gọi AI thật.
+**Phiên bản mô tả:** candidate v1.0.9 (`versionCode 10`, package `com.timewallet.mvp`; mô tả v1.0.6/`versionCode 7` được giữ ở các đính chính dưới) · Android, Kotlin, Jetpack Compose, Room v3 · Ngày: 2026-11-14 (cập nhật từ bản mô tả v1.0.5 sau Review độc lập; các đính chính ở khung dưới)
+**Trạng thái:** CANDIDATE_UNVERIFIED. F6 (app dừng đột ngột) UNRESOLVED nói chung; riêng chữ ký crash `CancelCommandParser.<clinit>` đã tái hiện trên máy thật với v1.0.6–v1.0.8 và được v1.0.9 sửa (chờ Owner xác nhận trên thiết bị). Chưa chạy trên thiết bị thật, chưa gọi AI thật.
 **Cách đọc:** sơ đồ viết bằng Mermaid (xem được trong VS Code, GitHub). Mỗi mục kỹ thuật ghi tên file/hàm thật. Nhãn kiểm chứng: **[JVM]** có test chạy, **[MOCK]** có test với HTTP giả, **[TĨNH]** chỉ kiểm tra tĩnh mã nguồn, **[CHƯA]** chưa kiểm chứng trên thiết bị hoặc AI thật.
 
 > **Đính chính so với bản mô tả v1.0.5 (Review `REVIEW_WALLY_V105.md`, sửa trong v1.0.6):**
@@ -19,6 +19,12 @@
 > 3. **`V106-N2` — BOM và bảo toàn thời lượng:** `\uFEFF` dẫn đầu được bỏ **trước** mọi kiểm tra JSON (envelope, `content`, khối fence, `usage`); `\uFEFF[1, 2]`/`\uFEFFnull` ⇒ `MALFORMED` (không còn lọt thành lời đáp). `TimerCommit` quy phiên về số giây nguyên theo quy ước **làm tròn xuống** (`floor((end−start)/1000)`), phiên dưới 1 giây bị từ chối (không phình thành 1 giây), tổng các đoạn luôn đúng bằng số giây đó. `LedgerAnalyticsCalculator.computeDayStats` cộng theo mili-giây rồi mới quy đổi giây (sweep-line + phân bổ phần dư theo danh mục), nên các mảnh dưới 1 giây không còn làm mất giây tích lũy và một bản ghi vắt qua nửa đêm cộng đúng tổng giữa các ngày; dữ liệu tròn giây không đổi kết quả.
 > **Đính chính v1.0.8 (V106-N1 đóng theo kiến trúc; V107-F1/F2):** trạng thái giao dịch do **ứng dụng** phát ngôn qua `WallyTurnPolicy` — RECORD và MIXED có đề xuất: bỏ hoàn toàn lời đáp tự do của AI (MIXED giữ truy vấn, số liệu do engine tính, kèm dòng "số liệu chỉ gồm bản ghi đã lưu"); lượt chat liên quan ghi nhận / hỏi "đã lưu chưa" / còn đề xuất chờ: thẻ do ứng dụng tạo là headline ("Chưa có gì được lưu…"), lời AI không hiển thị; hội thoại không liên quan giao dịch giữ nguyên lời AI. Thẻ trạng thái bị xóa khi danh sách đề xuất đổi. Thẻ đề xuất ghi rõ "chờ bạn xác nhận / Chưa lưu vào sổ". Số liệu v1.0.8: **357** test trong cây + 2 ngoài cây = **359** PASS (manifest nguồn **105** dòng). Chi tiết: `WALLY_V108_DOSSIER.md`.
 > 4. **Số liệu kiểm chứng v1.0.7:** **341** test trong cây + 2 ngoài cây = **343** PASS (manifest nguồn **103** dòng).
+
+> **Đính chính v1.0.9 (P0 F6 — crash trên máy thật: `ExceptionInInitializerError ← PatternSyntaxException ← CancelCommandParser.<clinit>`; kiến trúc API-first / 8 tầng / origin binding / quyền riêng tư giữ nguyên):**
+> 1. **Nguyên nhân:** Android chạy regex bằng ICU4C (không phải bộ của JDK) và truyền nguyên chuỗi mẫu cho nó; cờ nội tuyến `(?U)` của JDK không phải cờ ICU (ICU chỉ có `i d m s w x`) nên `Regex` khởi tạo thất bại (`U_REGEX_RULE_SYNTAX`, offset 3). 49 mẫu sản xuất mở đầu bằng cờ đó (có từ trước chuỗi hotfix: đã thấy ở baseline AI-01 v3). Test JVM không thể thấy lỗi này vì JDK hiểu cờ.
+> 2. **Quy tắc (§8.3, §9):** mọi Regex sản xuất được tạo qua `Rx.uni` / `Rx.ascii` (`domain/usecase/Rx.kt`), dịch về MỘT chuỗi mẫu chỉ dùng cấu trúc có nghĩa giống hệt trên JDK và ICU (lớp ký tự/khẳng định tường minh thay cho `\s \d \b $ .`); cấu trúc ngoài tập con bị từ chối; test quét mã nguồn cấm Regex ngoài `Rx`. Văn bản 114 mẫu không bị sửa tay.
+> 3. **Chứa lỗi guard (§8.4):** `GuardHealth` (canary khi mở app) + `AiFault.GUARD_UNAVAILABLE`. Guard hỏng ⇒ giữ input, báo lỗi rõ, **không gọi AI, không tạo/xác nhận đề xuất, không sập app**; `ChatScreen` không gọi guard trực tiếp lúc compose; `WallyChatRunner` bắt `Throwable` (trừ OOM thật). Không có đường bỏ qua guard.
+> 4. **Số liệu kiểm chứng v1.0.9:** **383** test trong cây + 2 ngoài cây = **385** PASS; golden 66/66, holdout 46/46; manifest nguồn **110** dòng. Bằng chứng ICU4C thật (ICU 68.2 của Windows — **không phải Android**): 146/146 mẫu biên dịch, 0 lệch JVM↔ICU trên 341.056 cặp mẫu×câu; RED v1.0.8: 46/98 mẫu lỗi tại offset 3. **Android runtime: NOT_TESTED.** Chi tiết: `WALLY_V109_DOSSIER.md`.
 
 ---
 
@@ -601,6 +607,7 @@ Hợp đồng chặt (v1.0.6, `StrictJson` — tự quét ranh giới object, kh
 | UNKNOWN | Mã khác (gồm 3xx) | Không | Ghi thủ công |
 | NOT_CONFIGURED | Chưa khóa/chưa bật | — | Mở cấu hình, Ghi thủ công |
 | CONFIG | URL/origin không hợp lệ | — | Mở cấu hình, Ghi thủ công |
+| GUARD_UNAVAILABLE (v1.0.9) | Bộ guard (Regex) không khởi tạo/chạy được, `GuardHealth` báo hỏng | — (không gọi AI) | Ghi thủ công |
 
 Mọi lỗi: **không đề xuất, không lời đáp, input giữ nguyên, không bản ghi nào bị thay đổi**. Hạn tổng một lượt: 30s (connect 15s, read 25s), tối đa 1 lần thử lại.
 
@@ -658,6 +665,6 @@ Tổng: **322 test trong cây PASS** (222 baseline v1.0.5 — 9 test được c�
 
 - **[CHƯA] Thiết bị thật:** bố cục ở 320–412dp, cỡ chữ 1.3, bàn phím, screenshot; hành vi nền, tái tạo tiến trình; Keystore thật; hoàn tác giao dịch Room; redirect trên Android.
 - **[CHƯA] AI thật:** chất lượng nhận ý định, sinh `queries`, phủ định, phân loại "làm việc không nghỉ"; hỗ trợ prompt cache của nhà cung cấp (không tìm thấy tài liệu của `api.foza.ai`); độ trễ, token thật.
-- **F6 UNRESOLVED:** chưa có stack trace; đã có cơ chế ghi nhật ký lỗi đã che nội dung để Owner lấy bằng chứng. Việc bỏ khóa dự phòng RAM và chuyển tính toán nặng ra khỏi luồng chính là giảm rủi ro, **không** phải chứng minh nguyên nhân F6.
+- **F6 UNRESOLVED (nói chung):** đã có MỘT stack trace từ máy thật (2026-11-14: `ExceptionInInitializerError ← PatternSyntaxException ← CancelCommandParser.<clinit>`; nguyên nhân là cờ `(?U)` bị ICU từ chối, sửa ở v1.0.9, **chờ Owner xác nhận trên máy**); các nguyên nhân crash khác chưa loại trừ; đã có cơ chế ghi nhật ký lỗi đã che nội dung để Owner lấy bằng chứng. Việc bỏ khóa dự phòng RAM và chuyển tính toán nặng ra khỏi luồng chính là giảm rủi ro, **không** phải chứng minh nguyên nhân F6.
 - **Thiết kế:** một vòng AI (AI không nhìn thấy kết quả số liệu); không cache dữ liệu (đo: truy vấn điển hình ≤ 22 ms); Nhật ký không lazy (backlog, chưa có bằng chứng cần sửa); truy vấn `BUDGET` luôn trả mức **hiện tại** (ngày/tuần hiện hành) và không so sánh hai kỳ; guard phủ định cục bộ nhận thời lượng bằng chữ số và số bằng chữ tiếng Việt thông dụng (1–999, "rưỡi", "nửa", thập phân bằng chữ); thời lượng **mơ hồ** ("vài/mấy/dăm…") ⇒ yêu cầu làm rõ; các cách nói hiếm chưa chuẩn hóa được vẫn phải qua bước xác nhận của người dùng; không có import dữ liệu; không dark mode; `QueryIntentParser` còn trong mã nhưng ViewModel không gọi.
 - **Test tĩnh thay cho động:** Compose (hộp thoại cuộn, vùng chạm 48dp, nhãn đọc) chỉ kiểm cấu trúc mã nguồn; vòng đời Android thật chưa chạy. Logic quan trọng đã được trích thành đối tượng thuần để kiểm bằng JVM (`WallyChatRunner`, `ChatRequestOwner`, `WallyChatReducer`, `BatchConfirm`, `TimerCommit`, `DerivedStatsCalculator`).

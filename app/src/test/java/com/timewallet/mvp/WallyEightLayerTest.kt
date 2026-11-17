@@ -135,9 +135,9 @@ class WallyEightLayerTest {
 
     @Test
     fun `prompt cache layout - version and prefix hash are stable and the combined helper keeps the old rules`() {
-        assertEquals("wally-prompt-4", GeminiProposalClient.PROMPT_VERSION) // v1.0.6: thêm metric BUDGET + quy tắc reply chặt
+        assertEquals("wally-prompt-7", GeminiProposalClient.PROMPT_VERSION) // v1.0.6: metric BUDGET + reply chặt (prompt-4); v1.0.12: quy tắc 7b "đến giờ" (prompt-5); v1.0.13: quy tắc 7c/7d (prompt-6), câu hỏi lại có "?" và nhắc số của người dùng (prompt-7)
         assertEquals(12, GeminiProposalClient.staticPromptHash.length)
-        // Băm cho wally-prompt-4: nếu đổi nội dung tĩnh phải đổi PROMPT_VERSION và cập nhật băm này có chủ đích.
+        // Băm cho wally-prompt-7: nếu đổi nội dung tĩnh phải đổi PROMPT_VERSION và cập nhật băm này có chủ đích.
         val digest = java.security.MessageDigest.getInstance("SHA-256")
             .digest(GeminiProposalClient.staticSystemPrompt.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
         assertTrue(digest.startsWith(GeminiProposalClient.staticPromptHash))
