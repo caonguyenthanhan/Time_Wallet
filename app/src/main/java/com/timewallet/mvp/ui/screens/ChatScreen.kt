@@ -54,6 +54,7 @@ import com.timewallet.mvp.domain.usecase.CancelArming
 import com.timewallet.mvp.data.ai.GuardHealth
 import com.timewallet.mvp.domain.usecase.OutcomeSource
 import com.timewallet.mvp.domain.usecase.ChatAnswer
+import com.timewallet.mvp.domain.usecase.ChatHistoryEntry
 import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
 import com.timewallet.mvp.domain.usecase.LedgerValidator
 import com.timewallet.mvp.ui.EditableProposalDraft
@@ -85,11 +86,23 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import com.timewallet.mvp.ui.theme.WalletMintDark
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+
+@OptIn(ExperimentalLayoutApi::class)
+/**
+ * Khi người dùng bấm Gửi và Wally đang phân tích (`isAnalyzing`), ẩn phần chữ đã gửi khỏi ô nhập
+ * để trải nghiệm giống khung chat thật; nếu hủy hoặc lỗi thì nội dung vẫn còn nguyên ở State để hiện lại.
+ */
+internal fun visibleChatComposerText(
+    chatInputText: String,
+    isAnalyzing: Boolean,
+    suppressedInFlightRaw: String?
+): String = if (isAnalyzing && suppressedInFlightRaw != null && chatInputText == suppressedInFlightRaw) "" else chatInputText
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -118,6 +131,8 @@ fun ChatScreen(
     onConfirmAllProposals: () -> Unit,
     lastUserMessage: String?,
     onLastUserMessageChange: (String?) -> Unit,
+    chatHistory: List<ChatHistoryEntry> = emptyList(),
+    onClearChatHistory: () -> Unit = {},
     onCleanChatInput: () -> Unit = {}
 ) {
     // v1.0.11: ba gợi ý ngắn thay cho năm chip; câu đầy đủ vẫn được điền vào ô nhập để người dùng xem/sửa trước khi gửi.
@@ -127,13 +142,29 @@ fun ChatScreen(
         "So với tuần trước" to "So sánh tuần này với tuần trước"
     )
 
-    // Tin nhắn vừa gửi chỉ để hiển thị bong bóng (do MainActivity giữ, không lưu, không đổi nghiệp vụ); tự xóa khi không còn gì để hiển thị.
+    // Tin nhắn vừa gửi chỉ để hiển thị bong bóng (do MainActivity giữ); lịch sử đã hoàn tất được lưu bền vững qua chatHistory.
     val scroll = rememberScrollState()
+    val keyboardController = LocalSoftwareKeyboardController.current
+    var suppressedInFlightRaw by rememberSaveable { mutableStateOf<String?>(null) }
+    var showClearHistoryConfirm by remember { mutableStateOf(false) }
+    LaunchedEffect(isAnalyzing) {
+        if (!isAnalyzing) suppressedInFlightRaw = null
+    }
+    val composerText = visibleChatComposerText(chatInputText, isAnalyzing, suppressedInFlightRaw)
+
     // Màn thấp (xoay ngang): ẩn đầu trang và gợi ý nhanh để vùng hội thoại còn đủ chỗ đọc và ô nhập luôn thấy được.
     val compactHeight = LocalConfiguration.current.screenHeightDp < 480
     val maxBubbleWidth = ((LocalConfiguration.current.screenWidthDp.dp - 32.dp) * 0.75f).coerceIn(220.dp, 360.dp)
-    val hasReply = isAnalyzing || chatAnswer != null || chatFault != null || proposals.isNotEmpty()
+    val hasReply = chatHistory.isNotEmpty() || isAnalyzing || chatAnswer != null || chatFault != null || proposals.isNotEmpty()
     LaunchedEffect(hasReply) { if (!hasReply) onLastUserMessageChange(null) }
+    LaunchedEffect(isAnalyzing, chatFault, proposals.size, chatAnswer?.headline) {
+        val lastHistoryUser = chatHistory.lastOrNull { it.isUser }?.headline
+        if (!isAnalyzing && chatFault == null && proposals.isEmpty() && chatAnswer == null &&
+            chatHistory.isNotEmpty() && lastUserMessage != null && lastUserMessage != lastHistoryUser
+        ) {
+            onLastUserMessageChange(null)
+        }
+    }
     var lastUserTimeText by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(lastUserMessage) {
         lastUserTimeText = if (lastUserMessage != null) {
@@ -153,7 +184,7 @@ fun ChatScreen(
             cancelArmed = true
         }
     }
-    val scrollTrigger = listOf(proposals.size, chatAnswer?.headline, chatFault, isAnalyzing, lastUserMessage)
+    val scrollTrigger = listOf(chatHistory.size, proposals.size, chatAnswer?.headline, chatFault, isAnalyzing, lastUserMessage)
     LaunchedEffect(scrollTrigger) {
         withFrameNanos { }
         if (hasReply) scroll.animateScrollTo(scroll.maxValue) else scroll.scrollTo(0)
@@ -161,7 +192,7 @@ fun ChatScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         if (!compactHeight) {
-        // Đầu trang: Wally + trạng thái AI (chạm để cấu hình). FlowRow: khi hẹp/chữ lớn, nhãn trạng thái tự xuống dòng thay vì bóp tên.
+        // Đầu trang: Wally + xóa lịch sử (nếu có) + trạng thái AI (chạm để cấu hình). FlowRow: khi hẹp/chữ lớn, nhãn trạng thái tự xuống dòng thay vì bóp tên.
         FlowRow(
             modifier = Modifier
                 .fillMaxWidth()
@@ -183,32 +214,56 @@ fun ChatScreen(
                     Text(text = "Trợ lý thời gian", fontSize = 12.5.sp, color = WalletMuted, maxLines = 1, softWrap = false)
                 }
             }
-            val modeText = if (aiPreferences.optInEnabled && aiPreferences.apiKey.isNotBlank()) {
-                "✦ AI đã bật"
-            } else {
-                "✦ Chưa cấu hình AI"
-            }
-            Box(
-                modifier = Modifier
-                    .widthIn(max = 190.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFFEFF3EE))
-                    .walletClickable(onClickLabel = "Mở cấu hình AI", onClick = onOpenAiSettings)
-                    .padding(horizontal = 11.dp, vertical = 6.dp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                if (chatHistory.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFFFCECEC))
+                            .walletClickable(onClickLabel = "Xóa lịch sử trò chuyện") {
+                                showClearHistoryConfirm = true
+                            }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "Xóa lịch sử",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFFB3261E),
+                            maxLines = 1
+                        )
+                    }
+                }
+                val modeText = if (aiPreferences.optInEnabled && aiPreferences.apiKey.isNotBlank()) {
+                    "✦ AI đã bật"
+                } else {
+                    "✦ Chưa cấu hình AI"
+                }
+                Box(
+                    modifier = Modifier
+                        .widthIn(max = 190.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFFEFF3EE))
+                        .walletClickable(onClickLabel = "Mở cấu hình AI", onClick = onOpenAiSettings)
+                        .padding(horizontal = 11.dp, vertical = 6.dp)
                 ) {
-                    Text(
-                        text = modeText,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF5D7064),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    GlyphIcon(WalletGlyph.SETTINGS, color = Color(0xFF5D7064), size = 13.dp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Text(
+                            text = modeText,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF5D7064),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        GlyphIcon(WalletGlyph.SETTINGS, color = Color(0xFF5D7064), size = 13.dp)
+                    }
                 }
             }
         }
@@ -252,20 +307,81 @@ fun ChatScreen(
                     )
                 }
             } else {
-                lastUserMessage?.let { sentText ->
-                    val statusLabel = when {
-                        isAnalyzing -> "Đã gửi ✓"
-                        chatAnswer != null || proposals.isNotEmpty() -> "Wally đã xem ✓✓"
-                        chatFault != null -> "Đã gửi"
-                        else -> "Đã gửi ✓"
+                val activeAnswerHeadline = chatAnswer?.takeUnless { it.isTransactionStatus }?.headline
+                chatHistory.forEachIndexed { idx, entry ->
+                    val duplicatedByLiveAnswer = idx == chatHistory.lastIndex &&
+                        !entry.isUser &&
+                        activeAnswerHeadline != null &&
+                        entry.headline == activeAnswerHeadline
+                    if (!duplicatedByLiveAnswer) {
+                        if (entry.isUser) {
+                            UserBubble(
+                                text = entry.headline,
+                                maxWidth = maxBubbleWidth,
+                                timeText = entry.timeText.ifBlank { null },
+                                statusText = entry.label ?: "Wally đã xem ✓✓",
+                                isRead = true
+                            )
+                        } else {
+                            WallyBubble(
+                                tint = if (entry.isClarification) Color(0xFFFFF8E8) else Color.White,
+                                maxWidth = maxBubbleWidth
+                            ) {
+                                Text(
+                                    text = entry.headline,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = WalletInk,
+                                    lineHeight = 20.sp
+                                )
+                                if (entry.lines.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        entry.lines.forEach { line ->
+                                            Text(text = line, fontSize = 13.sp, color = WalletInk, lineHeight = 18.sp)
+                                        }
+                                    }
+                                }
+                                if (entry.notes.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        entry.notes.forEach { note ->
+                                            Text(text = note, fontSize = 11.5.sp, color = WalletMuted, lineHeight = 16.sp)
+                                        }
+                                    }
+                                }
+                                if (entry.timeText.isNotBlank()) {
+                                    Text(
+                                        text = entry.timeText,
+                                        fontSize = 10.5.sp,
+                                        color = WalletMuted,
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
-                    UserBubble(
-                        text = sentText,
-                        maxWidth = maxBubbleWidth,
-                        timeText = lastUserTimeText.ifBlank { null },
-                        statusText = statusLabel,
-                        isRead = !isAnalyzing && (chatAnswer != null || proposals.isNotEmpty())
-                    )
+                }
+                val lastHistoryUser = chatHistory.lastOrNull { it.isUser }?.headline
+                val showLiveUserBubble = lastUserMessage != null && (
+                    isAnalyzing || chatFault != null || lastUserMessage != lastHistoryUser
+                )
+                if (showLiveUserBubble) {
+                    lastUserMessage?.let { sentText ->
+                        val statusLabel = when {
+                            isAnalyzing -> "Đã gửi ✓"
+                            chatAnswer != null || proposals.isNotEmpty() -> "Wally đã xem ✓✓"
+                            chatFault != null -> "Đã gửi"
+                            else -> "Đã gửi ✓"
+                        }
+                        UserBubble(
+                            text = sentText,
+                            maxWidth = maxBubbleWidth,
+                            timeText = lastUserTimeText.ifBlank { null },
+                            statusText = statusLabel,
+                            isRead = !isAnalyzing && (chatAnswer != null || proposals.isNotEmpty())
+                        )
+                    }
                 }
             }
 
@@ -337,7 +453,9 @@ fun ChatScreen(
                                     if (chatInputText.isNotBlank() && !GuardHealth.isCancelCommand(chatInputText)) {
                                         onLastUserMessageChange(chatInputText.trim())
                                         if (chatAnswer != null) onDismissAnswer()
+                                        suppressedInFlightRaw = chatInputText
                                     }
+                                    keyboardController?.hide()
                                     onAnalyzeClick()
                                 },
                                 modifier = Modifier.heightIn(min = 48.dp)
@@ -407,7 +525,10 @@ fun ChatScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 examples.forEach { (label, fullSentence) ->
-                    SuggestionChip(text = label) { onApplyExample(fullSentence) }
+                    SuggestionChip(text = label) {
+                        suppressedInFlightRaw = null
+                        onApplyExample(fullSentence)
+                    }
                 }
                 SuggestionChip(text = "＋ Ghi thủ công", onClick = onManualEntry)
             }
@@ -422,12 +543,15 @@ fun ChatScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             OutlinedTextField(
-                value = chatInputText,
-                onValueChange = onChatInputChange,
+                value = composerText,
+                onValueChange = {
+                    suppressedInFlightRaw = null
+                    onChatInputChange(it)
+                },
                 placeholder = { Text("Kể tiếp ngày của bạn…", fontSize = 14.sp) },
                 minLines = 1,
                 maxLines = 4,
-                trailingIcon = if (chatInputText.isNotBlank() && !isAnalyzing) {
+                trailingIcon = if (composerText.isNotBlank() && !isAnalyzing) {
                     {
                         TextButton(
                             onClick = { showCleanChatConfirm = true },
@@ -437,7 +561,7 @@ fun ChatScreen(
                         }
                     }
                 } else null,
-                shape = RoundedCornerShape(26.dp),
+                shape = RoundedCornerShape(22.dp),
                 modifier = Modifier.weight(1f)
             )
             if (isAnalyzing && !GuardHealth.isCancelCommand(chatInputText)) {
@@ -464,13 +588,21 @@ fun ChatScreen(
                     if (chatInputText.isNotBlank() && !GuardHealth.isCancelCommand(chatInputText)) {
                         onLastUserMessageChange(chatInputText.trim())
                         if (chatAnswer != null) onDismissAnswer()
+                        suppressedInFlightRaw = chatInputText
                     }
+                    keyboardController?.hide()
                     onAnalyzeClick()
                 },
                 // AI-01 CLOSURE: cho phép gửi lệnh hủy khi đang phân tích (nút vẫn khóa với câu thường).
                 enabled = !isAnalyzing || GuardHealth.isCancelCommand(chatInputText),
                 shape = CircleShape,
-                colors = ButtonDefaults.buttonColors(containerColor = if (chatInputText.isBlank()) WalletMint.copy(alpha = 0.45f) else WalletMint),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (composerText.isBlank() && !(isAnalyzing && GuardHealth.isCancelCommand(chatInputText))) {
+                        WalletMint.copy(alpha = 0.45f)
+                    } else {
+                        WalletMint
+                    }
+                ),
                 contentPadding = PaddingValues(0.dp),
                 modifier = Modifier
                     .size(54.dp)
@@ -478,6 +610,36 @@ fun ChatScreen(
             ) {
                 GlyphIcon(WalletGlyph.SEND, color = Color.White, size = 24.dp)
             }
+        }
+        if (showClearHistoryConfirm) {
+            AlertDialog(
+                onDismissRequest = { showClearHistoryConfirm = false },
+                containerColor = Color.White,
+                title = { Text("Xóa lịch sử trò chuyện?", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
+                text = {
+                    Text(
+                        "Các bong bóng hội thoại trước đây với Wally sẽ được dọn sạch. Dữ liệu hoạt động đã lưu trong sổ cái không bị ảnh hưởng.",
+                        fontSize = 12.5.sp,
+                        color = WalletMuted
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showClearHistoryConfirm = false
+                            onClearChatHistory()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB3261E))
+                    ) {
+                        Text("Xóa lịch sử", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showClearHistoryConfirm = false }) {
+                        Text("Giữ lại", color = WalletMuted)
+                    }
+                }
+            )
         }
         if (showCleanChatConfirm) {
             AlertDialog(

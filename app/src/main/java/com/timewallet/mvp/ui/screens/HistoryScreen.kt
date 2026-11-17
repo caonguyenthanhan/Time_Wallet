@@ -2,6 +2,7 @@ package com.timewallet.mvp.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,21 +34,25 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.timewallet.mvp.domain.model.ActiveTimerSession
 import com.timewallet.mvp.domain.model.ConfirmationState
 import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.model.TimeLayer
 import com.timewallet.mvp.domain.usecase.JournalDayTotal
 import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
+import com.timewallet.mvp.domain.usecase.ScheduleViewMode
 import com.timewallet.mvp.ui.HistoryFilter
 import com.timewallet.mvp.ui.theme.WalletDangerText
 import com.timewallet.mvp.ui.theme.WalletInk
 import com.timewallet.mvp.ui.theme.WalletMint
+import com.timewallet.mvp.ui.theme.WalletMintDark
 import com.timewallet.mvp.ui.theme.WalletMintTint
 import com.timewallet.mvp.ui.theme.WalletMuted
 import com.timewallet.mvp.ui.theme.WalletStroke
@@ -84,11 +90,20 @@ fun HistoryScreen(
     onEditRecord: (LedgerRecord) -> Unit,
     onDeleteRecord: (String) -> Unit,
     onAddManual: () -> Unit = {},
-    onResizePlannedRecord: (String, Int) -> Unit = { _, _ -> }
+    onResizePlannedRecord: (String, Int) -> Unit = { _, _ -> },
+    activeTimer: ActiveTimerSession? = null,
+    selectedScheduleDate: String = todayDateLocal,
+    scheduleViewMode: ScheduleViewMode = ScheduleViewMode.DAY,
+    onSelectScheduleDate: (String) -> Unit = {},
+    onSelectScheduleViewMode: (ScheduleViewMode) -> Unit = {},
+    onAddForSlot: (dateLocal: String, startHm: String?, endHm: String?, saveAsPlanned: Boolean) -> Unit = { _, _, _, _ -> onAddManual() },
+    onMoveOrResizeBlock: (recordId: String, dateLocal: String, startHm: String, endHm: String) -> Unit = { _, _, _, _ -> },
+    onNavigateToTimer: () -> Unit = {}
 ) {
     var recordPendingDelete by remember { mutableStateOf<LedgerRecord?>(null) }
     var selectedPlannedId by remember { mutableStateOf<String?>(null) }
     var liveStatusAnnouncement by remember { mutableStateOf("") }
+    var showCalendarMode by rememberSaveable { mutableStateOf(true) }
     val nowMs = System.currentTimeMillis()
 
     val filteredRecords = remember(records, selectedFilter, nowMs, todayDateLocal) {
@@ -128,9 +143,74 @@ fun HistoryScreen(
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        ScreenTitle("Nhật ký")
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "Nhật ký",
+                fontSize = 26.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = WalletInk,
+                modifier = Modifier.weight(1f)
+            )
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(100.dp))
+                    .background(Color(0xFFE9F0EC))
+                    .border(1.dp, WalletStroke, RoundedCornerShape(100.dp))
+                    .padding(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                listOf(true to "Lịch trình", false to "Dòng thời gian").forEach { (isCal, label) ->
+                    val selected = showCalendarMode == isCal
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(100.dp))
+                            .background(if (selected) WalletMintDark else Color.Transparent)
+                            .semantics {
+                                contentDescription = "Chế độ $label"
+                                this.selected = selected
+                            }
+                            .walletClickable(onClickLabel = "Chế độ $label", role = Role.Tab) {
+                                showCalendarMode = isCal
+                            }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = label,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (selected) Color.White else WalletMuted,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+            }
+        }
+
+        if (showCalendarMode) {
+            ScheduleCalendarView(
+                todayDateLocal = todayDateLocal,
+                records = records,
+                activeTimer = activeTimer,
+                selectedDateLocal = selectedScheduleDate.ifBlank { todayDateLocal },
+                viewMode = scheduleViewMode,
+                onSelectDate = onSelectScheduleDate,
+                onSelectViewMode = onSelectScheduleViewMode,
+                onAddForSlot = onAddForSlot,
+                onEditRecord = onEditRecord,
+                onConfirmPlannedOrActiveRecord = onConfirmPlannedOrActiveRecord,
+                onMoveOrResizeBlock = onMoveOrResizeBlock,
+                onNavigateToTimer = onNavigateToTimer,
+                showBackButton = false,
+                embeddedInScrollContainer = true
+            )
+        } else {
 
         // Bộ lọc gọn: một hàng cuộn ngang, nhãn không xuống dòng.
         Row(
@@ -408,6 +488,7 @@ fun HistoryScreen(
                     }
                 }
             }
+        }
         }
     }
 

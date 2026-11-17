@@ -350,3 +350,17 @@ data class ChatAnswer(
             ChatAnswer(question, message, isClarification = true, suggestions = suggestions)
     }
 }
+
+/**
+ * Một mục hội thoại đã hoàn tất trong lịch sử trò chuyện với Wally (chỉ hiển thị & lưu cục bộ ngoài sổ cái, không tự ghi bản ghi).
+ */
+data class ChatHistoryEntry(
+    val id: String,
+    val isUser: Boolean,
+    val headline: String,
+    val lines: List<String> = emptyList(),
+    val notes: List<String> = emptyList(),
+    val timeText: String = "",
+    val isClarification: Boolean = false,
+    val label: String? = null
+)

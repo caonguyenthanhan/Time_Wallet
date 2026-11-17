@@ -150,7 +150,12 @@ object AiProposalGuard {
                 val allowed = stated.toSet() + stated.sum()
                 val before = kept.size
                 val openStarts = openEndedStartCandidates(text)
-                kept = kept.filter { it.durationMinutes in allowed || isOpenEndedRange(it, openStarts, today) }
+                val clockPoints = explicitClockCandidates(figText)
+                kept = kept.filter {
+                    it.durationMinutes in allowed ||
+                        isOpenEndedRange(it, openStarts, today) ||
+                        isExplicitClockEndpointRange(it, clockPoints)
+                }
                 if (kept.size < before) {
                     warnings += "Đã bỏ ${before - kept.size} đề xuất của AI có thời lượng không khớp với câu bạn nhập."
                 }
@@ -194,11 +199,30 @@ object AiProposalGuard {
     private val CLAUSE_CLOCK = Rx.ascii("(\\d{1,2})\\s*(?:h|:)\\s*(\\d{0,2})")
     private val PUNCT = setOf(',', ';', '.', '!', '?', '…')
 
-    /** Vị trí kết thúc (chỉ số trong [t]) của các cụm "đến giờ / đến bây giờ / đến nay / tới giờ" đứng ở cuối mệnh đề (không phải "đến giờ làm việc"). */
+    private val OPEN_END_TRAILING_CLOCK = Rx.uni(
+        """(?:^|\s)\d{1,2}\s*(?:h|:)\s*\d{0,2}(?:\s*(?:giờ\s*)?(?:sáng|trưa|chiều|tối|đêm|khuya|am|pm))?(?:\s*(?:hôm\s+qua|đêm\s+qua|hôm\s+nay))?\s*$"""
+    )
+    private val OPEN_END_PERIOD_NOUNS = setOf("trưa", "tối", "chiều", "sáng", "mai", "nay")
+
+    /**
+     * Vị trí kết thúc (chỉ số trong [t]) của các cụm "đến giờ / đến bây giờ / đến nay / tới giờ".
+     * Hỗ trợ cả dạng đứng cuối mệnh đề ("Code từ 14h đến giờ") lẫn dạng theo sau bởi tên hoạt động
+     * ngay sau mốc giờ ("21h đến giờ review code"), nhưng không nhận nhầm cụm phi thời lượng ("đến giờ làm việc").
+     */
     private fun openEndedPhraseMatches(t: String): List<MatchResult> = OPEN_END_PHRASE.findAll(t).filter { m ->
         val rest = t.substring(m.range.last + 1).trimStart()
         val words = rest.split(Rx.uni("\\s+")).filter { it.isNotEmpty() }
-        rest.isEmpty() || rest.first() in PUNCT || words.all { w -> OPEN_END_FILLER.contains(w.trimEnd(',', ';', '.', '!', '?', '…')) }
+        if (rest.isEmpty() || rest.first() in PUNCT || words.all { w -> OPEN_END_FILLER.contains(w.trimEnd(',', ';', '.', '!', '?', '…')) }) {
+            return@filter true
+        }
+        val phrase = m.value.lowercase(Locale("vi", "VN"))
+        if (!phrase.contains("giờ") && !phrase.contains("lúc")) return@filter false
+        val before = t.substring(0, m.range.first)
+        val clauseBefore = before.substring(before.lastIndexOfAny(charArrayOf(',', ';', '.', '\n', '!', '?')) + 1)
+        if (!OPEN_END_TRAILING_CLOCK.containsMatchIn(clauseBefore)) return@filter false
+        val clauseRest = rest.substringBefore(',').substringBefore(';').substringBefore('.').trim()
+        val firstWord = clauseRest.split(Rx.uni("\\s+")).firstOrNull()?.lowercase(Locale("vi", "VN")).orEmpty()
+        clauseRest.none { it.isDigit() } && firstWord !in OPEN_END_PERIOD_NOUNS
     }.toList()
 
     internal fun hasOpenEndedToNow(text: String): Boolean =
@@ -236,6 +260,48 @@ object AiProposalGuard {
         s?.let { LocalTime.parse(it) }?.let { it.hour * 60 + it.minute }
     } catch (_: Exception) {
         null
+    }
+
+    /**
+     * Mọi mốc giờ tường minh xuất hiện trong câu (phút trong ngày 0..1439) để kiểm chứng các đề xuất ghép nối mốc giờ
+     * từ hai đầu giờ đã nêu (ví dụ "... đến 8h sáng hôm nay, vệ sinh và ăn sáng đến 9h ...").
+     */
+    internal fun explicitClockCandidates(text: String): Set<Int> {
+        val out = mutableSetOf<Int>()
+        val t = text.lowercase(Locale("vi", "VN"))
+        val clockWithPeriod = Rx.uni(
+            """(\d{1,2})\s*(?:h|:)\s*(\d{0,2})(?:\s*(?:giờ\s*)?(sáng|trưa|chiều|tối|đêm|khuya|am|pm))?""",
+            RegexOption.IGNORE_CASE
+        )
+        for (m in clockWithPeriod.findAll(t)) {
+            val idx = m.range.first
+            val next = t.substring(m.range.last + 1).trimStart()
+            // Bỏ qua "9 giờ" đơn lẻ là thời lượng ("9 tiếng", "2 giờ" không có giờ:) khi đi với "tiếng/phút/p"
+            val afterNum = m.value.lowercase(Locale("vi", "VN"))
+            if (!afterNum.contains(':') && !afterNum.contains('h')) continue
+            if (next.startsWith("tiếng") || next.startsWith("phút")) continue
+            val h = m.groupValues[1].toIntOrNull() ?: continue
+            val min = m.groupValues[2].ifBlank { "0" }.toIntOrNull() ?: continue
+            if (h !in 0..23 || min !in 0..59) continue
+            val period = m.groupValues[3].ifBlank { null }
+            when (period) {
+                "chiều", "tối", "pm" -> out += (if (h in 1..11) h + 12 else h) * 60 + min
+                "trưa" -> out += (if (h in 1..4) h + 12 else h) * 60 + min
+                "sáng", "đêm", "khuya", "am" -> out += (if (h == 12) 0 else h) * 60 + min
+                else -> {
+                    out += h * 60 + min
+                    if (h in 1..11 && idx >= 0) out += (h + 12) * 60 + min
+                }
+            }
+        }
+        return out
+    }
+
+    private fun isExplicitClockEndpointRange(p: ActivityProposal, clocks: Set<Int>): Boolean {
+        if (clocks.size < 2 || p.timeEvidence != "explicit_range") return false
+        val start = parseHm(p.startLocal) ?: return false
+        val end = parseHm(p.endLocal) ?: return false
+        return start in clocks && end in clocks
     }
 
     internal fun hasYesterdayBeforeOpenEnded(text: String): Boolean {

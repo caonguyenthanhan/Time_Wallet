@@ -11,6 +11,8 @@ import com.timewallet.mvp.domain.model.CategoryTimeBudget
 import com.timewallet.mvp.domain.model.DailyReviewRecord
 import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.usecase.ApiKeyHygiene
+import com.timewallet.mvp.domain.usecase.ChatHistoryEntry
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
 import java.security.KeyStore
@@ -95,6 +97,22 @@ interface ApiKeyVault {
 
 /** Keystore không dùng được (không có provider, bị khóa, hỏng khóa...). KHÔNG bao giờ được thay bằng khóa trong RAM. */
 class KeyVaultUnavailableException(cause: Throwable?) : Exception("KEYSTORE_UNAVAILABLE", cause)
+
+/** Bản nháp đề xuất chờ xác nhận trong tab Wally (chỉ lưu UI draft cục bộ, KHÔNG phải bản ghi sổ cái). */
+data class SavedProposalDraft(
+    val id: String,
+    val rawInput: String,
+    val title: String,
+    val categoryKey: String,
+    val durationMinutesText: String,
+    val dateLocal: String,
+    val startLocal: String,
+    val endLocal: String,
+    val hasInitialTimeEvidence: Boolean,
+    val isFuturePlanned: Boolean,
+    val idempotencyKey: String,
+    val tagId: String? = null
+)
 
 /** Bản nháp form Nhập giờ thủ công (lưu cục bộ ngoài sổ cái, không tạo bản ghi và không ảnh hưởng thống kê). */
 data class ManualEntryDraft(
@@ -541,6 +559,115 @@ class TimerAndSettingsStore(
 
     fun loadChatInputDraft(): String = prefs.getString(KEY_CHAT_INPUT_DRAFT, "") ?: ""
 
+    fun saveChatHistory(entries: List<ChatHistoryEntry>, immediate: Boolean = false) {
+        val edit = prefs.edit()
+        if (entries.isEmpty()) {
+            edit.remove(KEY_CHAT_HISTORY_JSON)
+        } else {
+            val arr = JSONArray()
+            entries.takeLast(MAX_CHAT_HISTORY_ENTRIES).forEach { e ->
+                arr.put(
+                    JSONObject().apply {
+                        put("id", e.id)
+                        put("isUser", e.isUser)
+                        put("headline", e.headline)
+                        put("lines", JSONArray(e.lines))
+                        put("notes", JSONArray(e.notes))
+                        put("timeText", e.timeText)
+                        put("isClarification", e.isClarification)
+                        put("label", e.label ?: JSONObject.NULL)
+                    }
+                )
+            }
+            edit.putString(KEY_CHAT_HISTORY_JSON, arr.toString())
+        }
+        if (immediate) edit.commit() else edit.apply()
+    }
+
+    fun loadChatHistory(): List<ChatHistoryEntry> {
+        val raw = prefs.getString(KEY_CHAT_HISTORY_JSON, null)?.takeIf { it.isNotBlank() } ?: return emptyList()
+        return runCatching {
+            val arr = JSONArray(raw)
+            buildList {
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val linesArr = o.optJSONArray("lines") ?: JSONArray()
+                    val notesArr = o.optJSONArray("notes") ?: JSONArray()
+                    add(
+                        ChatHistoryEntry(
+                            id = o.optString("id", "ch_$i"),
+                            isUser = o.optBoolean("isUser", false),
+                            headline = o.optString("headline", ""),
+                            lines = (0 until linesArr.length()).mapNotNull { idx -> linesArr.optString(idx).takeIf { it.isNotEmpty() } },
+                            notes = (0 until notesArr.length()).mapNotNull { idx -> notesArr.optString(idx).takeIf { it.isNotEmpty() } },
+                            timeText = o.optString("timeText", ""),
+                            isClarification = o.optBoolean("isClarification", false),
+                            label = if (o.isNull("label")) null else o.optString("label").takeIf { it.isNotBlank() }
+                        )
+                    )
+                }
+            }.filter { it.headline.isNotBlank() }
+        }.getOrDefault(emptyList())
+    }
+
+    fun saveChatProposalsDraft(drafts: List<SavedProposalDraft>, immediate: Boolean = false) {
+        val edit = prefs.edit()
+        if (drafts.isEmpty()) {
+            edit.remove(KEY_CHAT_PROPOSALS_DRAFT_JSON)
+        } else {
+            val arr = JSONArray()
+            drafts.take(15).forEach { d ->
+                arr.put(
+                    JSONObject().apply {
+                        put("id", d.id)
+                        put("rawInput", d.rawInput)
+                        put("title", d.title)
+                        put("categoryKey", d.categoryKey)
+                        put("durationMinutesText", d.durationMinutesText)
+                        put("dateLocal", d.dateLocal)
+                        put("startLocal", d.startLocal)
+                        put("endLocal", d.endLocal)
+                        put("hasInitialTimeEvidence", d.hasInitialTimeEvidence)
+                        put("isFuturePlanned", d.isFuturePlanned)
+                        put("idempotencyKey", d.idempotencyKey)
+                        put("tagId", d.tagId ?: JSONObject.NULL)
+                    }
+                )
+            }
+            edit.putString(KEY_CHAT_PROPOSALS_DRAFT_JSON, arr.toString())
+        }
+        if (immediate) edit.commit() else edit.apply()
+    }
+
+    fun loadChatProposalsDraft(): List<SavedProposalDraft> {
+        val raw = prefs.getString(KEY_CHAT_PROPOSALS_DRAFT_JSON, null)?.takeIf { it.isNotBlank() } ?: return emptyList()
+        return runCatching {
+            val arr = JSONArray(raw)
+            buildList {
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val id = o.optString("id", "").takeIf { it.isNotBlank() } ?: continue
+                    add(
+                        SavedProposalDraft(
+                            id = id,
+                            rawInput = o.optString("rawInput", ""),
+                            title = o.optString("title", "Hoạt động"),
+                            categoryKey = o.optString("categoryKey", "other"),
+                            durationMinutesText = o.optString("durationMinutesText", "30"),
+                            dateLocal = o.optString("dateLocal", ""),
+                            startLocal = o.optString("startLocal", ""),
+                            endLocal = o.optString("endLocal", ""),
+                            hasInitialTimeEvidence = o.optBoolean("hasInitialTimeEvidence", false),
+                            isFuturePlanned = o.optBoolean("isFuturePlanned", false),
+                            idempotencyKey = o.optString("idempotencyKey", id),
+                            tagId = if (o.isNull("tagId")) null else o.optString("tagId").takeIf { it.isNotBlank() }
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
     companion object {
         const val PREFS_NAME = "time_wallet_prefs_v1"
         private const val KEY_TIMER_ACTIVE = "timer_active"
@@ -564,6 +691,9 @@ class TimerAndSettingsStore(
         private const val KEY_TIMER_DRAFT_CATEGORY = "timer_draft_category_v1"
         private const val KEY_TIMER_DRAFT_TAG_ID = "timer_draft_tag_id_v1"
         private const val KEY_CHAT_INPUT_DRAFT = "chat_input_draft_v1"
+        private const val KEY_CHAT_HISTORY_JSON = "chat_history_v1"
+        private const val KEY_CHAT_PROPOSALS_DRAFT_JSON = "chat_proposals_draft_v1"
+        private const val MAX_CHAT_HISTORY_ENTRIES = 60
 
         private val defaultVault: ApiKeyVault = AesGcmKeystoreVault()
 

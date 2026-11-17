@@ -3,10 +3,12 @@ package com.timewallet.mvp
 import com.timewallet.mvp.data.local.BatchConfirm
 import com.timewallet.mvp.data.local.ConfirmResult
 import com.timewallet.mvp.data.local.ManualEntryDraft
+import com.timewallet.mvp.data.local.SavedProposalDraft
 import com.timewallet.mvp.data.local.TimerAndSettingsStore
 import com.timewallet.mvp.data.local.TimerInputDraft
 import com.timewallet.mvp.domain.model.Tag
 import com.timewallet.mvp.domain.model.TimeCategory
+import com.timewallet.mvp.domain.usecase.ChatHistoryEntry
 import com.timewallet.mvp.domain.usecase.JournalDayTotal
 import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
 import com.timewallet.mvp.domain.usecase.LedgerValidator
@@ -275,5 +277,70 @@ class V120DraftPersistenceTest {
         val timer = File("src/main/java/com/timewallet/mvp/ui/screens/TimerScreen.kt").readText(Charsets.UTF_8)
         assertTrue(timer.contains("Clean · Xóa nhập liệu"))
         assertTrue(timer.contains("Xóa nhập liệu đồng hồ?"))
+    }
+
+    @Test
+    fun `chat history and unconfirmed proposals survive process restart and can be cleared independently`() {
+        val prefs = InMemorySharedPreferences()
+        val storeBeforeRestart = TimerAndSettingsStore(prefs)
+        val history = listOf(
+            ChatHistoryEntry(
+                id = "h1",
+                isUser = true,
+                headline = "Ngủ từ 8h tối hôm qua đến 8h sáng hôm nay, 9h làm việc đến 20h",
+                timeText = "00:10",
+                label = "Wally đã xem ✓✓"
+            ),
+            ChatHistoryEntry(
+                id = "h2",
+                isUser = false,
+                headline = "Hôm nay bạn đã dùng 12h00p",
+                lines = listOf("• Làm việc: 11h00p"),
+                notes = listOf("Chỉ từ dữ liệu đã lưu"),
+                timeText = "00:10"
+            )
+        )
+        val pendingDrafts = listOf(
+            SavedProposalDraft(
+                id = "p1",
+                rawInput = "9h làm việc đến 20h",
+                title = "Làm việc",
+                categoryKey = "work",
+                durationMinutesText = "660",
+                dateLocal = "2026-11-18",
+                startLocal = "09:00",
+                endLocal = "20:00",
+                hasInitialTimeEvidence = true,
+                isFuturePlanned = false,
+                idempotencyKey = "idem-p1"
+            )
+        )
+
+        storeBeforeRestart.saveChatHistory(history, immediate = true)
+        storeBeforeRestart.saveChatProposalsDraft(pendingDrafts, immediate = true)
+
+        val storeAfterRestart = TimerAndSettingsStore(prefs)
+        val restoredHistory = storeAfterRestart.loadChatHistory()
+        assertEquals(2, restoredHistory.size)
+        assertEquals("00:10", restoredHistory[0].timeText)
+        assertEquals("Hôm nay bạn đã dùng 12h00p", restoredHistory[1].headline)
+
+        val restoredDrafts = storeAfterRestart.loadChatProposalsDraft()
+        assertEquals(1, restoredDrafts.size)
+        assertEquals("Làm việc", restoredDrafts[0].title)
+        assertEquals("660", restoredDrafts[0].durationMinutesText)
+        assertEquals("09:00", restoredDrafts[0].startLocal)
+        assertEquals("20:00", restoredDrafts[0].endLocal)
+
+        storeAfterRestart.saveChatHistory(emptyList(), immediate = true)
+        assertTrue(TimerAndSettingsStore(prefs).loadChatHistory().isEmpty())
+        assertEquals(1, TimerAndSettingsStore(prefs).loadChatProposalsDraft().size)
+
+        val vm = File("src/main/java/com/timewallet/mvp/ui/TimeWalletViewModel.kt").readText(Charsets.UTF_8)
+        assertTrue(vm.contains("settingsStore.loadChatHistory()"))
+        assertTrue(vm.contains("settingsStore.loadChatProposalsDraft()"))
+        assertTrue(vm.contains("fun clearChatHistory()"))
+        val chat = File("src/main/java/com/timewallet/mvp/ui/screens/ChatScreen.kt").readText(Charsets.UTF_8)
+        assertTrue(chat.contains("Xóa lịch sử"))
     }
 }

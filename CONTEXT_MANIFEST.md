@@ -1,9 +1,9 @@
 # CONTEXT_MANIFEST.md
-Cập nhật lần cuối: 2026-11-17T19:28:00+07:00
+Cập nhật lần cuối: 2026-11-18T02:11:00+07:00
 
 ## Core (luôn nạp vào context)
 - `.agents/` — Quy tắc dự án (`AGENTS.md`, `rules/link-ecosystem.md`)
-- `.gitignore`, `.repomixignore` — Bộ lọc tệp build, output QA, archive & tệp tạm
+- `.gitignore`, `.repomixignore` — Bộ lọc tệp build, output QA, `feedback/`, archive & tệp tạm
 - `README.md` — Trang giới thiệu tổng quan GitHub `v1.2.0`, điểm nổi bật kỹ thuật, cấu trúc & hướng dẫn build/test
 - `Time_Wallet_MVP/` — Đặc tả MVP & HTML Prototype gốc
 - `ai_test/` — Script kiểm thử gateway (`test_foza_ai.ts`, đọc `FOZA_API_KEY` từ biến môi trường)

@@ -428,4 +428,92 @@ object ConfirmationEngine {
         )
         return ConfirmationActionResult.Applied(listOf(cancelled), "Đã đánh dấu hủy \"${existing.title}\" (không tính vào thực tế).")
     }
+
+    /**
+     * Di chuyển giờ hoặc kéo cạnh chỉnh thời lượng trực tiếp trên lịch.
+     * Tuân thủ bất biến tách bạch Dự kiến vs Thực tế:
+     * - Bản ghi Dự kiến (PLANNED) chỉ cập nhật khung giờ dự kiến mà KHÔNG đụng hay tạo bản ghi lịch sử thực tế.
+     * - Bản ghi Thực tế / Đang diễn ra đi qua [adjustRecord] + kiểm tra chồng lấn [ActivityBreakEngine].
+     */
+    fun moveOrResizeScheduleBlock(
+        existing: LedgerRecord,
+        newDateLocal: String,
+        newStartHm: String,
+        newEndHm: String,
+        existingRecords: List<LedgerRecord>,
+        activeTimer: ActiveTimerSession? = null,
+        nowEpochMs: Long,
+        zoneId: ZoneId
+    ): ConfirmationActionResult {
+        if (existing.isCancelled) {
+            return ConfirmationActionResult.Invalid("Hoạt động đã bị hủy, không thể kéo đổi giờ.")
+        }
+        val parsed = LedgerValidator.parseTimeRangeToEpochMillis(newDateLocal, newStartHm, newEndHm, zoneId)
+            ?: return ConfirmationActionResult.Invalid("Khung giờ mới không hợp lệ ($newStartHm – $newEndHm).")
+        val durSecs = (parsed.second - parsed.first) / 1000L
+        if (durSecs < 5 * 60L) {
+            return ConfirmationActionResult.Invalid("Thời lượng tối thiểu khi kéo trên lịch là 5 phút.")
+        }
+        if (durSecs > 86_400L) {
+            return ConfirmationActionResult.Invalid("Một hoạt động trên lịch không vượt quá 24 giờ.")
+        }
+
+        val isPlanOnly = existing.layer == TimeLayer.PLANNED || existing.status.equals("PLANNED", ignoreCase = true)
+        if (isPlanOnly) {
+            val built = LedgerValidator.validateAndBuildRecord(
+                id = existing.id,
+                source = existing.source,
+                rawTitle = existing.title,
+                rawCategory = existing.category.key,
+                dateLocal = newDateLocal,
+                inputDurationMinutes = null,
+                startedAt = parsed.first,
+                endedAt = parsed.second,
+                existingRecords = emptyList(),
+                activeTimer = null,
+                nowEpochMs = nowEpochMs,
+                zoneId = zoneId,
+                idempotencyKey = existing.idempotencyKey,
+                excludeRecordId = existing.id,
+                convertFutureToPlanned = true,
+                tagId = existing.tagId,
+                plannedStartedAt = parsed.first,
+                plannedEndedAt = parsed.second,
+                plannedDurationSeconds = durSecs
+            )
+            return when (built) {
+                is ValidationResult.Invalid -> ConfirmationActionResult.Invalid(built.message)
+                is ValidationResult.Valid -> {
+                    val updated = built.record.copy(
+                        layer = TimeLayer.PLANNED,
+                        status = "PLANNED",
+                        createdAt = existing.createdAt,
+                        confirmationStateRaw = ConfirmationState.PLANNED.name,
+                        plannedStartedAt = parsed.first,
+                        plannedEndedAt = parsed.second,
+                        plannedDurationSeconds = durSecs
+                    )
+                    ConfirmationActionResult.Applied(
+                        updatedRecords = listOf(updated),
+                        messageVi = "Đã cập nhật lịch dự kiến \"${updated.title}\" (${newStartHm}–${newEndHm})."
+                    )
+                }
+            }
+        }
+
+        return adjustRecord(
+            existing = existing,
+            newTitle = existing.title,
+            newCategoryKey = existing.category.key,
+            newDateLocal = newDateLocal,
+            newDurationMinutes = null,
+            newStartHm = newStartHm,
+            newEndHm = newEndHm,
+            allowFutureAsPlanned = false,
+            existingRecords = existingRecords,
+            activeTimer = activeTimer,
+            nowEpochMs = nowEpochMs,
+            zoneId = zoneId
+        )
+    }
 }

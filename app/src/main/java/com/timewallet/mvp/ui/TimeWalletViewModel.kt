@@ -21,6 +21,7 @@ import com.timewallet.mvp.data.local.LedgerJsonExporter
 import com.timewallet.mvp.data.local.ParsedBackupPayload
 import com.timewallet.mvp.data.local.LedgerRecordEntity
 import com.timewallet.mvp.data.local.ManualEntryDraft
+import com.timewallet.mvp.data.local.SavedProposalDraft
 import com.timewallet.mvp.data.local.GoalEntity
 import com.timewallet.mvp.data.local.TagEntity
 import com.timewallet.mvp.data.local.TimeWalletDatabase
@@ -91,6 +92,7 @@ import com.timewallet.mvp.domain.usecase.CancelOutcome
 import com.timewallet.mvp.domain.usecase.DraftRef
 import com.timewallet.mvp.domain.usecase.ProposalLifecycle
 import com.timewallet.mvp.domain.usecase.ChatAnswer
+import com.timewallet.mvp.domain.usecase.ChatHistoryEntry
 import com.timewallet.mvp.domain.usecase.LedgerQueryEngine
 import com.timewallet.mvp.domain.usecase.WallyAnswerBuilder
 import com.timewallet.mvp.domain.usecase.QueryAnswer
@@ -100,6 +102,7 @@ import com.timewallet.mvp.domain.usecase.ConfirmFeedback
 import com.timewallet.mvp.domain.usecase.LedgerValidator
 import com.timewallet.mvp.domain.usecase.ManualEntry
 import com.timewallet.mvp.domain.usecase.ManualEntryValidation
+import com.timewallet.mvp.domain.usecase.ScheduleViewMode
 import com.timewallet.mvp.domain.usecase.ValidationResult
 import com.timewallet.mvp.domain.usecase.WeeklyInsightsSummary
 import androidx.room.withTransaction
@@ -339,6 +342,7 @@ data class TimeWalletUiState(
     val chatAnswer: ChatAnswer? = null,
     val lastQueryContext: QueryContext? = null,
     val proposals: List<EditableProposalDraft> = emptyList(),
+    val chatHistory: List<ChatHistoryEntry> = emptyList(),
     val expandedProposalId: String? = null,
     val historyFilter: HistoryFilter = HistoryFilter.ALL,
     val aiPreferences: AiPreferences = AiPreferences(),
@@ -365,6 +369,9 @@ data class TimeWalletUiState(
     val showAiSettingsDialog: Boolean = false,
     val manualEntry: ManualEntryState? = null,
     val pendingManualDraft: ManualEntryDraft? = null,
+    val showScheduleWorkspace: Boolean = false,
+    val scheduleFocusDateLocal: String? = null,
+    val scheduleViewMode: ScheduleViewMode = ScheduleViewMode.DAY,
     // v1.1.0: Tag cá nhân, Mục tiêu (mọi phiên bản), Quản lý Tag, Mục tiêu, AI Coach.
     val tags: List<Tag> = emptyList(),
     val goals: List<Goal> = emptyList(),
@@ -436,7 +443,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         launchContext = safeHandler,
         // v1.0.13 (F4): nút Hủy chỉ có hiệu lực sau CancelArming.DEFAULT_ARM_MS kể từ lúc gửi (bấm đúp Gửi không tự hủy).
         cancelArming = CancelArming(),
-        onChatInputConsumed = { settingsStore.saveChatInputDraft("") }
+        onChatInputConsumed = { settingsStore.saveChatInputDraft("") },
+        onChatTurnApplied = { question, appliedState -> recordChatTurnInHistory(question, appliedState) }
     )
 
     // v1.0.9: khởi tạo guard NGOÀI luồng chính ngay khi mở app (không bao giờ ném); lần gửi đầu không phải biên dịch regex trên Main.
@@ -459,6 +467,9 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         }
         val restoredManualDraft = runCatching { settingsStore.loadManualEntryDraft() }.getOrNull()
         val restoredChatDraft = runCatching { settingsStore.loadChatInputDraft() }.getOrDefault("")
+        val restoredChatHistory = runCatching { settingsStore.loadChatHistory() }.getOrDefault(emptyList())
+        val restoredProposals = runCatching { settingsStore.loadChatProposalsDraft() }.getOrDefault(emptyList())
+            .map { d -> d.toEditableDraft() }
         val restoredTimerDraft = runCatching { settingsStore.loadTimerInputDraft() }.getOrDefault(TimerInputDraft())
         _uiState.update { state ->
             state.copy(
@@ -468,6 +479,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 timerInputCategoryKey = restoredTimer?.categoryKey ?: restoredTimerDraft.categoryKey,
                 timerInputTagId = if (restoredTimer == null) restoredTimerDraft.tagId else restoredTimer.tagId,
                 chatInputText = restoredChatDraft,
+                chatHistory = restoredChatHistory,
+                proposals = restoredProposals,
                 pendingManualDraft = restoredManualDraft,
                 aiPreferences = aiPrefs
             )
@@ -488,6 +501,11 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch(safeHandler) {
             _uiState.map { it.chatInputText }.distinctUntilChanged().drop(1).collect { text ->
                 settingsStore.saveChatInputDraft(text)
+            }
+        }
+        viewModelScope.launch(safeHandler) {
+            _uiState.map { it.proposals }.distinctUntilChanged().drop(1).collect { drafts ->
+                settingsStore.saveChatProposalsDraft(drafts.map { it.toSavedDraft() })
             }
         }
 
@@ -567,6 +585,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         val s = _uiState.value
         s.manualEntry?.let { syncManualDraftPersistence(it, immediate = true) }
         settingsStore.saveChatInputDraft(s.chatInputText, immediate = true)
+        settingsStore.saveChatHistory(s.chatHistory, immediate = true)
+        settingsStore.saveChatProposalsDraft(s.proposals.map { it.toSavedDraft() }, immediate = true)
         if (s.activeTimer == null) {
             settingsStore.saveTimerInputDraft(
                 TimerInputDraft(s.timerInputTitle, s.timerInputCategoryKey, s.timerInputTagId),
@@ -574,6 +594,80 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             )
         }
     }
+
+    private fun recordChatTurnInHistory(question: String, stateAfter: TimeWalletUiState) {
+        val cleanQuestion = question.trim()
+        if (cleanQuestion.isEmpty()) return
+        val nowHm = LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+        var updatedHistory: List<ChatHistoryEntry> = emptyList()
+        _uiState.update { state ->
+            val list = state.chatHistory.toMutableList()
+            val lastUserMatches = list.lastOrNull()?.let { it.isUser && it.headline == cleanQuestion } == true
+            if (!lastUserMatches) {
+                list += ChatHistoryEntry(
+                    id = UUID.randomUUID().toString(),
+                    isUser = true,
+                    headline = cleanQuestion,
+                    timeText = nowHm,
+                    label = "Wally đã xem ✓✓"
+                )
+            }
+            val ans = stateAfter.chatAnswer
+            if (ans != null && !ans.isTransactionStatus) {
+                val lastBotMatches = list.lastOrNull()?.let { !it.isUser && it.headline == ans.headline && it.lines == ans.lines } == true
+                if (!lastBotMatches) {
+                    list += ChatHistoryEntry(
+                        id = UUID.randomUUID().toString(),
+                        isUser = false,
+                        headline = ans.headline,
+                        lines = ans.lines,
+                        notes = ans.notes,
+                        timeText = nowHm,
+                        isClarification = ans.isClarification
+                    )
+                }
+            }
+            updatedHistory = list.takeLast(60)
+            state.copy(chatHistory = updatedHistory)
+        }
+        settingsStore.saveChatHistory(updatedHistory)
+    }
+
+    fun clearChatHistory() {
+        settingsStore.saveChatHistory(emptyList(), immediate = true)
+        _uiState.update { it.copy(chatHistory = emptyList()) }
+        showToast("Đã xóa lịch sử trò chuyện với Wally.")
+    }
+
+    private fun EditableProposalDraft.toSavedDraft(): SavedProposalDraft = SavedProposalDraft(
+        id = id,
+        rawInput = rawInput,
+        title = title,
+        categoryKey = categoryKey,
+        durationMinutesText = durationMinutesText,
+        dateLocal = dateLocal,
+        startLocal = startLocal,
+        endLocal = endLocal,
+        hasInitialTimeEvidence = hasInitialTimeEvidence,
+        isFuturePlanned = isFuturePlanned,
+        idempotencyKey = idempotencyKey,
+        tagId = tagId
+    )
+
+    private fun SavedProposalDraft.toEditableDraft(): EditableProposalDraft = EditableProposalDraft(
+        id = id,
+        rawInput = rawInput,
+        title = title,
+        categoryKey = categoryKey,
+        durationMinutesText = durationMinutesText,
+        dateLocal = dateLocal,
+        startLocal = startLocal,
+        endLocal = endLocal,
+        hasInitialTimeEvidence = hasInitialTimeEvidence,
+        isFuturePlanned = isFuturePlanned,
+        idempotencyKey = idempotencyKey,
+        tagId = tagId
+    )
 
     private var recomputeJob: Job? = null
     private val recomputeSeq = java.util.concurrent.atomic.AtomicLong(0L)
@@ -1291,10 +1385,37 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             } else null
             r != null && r.second > nowMs
         }
+        var updatedHistorySnapshot: List<ChatHistoryEntry>? = null
+        val confirmHm = LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
         _uiState.update { state ->
             val remaining = state.proposals.filterNot { confirmedIds.contains(it.id) }
+            val nextHistory = if (didSaveNewRows) {
+                val lines = confirmedDrafts.take(6).map { d ->
+                    val durText = if (d.startLocal.isNotBlank() && d.endLocal.isNotBlank()) {
+                        "${d.startLocal}–${d.endLocal}"
+                    } else {
+                        LedgerAnalyticsCalculator.formatCompactDurationSeconds(d.durationMinutes * 60L)
+                    }
+                    "• ${d.title} ($durText)"
+                } + if (confirmedDrafts.size > 6) {
+                    listOf("… và ${confirmedDrafts.size - 6} hoạt động khác")
+                } else {
+                    emptyList()
+                }
+                val entry = ChatHistoryEntry(
+                    id = UUID.randomUUID().toString(),
+                    isUser = false,
+                    headline = "✓ Đã lưu ${confirmedDrafts.size} hoạt động vào sổ cái",
+                    lines = lines,
+                    timeText = confirmHm
+                )
+                (state.chatHistory + entry).takeLast(60).also { updatedHistorySnapshot = it }
+            } else {
+                state.chatHistory
+            }
             state.copy(
                 proposals = remaining,
+                chatHistory = nextHistory,
                 expandedProposalId = state.expandedProposalId?.takeIf { id -> remaining.any { it.id == id } },
                 // Thẻ trạng thái ("còn N đề xuất đang chờ") sẽ cũ ngay sau khi commit: xóa; chỉ toast do ứng dụng báo "Đã lưu" sau commit.
                 chatAnswer = state.chatAnswer?.takeUnless { it.isTransactionStatus },
@@ -1305,6 +1426,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 }
             )
         }
+        updatedHistorySnapshot?.let { settingsStore.saveChatHistory(it) }
     }
 
     // ------------------- LUỒNG C: HISTORY, CHUYỂN DỰ KIẾN -> THỰC TẾ, SỬA & XÓA -------------------
@@ -2233,15 +2355,109 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         _uiState.update { it.copy(pendingManualDraft = draft) }
     }
 
+    fun openScheduleWorkspace(initialDateLocal: String? = null) {
+        _uiState.update {
+            it.copy(
+                showScheduleWorkspace = true,
+                scheduleFocusDateLocal = initialDateLocal ?: it.scheduleFocusDateLocal ?: it.todayDateLocal
+            )
+        }
+    }
+
+    fun closeScheduleWorkspace() {
+        _uiState.update { it.copy(showScheduleWorkspace = false) }
+    }
+
+    fun selectScheduleFocusDate(dateLocal: String) {
+        _uiState.update { it.copy(scheduleFocusDateLocal = dateLocal) }
+    }
+
+    fun selectScheduleViewMode(mode: ScheduleViewMode) {
+        _uiState.update { it.copy(scheduleViewMode = mode) }
+    }
+
+    fun openManualFormForSlot(
+        dateLocal: String,
+        startHm: String? = null,
+        endHm: String? = null,
+        saveAsPlanned: Boolean = false
+    ) {
+        if (_uiState.value.manualEntry != null) return
+        val todayStr = LocalDate.now().toString()
+        val hasSlotBounds = !startHm.isNullOrBlank() && !endHm.isNullOrBlank()
+        if (!hasSlotBounds) {
+            val draft = _uiState.value.pendingManualDraft
+                ?: runCatching { settingsStore.loadManualEntryDraft() }.getOrNull()
+            val (restored, activeDraft) = ManualEntryDraftCoordinator.openOrRestore(
+                storedDraft = draft,
+                requestedCategoryKey = null,
+                tags = _uiState.value.tags,
+                todayLocal = todayStr
+            )
+            val form = if (activeDraft == null) {
+                restored.copy(
+                    dateLocal = dateLocal,
+                    saveAsPlanned = saveAsPlanned || dateLocal > todayStr
+                )
+            } else {
+                restored
+            }
+            _uiState.update { it.copy(manualEntry = form, pendingManualDraft = activeDraft) }
+            return
+        }
+        val startDigits = startHm!!.filter(Char::isDigit).take(4).padStart(4, '0')
+        val endDigits = endHm!!.filter(Char::isDigit).take(4).padStart(4, '0')
+        val form = ManualEntryState(
+            categoryKey = null,
+            dateLocal = dateLocal,
+            mode = ManualMode.RANGE,
+            startText = startDigits,
+            endText = endDigits,
+            saveAsPlanned = saveAsPlanned || dateLocal > todayStr
+        )
+        _uiState.update { it.copy(manualEntry = form) }
+    }
+
+    fun moveOrResizeScheduleRecord(
+        recordId: String,
+        newDateLocal: String,
+        newStartHm: String,
+        newEndHm: String
+    ) {
+        val zone = ZoneId.systemDefault()
+        val nowMs = System.currentTimeMillis()
+        viewModelScope.launch(safeHandler) {
+            val currentRecords = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
+            val existing = currentRecords.firstOrNull { it.id == recordId } ?: return@launch
+            val result = ConfirmationEngine.moveOrResizeScheduleBlock(
+                existing = existing,
+                newDateLocal = newDateLocal,
+                newStartHm = newStartHm,
+                newEndHm = newEndHm,
+                existingRecords = currentRecords,
+                activeTimer = _uiState.value.activeTimer,
+                nowEpochMs = nowMs,
+                zoneId = zone
+            )
+            applyConfirmationAction(result = result, closeConfirmOnSuccess = false, closeEditOnSuccess = false)
+        }
+    }
+
     fun openManualEntry(categoryKey: String? = null) {
         if (_uiState.value.manualEntry != null) return
+        val todayLocal = LocalDate.now().toString()
         val draft = _uiState.value.pendingManualDraft
             ?: runCatching { settingsStore.loadManualEntryDraft() }.getOrNull()
+        val hasActiveDraft = draft != null && draft.isPersistable(todayLocal)
+        if (categoryKey == null && !hasActiveDraft) {
+            openScheduleWorkspace(initialDateLocal = _uiState.value.todayDateLocal)
+            return
+        }
         val (restored, activeDraft) = ManualEntryDraftCoordinator.openOrRestore(
             storedDraft = draft,
             requestedCategoryKey = categoryKey,
             tags = _uiState.value.tags,
-            todayLocal = LocalDate.now().toString()
+            todayLocal = todayLocal
         )
         _uiState.update {
             it.copy(

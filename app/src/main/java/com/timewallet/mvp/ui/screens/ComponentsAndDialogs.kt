@@ -749,7 +749,9 @@ fun EditRecordDialog(
         startHm: String,
         endHm: String,
         allowFutureAsPlanned: Boolean
-    ) -> Unit
+    ) -> Unit,
+    onDelete: (() -> Unit)? = null,
+    onOpenConfirmation: (() -> Unit)? = null
 ) {
     val zone = remember(record.timezone) {
         try {
@@ -773,17 +775,45 @@ fun EditRecordDialog(
     var startHm by remember(record.id) { mutableStateOf(initialStart) }
     var endHm by remember(record.id) { mutableStateOf(initialEnd) }
     var allowPlanned by remember(record.id) { mutableStateOf(record.layer == TimeLayer.PLANNED) }
+    var confirmDelete by remember(record.id) { mutableStateOf(false) }
+
+    val nowMs = System.currentTimeMillis()
+    val confState = record.resolveConfirmationStateAt(nowMs)
+    val canConfirm = !record.isCancelled &&
+        (record.layer == TimeLayer.PLANNED || record.layer == TimeLayer.ACTIVE ||
+            confState == ConfirmationState.PENDING_CONFIRMATION || record.isNeedsReconciliation)
 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color.White,
         title = {
-            Text(
-                text = "Chỉnh sửa bản ghi",
-                fontSize = 16.5.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = WalletInk
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Chỉnh sửa hoạt động",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = WalletInk,
+                    modifier = Modifier.weight(1f)
+                )
+                if (onDelete != null) {
+                    Box(
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(WalletDangerBg)
+                            .semantics { contentDescription = "Xóa ${record.title}"; role = Role.Button }
+                            .clickable { confirmDelete = true }
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        GlyphIcon(WalletGlyph.DELETE, color = WalletDangerText, size = 18.dp)
+                    }
+                }
+            }
         },
         text = {
             Column(
@@ -800,15 +830,43 @@ fun EditRecordDialog(
                         .padding(9.dp)
                 ) {
                     Text(
-                        text = if (record.layer == TimeLayer.REPORTED_UNTIMED) {
-                            "Bản ghi này chưa gắn mốc giờ. Bổ sung Giờ bắt đầu & Kết thúc để chuyển thành hoạt động Thực tế có giờ."
-                        } else {
-                            "Trạng thái hiện tại: ${record.layer.labelVi}. Hệ thống sẽ tự kiểm tra va chạm mốc giờ."
+                        text = when {
+                            record.layer == TimeLayer.REPORTED_UNTIMED ->
+                                "Hoạt động chưa gắn mốc giờ (chỉ thời lượng). Nhập Giờ bắt đầu & Kết thúc nếu muốn đưa lên dòng thời gian."
+                            record.plannedDurationSeconds != null && record.plannedDurationSeconds != record.durationSeconds ->
+                                "Trạng thái: ${record.layer.labelVi} · Kế hoạch gốc ${((record.plannedDurationSeconds + 30L) / 60L)}p vs hiện tại ${record.durationMinutes}p."
+                            else ->
+                                "Trạng thái hiện tại: ${record.layer.labelVi}. Sửa lịch dự kiến không làm thay đổi lịch sử đã ghi nhận."
                         },
-                        fontSize = 10.5.sp,
+                        fontSize = 11.sp,
                         color = WalletMicroText,
                         lineHeight = 15.sp
                     )
+                }
+
+                if (canConfirm && onOpenConfirmation != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFFEDF7F1))
+                            .border(1.dp, WalletMint.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                            .walletClickable(onClickLabel = "Xác nhận kết quả thực tế") {
+                                onDismiss()
+                                onOpenConfirmation()
+                            }
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        GlyphIcon(WalletGlyph.CONFIRM, color = WalletMint, size = 16.dp)
+                        Text(
+                            text = "Xác nhận kết quả thực tế / kết thúc sớm / đối soát",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = WalletMint
+                        )
+                    }
                 }
 
                 OutlinedTextField(
@@ -909,6 +967,38 @@ fun EditRecordDialog(
             }
         }
     )
+
+    if (confirmDelete && onDelete != null) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            containerColor = Color.White,
+            title = { Text("Xóa hoạt động này?", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
+            text = {
+                Text(
+                    "Bạn có chắc chắn muốn xóa \"${record.title}\" khỏi lịch và sổ cái thời gian?",
+                    fontSize = 12.5.sp,
+                    color = WalletMuted
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        confirmDelete = false
+                        onDismiss()
+                        onDelete()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = WalletDangerText)
+                ) {
+                    Text("Xóa", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) {
+                    Text("Giữ lại", color = WalletMuted)
+                }
+            }
+        )
+    }
 }
 
 @Composable

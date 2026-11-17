@@ -95,6 +95,7 @@ import com.timewallet.mvp.ui.screens.OverviewScreen
 import com.timewallet.mvp.ui.screens.GoalEditorDialog
 import com.timewallet.mvp.ui.screens.GoalsDialog
 import com.timewallet.mvp.ui.screens.PersonalHubCard
+import com.timewallet.mvp.ui.screens.ScheduleCalendarView
 import com.timewallet.mvp.ui.screens.TagManagerDialog
 import com.timewallet.mvp.domain.usecase.GoalRules
 import com.timewallet.mvp.domain.usecase.TagRules
@@ -178,6 +179,10 @@ fun TimeWalletAppRoot(
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
+    }
+
+    BackHandler(enabled = state.showScheduleWorkspace) {
+        viewModel.closeScheduleWorkspace()
     }
 
     BackHandler(enabled = state.isShowingDailyReview) {
@@ -293,6 +298,7 @@ fun TimeWalletAppRoot(
             .safeDrawingPadding(),
         contentAlignment = Alignment.TopCenter
     ) {
+        if (!state.showScheduleWorkspace) {
         Scaffold(
             modifier = Modifier
                 .widthIn(max = 520.dp)
@@ -454,6 +460,8 @@ fun TimeWalletAppRoot(
                         onConfirmAllProposals = viewModel::confirmAllProposals,
                         lastUserMessage = lastChatUserMessage,
                         onLastUserMessageChange = { lastChatUserMessage = it },
+                        chatHistory = state.chatHistory,
+                        onClearChatHistory = viewModel::clearChatHistory,
                         onCleanChatInput = viewModel::cleanChatInput
                     )
 
@@ -466,7 +474,17 @@ fun TimeWalletAppRoot(
                         onEditRecord = viewModel::openEditRecord,
                         onDeleteRecord = viewModel::deleteRecord,
                         onAddManual = { viewModel.openManualEntry() },
-                        onResizePlannedRecord = viewModel::resizePlannedRecord
+                        onResizePlannedRecord = viewModel::resizePlannedRecord,
+                        activeTimer = state.activeTimer,
+                        selectedScheduleDate = state.scheduleFocusDateLocal ?: state.todayDateLocal,
+                        scheduleViewMode = state.scheduleViewMode,
+                        onSelectScheduleDate = viewModel::selectScheduleFocusDate,
+                        onSelectScheduleViewMode = viewModel::selectScheduleViewMode,
+                        onAddForSlot = { dateStr, startHm, endHm, savePlanned ->
+                            viewModel.openManualFormForSlot(dateStr, startHm, endHm, savePlanned)
+                        },
+                        onMoveOrResizeBlock = viewModel::moveOrResizeScheduleRecord,
+                        onNavigateToTimer = { viewModel.selectTab(AppTab.TIMER) }
                     )
 
                     AppTab.INSIGHTS -> InsightsScreen(
@@ -477,6 +495,37 @@ fun TimeWalletAppRoot(
                     )
                 }
                 if (!isChatTab) Spacer(modifier = Modifier.height(if (showFloatingControls) 176.dp else 16.dp))
+            }
+        }
+        } else {
+            Box(
+                modifier = Modifier
+                    .widthIn(max = 560.dp)
+                    .fillMaxSize()
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                ScheduleCalendarView(
+                    todayDateLocal = state.todayDateLocal,
+                    records = state.records,
+                    activeTimer = state.activeTimer,
+                    selectedDateLocal = state.scheduleFocusDateLocal ?: state.todayDateLocal,
+                    viewMode = state.scheduleViewMode,
+                    onSelectDate = viewModel::selectScheduleFocusDate,
+                    onSelectViewMode = viewModel::selectScheduleViewMode,
+                    onAddForSlot = { dateStr, startHm, endHm, savePlanned ->
+                        viewModel.openManualFormForSlot(dateStr, startHm, endHm, savePlanned)
+                    },
+                    onEditRecord = viewModel::openEditRecord,
+                    onConfirmPlannedOrActiveRecord = viewModel::confirmPlannedOrActiveRecord,
+                    onMoveOrResizeBlock = viewModel::moveOrResizeScheduleRecord,
+                    onNavigateToTimer = {
+                        viewModel.closeScheduleWorkspace()
+                        viewModel.selectTab(AppTab.TIMER)
+                    },
+                    showBackButton = true,
+                    onBackClick = viewModel::closeScheduleWorkspace,
+                    embeddedInScrollContainer = false
+                )
             }
         }
 
@@ -549,7 +598,9 @@ fun TimeWalletAppRoot(
                     newEndHm = endHm,
                     allowFutureAsPlanned = allowPlanned
                 )
-            }
+            },
+            onDelete = { viewModel.deleteRecord(record.id) },
+            onOpenConfirmation = { viewModel.confirmPlannedOrActiveRecord(record) }
         )
     }
 

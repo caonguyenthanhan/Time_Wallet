@@ -2,6 +2,7 @@
 Archived/**
 docs/archive/**
 docs/screenshots/**
+feedback/**
 out/**
 tmp/**
 .gradle/**

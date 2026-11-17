@@ -4,6 +4,7 @@ import com.timewallet.mvp.data.ai.GeminiProposalClient
 import com.timewallet.mvp.data.local.BatchConfirm
 import com.timewallet.mvp.data.local.ConfirmResult
 import com.timewallet.mvp.domain.usecase.AiProposalGuard
+import com.timewallet.mvp.domain.usecase.VietnameseChatParser
 import com.timewallet.mvp.domain.usecase.WallyIntentKind
 import com.timewallet.mvp.ui.EditableProposalDraft
 import com.timewallet.mvp.ui.toBatchInput
@@ -154,5 +155,51 @@ class V1012OwnerSentenceTest {
         assertTrue(s.contains("đến giờ") && s.contains("Code từ lúc 14h đến giờ") && s.contains("currentTime"))
         assertEquals("wally-prompt-8", GeminiProposalClient.PROMPT_VERSION)
         assertNotNull(GeminiProposalClient.staticPromptHash)
+    }
+
+    @Test
+    fun `owner real-device 11h work inline range survives parser and AiProposalGuard`() {
+        val singleInline = VietnameseChatParser.parse("9h làm việc đến 20h", today = today, nowTime = LocalTime.of(22, 30))
+        val inlineProp = singleInline.proposals.single()
+        assertEquals("09:00", inlineProp.startLocal)
+        assertEquals("20:00", inlineProp.endLocal)
+        assertEquals(660, inlineProp.durationMinutes)
+        assertEquals(39_600L, inlineProp.durationSeconds)
+        assertEquals("explicit_range", inlineProp.timeEvidence)
+        assertTrue(inlineProp.title.contains("Làm việc", ignoreCase = true))
+
+        val ownerFeedbackSentence =
+            "Ngủ từ 8h tối hôm qua đến 8h sáng hôm nay, vệ sinh và ăn sáng đến 9h đến công ty, " +
+                "9h làm việc đến 20h, 20h đến 21h, nghỉ ngơi và ăn tối, 21h đến giờ review code"
+        val aiPayload = V1012Rig.answer(
+            V1012Rig.proposalJson(
+                title = "Ngủ", category = "sleep", durationSeconds = 43200,
+                date = today.minusDays(1).toString(), start = "20:00", end = "08:00", evidence = "explicit_range"
+            ),
+            V1012Rig.proposalJson(
+                title = "Vệ sinh và ăn sáng", category = "rest", durationSeconds = 3600,
+                date = today.toString(), start = "08:00", end = "09:00", evidence = "explicit_range"
+            ),
+            V1012Rig.proposalJson(
+                title = "Làm việc", category = "work", durationSeconds = 39600,
+                date = today.toString(), start = "09:00", end = "20:00", evidence = "explicit_range"
+            ),
+            V1012Rig.proposalJson(
+                title = "Nghỉ ngơi và ăn tối", category = "rest", durationSeconds = 3600,
+                date = today.toString(), start = "20:00", end = "21:00", evidence = "explicit_range"
+            ),
+            V1012Rig.proposalJson(
+                title = "Review code", category = "work", durationSeconds = 5400,
+                date = today.toString(), start = "21:00", end = "22:30", evidence = "explicit_range"
+            )
+        )
+        val res = run(aiPayload, now = LocalTime.of(22, 30), text = ownerFeedbackSentence)
+        assertNull(res.outcome.fault)
+        assertEquals("Không được làm rơi hoạt động Làm việc 11h!", 5, res.outcome.proposals.size)
+        val workProposal = res.outcome.proposals.firstOrNull { it.title == "Làm việc" }
+        assertNotNull(workProposal)
+        assertEquals(660, workProposal!!.durationMinutes)
+        assertEquals("09:00", workProposal.startLocal)
+        assertEquals("20:00", workProposal.endLocal)
     }
 }

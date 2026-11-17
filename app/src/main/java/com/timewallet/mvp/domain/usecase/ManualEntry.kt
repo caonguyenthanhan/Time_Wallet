@@ -1,8 +1,18 @@
 package com.timewallet.mvp.domain.usecase
 
+import com.timewallet.mvp.domain.model.Tag
 import com.timewallet.mvp.domain.model.TimeCategory
 import java.time.LocalDate
 import java.time.format.DateTimeParseException
+
+data class QuickEntryParseResult(
+    val cleanTitle: String,
+    val categoryKey: String?,
+    val durationMinutes: Int?,
+    val startHm: String? = null,
+    val endHm: String? = null,
+    val tagId: String? = null
+)
 
 /**
  * WALLY P1: nhập giờ thủ công. Chỉ kiểm tra đầu vào của form; việc ghi đi qua đúng đường chung
@@ -156,6 +166,33 @@ object ManualEntry {
             title = title,
             tagId = tagId,
             saveAsPlanned = saveAsPlanned || date.isAfter(today)
+        )
+    }
+
+    /**
+     * Phân tích nhanh chuỗi ghi chú gọn kiểu "Đọc sách 30 phút" hoặc "Họp 14:00-15:00" cho biểu mẫu thủ công:
+     * giữ nguyên nguyên tắc chỉ-thời-lượng nếu không nêu mốc giờ (không bao giờ tự bịa giờ bắt đầu/kết thúc).
+     */
+    fun parseQuickInput(
+        raw: String,
+        tags: List<Tag> = emptyList(),
+        today: LocalDate = LocalDate.now()
+    ): QuickEntryParseResult? {
+        val clean = raw.trim()
+        if (clean.isEmpty()) return null
+        val normalized = VietnameseChatParser.restoreUnaccented(clean)
+        val parsed = VietnameseChatParser.parse(normalized, today = today).proposals.firstOrNull() ?: return null
+        val cleanTitle = parsed.title.trim().take(MAX_NOTE_LENGTH).ifBlank { return null }
+        val matchedTag = TagRules.matchTitle(cleanTitle, tags) ?: TagRules.matchTitle(clean, tags)
+        val hasBounds = !parsed.startLocal.isNullOrBlank() && !parsed.endLocal.isNullOrBlank() &&
+            parsed.timeEvidence == "explicit_range"
+        return QuickEntryParseResult(
+            cleanTitle = cleanTitle,
+            categoryKey = matchedTag?.category?.key ?: parsed.category,
+            durationMinutes = parsed.durationMinutes.takeIf { it in 1..MAX_MINUTES },
+            startHm = if (hasBounds) parsed.startLocal else null,
+            endHm = if (hasBounds) parsed.endLocal else null,
+            tagId = matchedTag?.id
         )
     }
 }

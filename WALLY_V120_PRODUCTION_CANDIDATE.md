@@ -1,7 +1,7 @@
 # Time Wallet `v1.2.0` (`versionCode 16`) — Production Candidate & Owner Acceptance Pack
 
-**Ngày lập:** 2026-11-17  
-**Mục tiêu:** Chốt **1 APK Release ký số dùng cá nhân** (`isMinifyEnabled = false`), bảo toàn dữ liệu khi chuyển từ Debug sang Release, xử lý tuyến AI mặc định không ổn định, và báo cáo trung thực mọi hạng mục **PASS** vs **NOT_TESTED**.
+**Ngày lập:** 2026-11-18  
+**Mục tiêu:** Chốt **1 APK Release ký số dùng cá nhân** (`isMinifyEnabled = false`), bảo toàn dữ liệu khi chuyển từ Debug sang Release, hoàn thiện độ tin cậy Wally Chat đa lượt + lịch sử bền vững, thiết kế lại luồng ghi thủ công thành Lịch trình trực quan (`ScheduleCalendarView` 4 chế độ + Ghi nhanh), và báo cáo trung thực mọi hạng mục **PASS** vs **NOT_TESTED**.
 
 ---
 
@@ -10,8 +10,8 @@
 | Thành phần | Giá trị / Đường dẫn |
 |---|---|
 | APK Production Candidate | `out/wally_candidate_v120/TimeWallet-MVP-v1.2.0-PRODUCTION-CANDIDATE-release.apk` |
-| Dung lượng | `8,583,778` bytes |
-| SHA-256 | `AC224463A28DED5D6F86726CAA17529954F36D26D112F266D3746663912BEB17` |
+| Dung lượng | `8,682,089` bytes |
+| SHA-256 | `7D703385B64F8CB40B6472352C4AD3572E03EBBE1CB503FF67750BD90B20D274` |
 | SHA-256 file | `out/wally_candidate_v120/TimeWallet-MVP-v1.2.0-PRODUCTION-CANDIDATE-release.apk.sha256` |
 | Package / Version | `com.timewallet.mvp` · `versionName = "1.2.0"` · `versionCode = 16` (`minSdk 26`, `targetSdk 35`) |
 | Chứng thư ký số Release | `CN=Time Wallet Personal Release, OU=Mobile, O=TimeWallet, L=Hanoi, ST=HN, C=VN` (RSA 2048-bit, APK Signature Scheme v2, digest `39f5712d139124e05d550458180e69a1919ade5a331d2eadbb9de47da79cdcd0`) |
@@ -43,20 +43,29 @@
    - **Nhóm FAB + Speed Dial + Chat + Back-to-Top ([MainActivity.kt](app/src/main/java/com/timewallet/mvp/MainActivity.kt)):** `FloatingActionButton` tròn màu chủ đạo với dấu `+` trắng cố định góc dưới phải, mở Speed Dial 3 hành động (`Ghi giờ thủ công`, `Bắt đầu đồng hồ`, `Nhìn lại ngày hôm nay`), nút mở nhanh Wally Chat, và nút Back-to-Top chỉ hiện khi cuộn `> 400 px` (`shouldShowBackToTop`), kèm đệm đáy tránh che nội dung cần chạm.
    - **Kéo-thả sắp xếp thứ tự ngân sách ưu tiên ([InsightsScreen.kt](app/src/main/java/com/timewallet/mvp/ui/screens/InsightsScreen.kt), [ComponentsAndDialogs.kt](app/src/main/java/com/timewallet/mvp/ui/screens/ComponentsAndDialogs.kt), [BudgetDao.kt](app/src/main/java/com/timewallet/mvp/data/local/BudgetDao.kt), [BudgetPolicy.kt](app/src/main/java/com/timewallet/mvp/domain/usecase/BudgetPolicy.kt)):** Tay cầm `⋮⋮` (`detectDragGestures`) kèm bản xem trước nổi, vạch chèn `BudgetInsertionLine` trước khi thả, nút trợ năng `↑ Lên`/`↓ Xuống` giữ nguyên phân nhóm ưu tiên, và công bố qua `liveRegion`.
 
+6. **Độ tin cậy Wally Chat & Lưu bền vững (Stage A):**
+   - Khắc phục khoảng giờ xen hoạt động (`"9h làm việc đến 20h"` -> 11h Work) trong [VietnameseChatParser.kt](app/src/main/java/com/timewallet/mvp/domain/usecase/VietnameseChatParser.kt) và ngoại lệ `"đến giờ <hoạt động>"` (`"21h đến giờ review code"`) trong [WallyAiGuards.kt](app/src/main/java/com/timewallet/mvp/domain/usecase/WallyAiGuards.kt) (`V1012OwnerSentenceTest`).
+   - Tự dọn chữ đã gửi trong ô nhập khi `isAnalyzing` (`Wally đang soạn…`) trong [ChatScreen.kt](app/src/main/java/com/timewallet/mvp/ui/screens/ChatScreen.kt) nhưng vẫn khôi phục nguyên văn nếu Hủy/Lỗi (`V121UiScreenHelpersTest`).
+   - Lưu bền vững lịch sử chat đa lượt (`ChatHistoryEntry`) và danh sách đề xuất chưa xác nhận (`SavedProposalDraft`) qua SharedPreferences trong [TimerAndSettingsStore.kt](app/src/main/java/com/timewallet/mvp/data/local/TimerAndSettingsStore.kt) (0 đổi Room schema v5) kèm nút `Xóa lịch sử` (`V120DraftPersistenceTest`).
+7. **Lịch trình & Ghi nhận hoạt động hợp nhất kiểu Google Calendar (Stage B):**
+   - [ScheduleGridEngine.kt](app/src/main/java/com/timewallet/mvp/domain/usecase/ScheduleGridEngine.kt): Mô hình hóa lưới ngày `00:00–24:00`, chia cột song song khi trùng giờ (`laneIndex`/`laneCount`), tách 4 trạng thái trực quan (`COMPLETED`, `PLANNED`, `ACTIVE`, `UNCONFIRMED`), đối chiếu Kế hoạch vs Thực tế (`KH 1h -> TT 1h 12p (+12p)`), cắt lát xuyên đêm `UC-15`, tách riêng `untimedRecords`, tìm khoảng trống `freeGaps`, bước kéo 15 phút (`V122ScheduleGridEngineTest`).
+   - [ScheduleCalendarView.kt](app/src/main/java/com/timewallet/mvp/ui/screens/ScheduleCalendarView.kt): Giao diện lịch trình xanh 4 chế độ (**Ngày / 3 ngày / Tuần / Tháng**), chạm khoảng trống để điền sẵn `+ Ghi mới`, chạm khối để sửa (`EditRecordDialog` có nút Xóa + đối soát Kế hoạch/Thực tế), nhấn giữ kéo đổi giờ & kéo cạnh dưới chỉnh thời lượng (`ConfirmationEngine.moveOrResizeScheduleBlock`), khay tách riêng `Chưa gắn giờ · Chỉ thời lượng`.
+   - [ManualEntry.kt](app/src/main/java/com/timewallet/mvp/domain/usecase/ManualEntry.kt) + [ManualEntrySheet.kt](app/src/main/java/com/timewallet/mvp/ui/screens/ManualEntrySheet.kt) + [HistoryScreen.kt](app/src/main/java/com/timewallet/mvp/ui/screens/HistoryScreen.kt): Ô **Tiêu đề / ghi nhanh** (`parseQuickInput` hỗ trợ cả có dấu & không dấu `"Doc sach 30 phut"` -> `Áp nhanh` giữ chế độ chỉ thời lượng), tích hợp chuyển `Lịch trình | Dòng thời gian` trên tab Nhật ký.
+
 ---
 
 ## 3. Bảng kết quả kiểm chứng (PASS vs NOT_TESTED)
 
 | Hạng mục | Trạng thái | Bằng chứng / Ghi chú |
 |---|---|---|
-| Bộ test JVM & tĩnh (`testDebugUnitTest --rerun-tasks`) | **PASS (618/620)** | Chạy sau sửa cuối (`task-3846`): `total=620, passed=618, failures=0, errors=0, skipped=2` (2 test skipped khi chạy offline là 2 bài Live API có điều kiện env var). Bao gồm [V121UiIntegrationTest.kt](app/src/test/java/com/timewallet/mvp/V121UiIntegrationTest.kt) (đã đồng bộ v3 VectorDrawable + `wally-hero.webp` + `ic_wally.webp`), [V121UiScreenHelpersTest.kt](app/src/test/java/com/timewallet/mvp/ui/screens/V121UiScreenHelpersTest.kt), [V120ProductionReadinessTest.kt](app/src/test/java/com/timewallet/mvp/V120ProductionReadinessTest.kt), [V120MigrationSchemaTest.kt](app/src/test/java/com/timewallet/mvp/V120MigrationSchemaTest.kt), `WallySecurityStaticTest`, `V106UiContractTest`, `V109PortableRegexTest`, `V1011UiPolishContractTest`, `WallyUiStaticTest`, `WallyApiFirstGuardsTest`. |
-| Android Lint Release (`lintRelease`) | **PASS (0 errors)** | Chạy sau sửa cuối (`task-3846`), báo cáo `Lint Report: 51 warnings` và **0 errors**. |
-| Build & Ký số Release APK (`assembleRelease` + `apksigner`) | **PASS** | `TimeWallet-MVP-v1.2.0-PRODUCTION-CANDIDATE-release.apk` (`8,583,778` bytes, SHA-256 `AC224463A28DED5D6F86726CAA17529954F36D26D112F266D3746663912BEB17`), xác thực chữ ký v2 thành công (`apksigner verify`), `versionCode=16`, `versionName="1.2.0"`, `targetSdk=35`. |
-| Live AI QA với Foza thật (`V110CoachLiveEvalTest` + live trên `WallyQA` APK `AC224463…`) | **PASS (Live QA & CoachGuard OK)** | Trên `WallyQA` (`cinb/claude-sonnet-4-6`), `Kiểm tra kết nối` HTTP `200` + `Wally Chat` (`QUERY`, `RECORD` 5 đề xuất) + `Wally AI Coach` (`7 ngày qua` + Action Item) đạt **HTTP 200**, `FATAL EXCEPTION = 0`; trước đó `V110CoachLiveEvalTest` đạt **8/8** cuộc gọi không fault qua **`CoachGuard` (`OK`, `0` lỗi rubric)**. |
-| Emulator Android 9 (`WallyQA`) trên bản nền trước v3 (`1CCA6C8A…`) | **Lịch sử** | Bản nền trước khi tích hợp Style Guide v3 + `Wally_Vector_Detailed` WebP; giữ làm đối chiếu. |
-| Emulator Android 9 (`WallyQA`) trên **APK mới nhất (`AC224463…`)** | **PASS (Visual QA & v3 + WebP)** | Cài APK `AC224463…` lên `WallyQA` (`Asia/Ho_Chi_Minh`, `0,LDPlayer,0` tắt), kiểm chứng Launcher Adaptive v3, Hero `ic_wally.webp` nền trong suốt không ô lệch màu trên `ChatScreen`, `ic_nav_timer_pressed` kim trắng trên nền Mint, 9 icon danh mục vector, icon `Error`/`Eraser`/`Delete` tách biệt, Speed Dial, Donut 2D, Timeline, Ngân sách DnD, Live Coach & Chat, `FATAL EXCEPTION = 0`; đã xóa sạch khóa QA & tắt `WallyQA`. |
+| Bộ test JVM & tĩnh (`testDebugUnitTest --rerun-tasks`) | **PASS (625/627)** | Chạy sau sửa cuối (`task-4838`): `total=627, passed=625, failures=0, errors=0, skipped=2` (2 test skipped khi chạy offline là `V110CoachLiveEvalTest.coachLiveEval` và `V120LiveAiEvalTest.liveChatAndRouteEval`). Bao gồm mới [V122ScheduleGridEngineTest.kt](app/src/test/java/com/timewallet/mvp/V122ScheduleGridEngineTest.kt) cùng toàn bộ 67 bộ test ([V1012OwnerSentenceTest.kt](app/src/test/java/com/timewallet/mvp/V1012OwnerSentenceTest.kt), [V120DraftPersistenceTest.kt](app/src/test/java/com/timewallet/mvp/V120DraftPersistenceTest.kt), [V121UiIntegrationTest.kt](app/src/test/java/com/timewallet/mvp/V121UiIntegrationTest.kt), [V121UiScreenHelpersTest.kt](app/src/test/java/com/timewallet/mvp/ui/screens/V121UiScreenHelpersTest.kt), [V120ProductionReadinessTest.kt](app/src/test/java/com/timewallet/mvp/V120ProductionReadinessTest.kt), [V120MigrationSchemaTest.kt](app/src/test/java/com/timewallet/mvp/V120MigrationSchemaTest.kt), `WallySecurityStaticTest`, `V106UiContractTest`, `V109PortableRegexTest`, `V1011UiPolishContractTest`, `WallyUiStaticTest`, `WallyApiFirstGuardsTest`). |
+| Android Lint Release (`lintRelease`) | **PASS (0 errors)** | Chạy sau sửa cuối (`task-4838`), báo cáo `Lint Report: 53 warnings` và **0 errors**. |
+| Build & Ký số Release APK (`assembleRelease` + `apksigner`) | **PASS** | `TimeWallet-MVP-v1.2.0-PRODUCTION-CANDIDATE-release.apk` (`8,682,089` bytes, SHA-256 `7D703385B64F8CB40B6472352C4AD3572E03EBBE1CB503FF67750BD90B20D274`), xác thực chữ ký v2 thành công (`apksigner verify`), `versionCode=16`, `versionName="1.2.0"`, `targetSdk=35`. |
+| Live AI QA với Foza thật (`V110CoachLiveEvalTest` + live trên `WallyQA`) | **PASS (Live QA & CoachGuard OK)** | Đã xác minh trên `WallyQA` với câu thật (`"Ngu tu 8h..."`): `AI_OPTIN_TOGGLED=True`, tách chuẩn 3 hoạt động (`Ngủ 12h`, `Làm việc 11h`, `Review code 4h 47p` lúc 01:47) và Smart Guard hỏi lại trùng khung đêm lúc 02:09, ô nhập tự dọn khi gửi, và lưu bền vững qua `am force-stop`; trước đó trên `AC224463…` đạt HTTP `200` cả Chat/Coach (`8/8` `CoachGuard OK`). |
+| Emulator Android 9 (`WallyQA`) trên bản nền trước v3 (`1CCA6C8A…` / `AC224463…`) | **Lịch sử** | Bộ ảnh nền `v1.0.11` giữ tại `docs/screenshots/ldplayer-android9/`, bộ UI v3 + Coach lưu bổ sung trong `docs/screenshots/ui-preview/`. |
+| Emulator Android 9 (`WallyQA`) trên **APK mới nhất (`7D703385…`)** | **PASS (Visual QA & Schedule/Chat)** | Cài APK `7D703385…` lên `WallyQA` (`Asia/Ho_Chi_Minh`, `0,LDPlayer,0` tắt), nạp `47` bản ghi synthetic, xác minh Lịch trình 4 chế độ (`Ngày`/`3 ngày`/`Tuần`/`Tháng`), đối chiếu song song `Đọc sách (KH)` 60p vs `72p`, chạm chỗ trống `04:00–05:00`, ghi nhanh `"Doc sach 30 phut"` -> `Áp nhanh` `30p`, `Nhật ký` `Lịch trình | Dòng thời gian`, `EditRecordDialog` nút Xóa, Live AI Chat + `force-stop` persistence, `FATAL EXCEPTION = 0`; đã xóa sạch dữ liệu/khóa QA & tắt `WallyQA`. |
 | Android 13–16 runtime (`POST_NOTIFICATIONS` prompt & Work/Alarm trên Android 13+) | **NOT_TESTED (Blocked)** | Bị chặn theo **Rule 14 `AGENTS.md`** (AVD Android 16 AEHD gây sập nguồn máy chủ Windows 3 lần trước đó). |
-| Khởi động lại lạnh (`BOOT_COMPLETED` / `CompletionBootReceiver`) & nghiệm thu máy thật Owner | **NOT_TESTED (Pending Owner)** | Chờ Owner cài đặt APK `AC224463…` và nghiệm thu trên điện thoại cá nhân. |
+| Khởi động lại lạnh (`BOOT_COMPLETED` / `CompletionBootReceiver`) & nghiệm thu máy thật Owner | **NOT_TESTED (Pending Owner)** | Chờ Owner cài đặt APK `7D703385…` và nghiệm thu trên điện thoại cá nhân. |
 
 ---
 
@@ -72,7 +81,7 @@
 
 1. **Sao lưu dữ liệu từ bản đang cài (nếu đang dùng bản Debug cũ):** Mở app hiện tại → menu `⋮` góc trên phải → **Dữ liệu & sao lưu** → **Xuất JSON** → **Lưu tệp .JSON** vào thư mục `Downloads` trên máy. Mở thử hoặc kiểm tra dung lượng tệp > 0 bytes.
 2. **Gỡ bản Debug cũ** (chỉ sau khi đã thấy tệp `.json` an toàn trong `Downloads`).
-3. **Cài APK Production Candidate:** Chép `out/wally_candidate_v120/TimeWallet-MVP-v1.2.0-PRODUCTION-CANDIDATE-release.apk` (đối chiếu đúng SHA-256 `AC224463A28DED5D6F86726CAA17529954F36D26D112F266D3746663912BEB17`) sang điện thoại và cài đặt.
+3. **Cài APK Production Candidate:** Chép `out/wally_candidate_v120/TimeWallet-MVP-v1.2.0-PRODUCTION-CANDIDATE-release.apk` (đối chiếu đúng SHA-256 `7D703385B64F8CB40B6472352C4AD3572E03EBBE1CB503FF67750BD90B20D274`) sang điện thoại và cài đặt.
 4. **Khôi phục toàn bộ dữ liệu:** Mở app mới → menu `⋮` → **Dữ liệu & sao lưu** → **Nhập / khôi phục JSON** → **Chọn tệp .JSON từ thiết bị** → chọn đúng tệp vừa xuất → kiểm tra dòng xanh đếm đủ bản ghi / tag / mục tiêu / ngân sách / phản tư → chọn chế độ **`Khôi phục toàn bộ`** → xác nhận. Đối chiếu lại màn Tổng quan, Nhật ký, Phân tích và Tag.
 5. **Thiết lập & kiểm tra AI:** Vào biểu tượng `⚙` → dán API Key cá nhân → kiểm tra model mặc định đã là **`cinb/claude-sonnet-4-6`** → bấm **Kiểm tra kết nối** (phải báo `✓ Kết nối thành công tới api.foza.ai (HTTP 200)`) → bấm **Xác nhận & Lưu**. Thử nhắn một câu ở tab Wally (ví dụ `"Sáng 8h đến 9h đọc sách"`).
 6. **Kiểm tra thông báo & Reboot (Android 13+):** Thêm 1 hoạt động **Dự kiến** kết thúc sau hiện tại ~2–3 phút → cấp quyền thông báo khi Android hỏi → khóa màn hình chờ tới giờ kết thúc xem có notification và bấm vào notification có mở đúng hộp thoại xác nhận không; tùy chọn: đặt 1 hoạt động dự kiến khác xa hơn, khởi động lại điện thoại rồi kiểm tra thông báo vẫn đổ đúng giờ khi tới hạn.

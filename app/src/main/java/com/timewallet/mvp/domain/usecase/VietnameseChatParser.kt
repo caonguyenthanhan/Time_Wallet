@@ -49,6 +49,12 @@ object VietnameseChatParser {
         RegexOption.IGNORE_CASE
     )
 
+    // "9h làm việc đến 20h", "từ 8h sáng chạy bộ đến 9h", "14h họp team tới 16h30": hoạt động xen giữa hai mốc giờ đầu–cuối.
+    private val inlineActivityTimeRangeRegex = Rx.uni(
+        """^\s*(?:(?:hôm\s+nay|sáng\s+nay|trưa\s+nay|chiều\s+nay|tối\s+nay|hôm\s+qua|đêm\s+qua|hôm\s+kia|ngày\s+mai|mai)\s+)?(?:từ\s*)?(?:lúc\s*)?(\d{1,2})\s*(?:h|:)\s*(\d{0,2})(?:\s*(?:giờ\s*)?(sáng|trưa|chiều|tối|đêm|khuya))?\s+(?!tiếng\b|phút\b|p\b|min\b|giờ\b|đến\b|tới\b|hôm\s+qua\b|đêm\s+qua\b|hôm\s+kia\b|hôm\s+nay\b|ngày\s+mai\b|mai\b|không\b|chưa\b|chẳng\b|đừng\b|chớ\b)([^\d,.;:\n?!]{2,42}?)\s+(?:đến|tới)\s+(?:lúc\s*)?(\d{1,2})\s*(?:h|:)\s*(\d{0,2})(?:\s*(?:giờ\s*)?(sáng|trưa|chiều|tối|đêm|khuya))?(?=\s|$|[,.;:?!\)])""",
+        RegexOption.IGNORE_CASE
+    )
+
     // UC-15: khoảng giờ vắt qua ngày ("từ 20h tối hôm qua đến 7h sáng hôm nay", "từ 8h ngày hôm qua đến 7h sáng hôm nay", "20:00 hôm qua - 07:00 hôm nay").
     private val crossDayRangeRegex = Rx.uni(
         """(?:từ\s*)?(?:lúc\s*)?(\d{1,2})\s*(?:h|:|giờ)\s*(\d{0,2})\s*(phút|p)?\s*(?:(sáng|trưa|chiều|tối|đêm|khuya|am|pm)\s*)?(?:ngày\s*)?(hôm\s+kia|hôm\s+qua|đêm\s+qua|hôm\s+nay|nay)?\s*(?:đến|tới|-|–)\s*(?:lúc\s*)?(\d{1,2})\s*(?:h|:|giờ)\s*(\d{0,2})\s*(phút|p)?\s*(?:(sáng|trưa|chiều|tối|đêm|khuya|am|pm)\s*)?(?:ngày\s*)?(hôm\s+nay|sáng\s+nay|trưa\s+nay|chiều\s+nay|tối\s+nay|đêm\s+nay|nay|hôm\s+qua|ngày\s+mai|mai)?""",
@@ -760,13 +766,15 @@ object VietnameseChatParser {
             ?: extractTimeRangeDirect(normalizeSpelledDurations(segment))
 
     private fun extractTimeRangeDirect(segment: String): ExtractedRange? {
-        val match = timeRangeRegex.find(segment) ?: return null
+        val match = timeRangeRegex.find(segment) ?: inlineActivityTimeRangeRegex.find(segment) ?: return null
+        val isInline = match.groupValues.size >= 8
         val h1 = match.groupValues[1].toIntOrNull() ?: return null
         val m1 = match.groupValues[2].ifBlank { "0" }.toIntOrNull() ?: return null
         val period1 = match.groupValues[3].lowercase(Locale("vi", "VN")).ifBlank { null }
-        val h2 = match.groupValues[4].toIntOrNull() ?: return null
-        val m2 = match.groupValues[5].ifBlank { "0" }.toIntOrNull() ?: return null
-        val period2 = match.groupValues[6].lowercase(Locale("vi", "VN")).ifBlank { null }
+        val h2Idx = if (isInline) 5 else 4
+        val h2 = match.groupValues[h2Idx].toIntOrNull() ?: return null
+        val m2 = match.groupValues[h2Idx + 1].ifBlank { "0" }.toIntOrNull() ?: return null
+        val period2 = match.groupValues[h2Idx + 2].lowercase(Locale("vi", "VN")).ifBlank { null }
 
         if (h1 !in 0..23 || h2 !in 0..23 || m1 !in 0..59 || m2 !in 0..59) return null
         val fallbackPeriod = if (period1 == null && period2 == null) detectDayPeriod(segment) else null
@@ -826,6 +834,9 @@ object VietnameseChatParser {
         extractDurationMinutesDirect(normalizeSpelledDurations(segment))
 
     private fun extractDurationMinutesDirect(segment: String): Int? {
+        // Nếu cả mệnh đề là "<giờ 1> <hoạt động> đến <giờ 2>" (như "9h làm việc đến 20h"), thời lượng phải đến từ khoảng giờ (11h),
+        // tránh cắt "đến 20h" rồi đọc nhầm mốc bắt đầu "9h" thành thời lượng 9 tiếng.
+        if (inlineActivityTimeRangeRegex.containsMatchIn(segment)) return null
         val cleaned = clockAfterFromRegex.replace(explicitStartAtHourRegex.replace(segment, " "), " ")
         // v1.0.12: "Ngày mai 9h họp 1 tiếng": "9h" trần là mốc giờ, thời lượng là "1 tiếng". Ưu tiên cụm có đơn vị (giờ/tiếng/h tiếng);
         // chỉ khi không có cụm nào như vậy thì "2h" trần mới là thời lượng ("Học 2h").
@@ -975,6 +986,12 @@ object VietnameseChatParser {
 
     private fun cleanTitle(raw: String): String {
         var text = normalizeSpelledDurations(raw)
+        inlineActivityTimeRangeRegex.find(text)?.let { m ->
+            val activityOnly = m.groupValues[4].trim()
+            if (activityOnly.isNotEmpty()) {
+                text = text.replaceRange(m.range, " $activityOnly ")
+            }
+        }
         text = crossDayRangeRegex.replace(text, " ")
         text = timeRangeRegex.replace(text, " ")
         text = explicitStartAtHourRegex.replace(text, " ")

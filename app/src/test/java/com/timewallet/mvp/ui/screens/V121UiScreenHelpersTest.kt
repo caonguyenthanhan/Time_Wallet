@@ -83,4 +83,13 @@ class V121UiScreenHelpersTest {
         assertEquals(0, computeDragTargetIndex(2, dragOffsetY = -500f, itemHeightsPx = heights, spacingPx = 10f, minIndex = 0, maxIndex = 2))
         assertTrue(computeDragTargetIndex(2, dragOffsetY = -20f, itemHeightsPx = heights, spacingPx = 10f, minIndex = 0, maxIndex = 2) == 2)
     }
+
+    @Test
+    fun `visibleChatComposerText hides sent in-flight text while keeping cancel and edited text visible`() {
+        val raw = "Ngủ từ 8h tối hôm qua đến 8h sáng hôm nay, 9h làm việc đến 20h"
+        assertEquals("", visibleChatComposerText(raw, isAnalyzing = true, suppressedInFlightRaw = raw))
+        assertEquals("hủy", visibleChatComposerText("hủy", isAnalyzing = true, suppressedInFlightRaw = raw))
+        assertEquals(raw, visibleChatComposerText(raw, isAnalyzing = false, suppressedInFlightRaw = raw))
+        assertEquals("$raw thêm", visibleChatComposerText("$raw thêm", isAnalyzing = true, suppressedInFlightRaw = raw))
+    }
 }

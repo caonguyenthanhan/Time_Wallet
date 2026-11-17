@@ -1,14 +1,18 @@
 package com.timewallet.mvp.ui.screens
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -26,7 +30,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SelectableDates
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
@@ -38,11 +42,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
@@ -57,7 +62,11 @@ import com.timewallet.mvp.ui.ManualEntryState
 import com.timewallet.mvp.ui.ManualMode
 import com.timewallet.mvp.ui.theme.WalletInk
 import com.timewallet.mvp.ui.theme.WalletMint
+import com.timewallet.mvp.ui.theme.WalletMintDark
+import com.timewallet.mvp.ui.theme.WalletMintSoft
+import com.timewallet.mvp.ui.theme.WalletMintTint
 import com.timewallet.mvp.ui.theme.WalletMuted
+import com.timewallet.mvp.ui.theme.WalletStroke
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -85,7 +94,6 @@ fun ManualEntrySheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showDatePicker by remember(state.sessionId) { mutableStateOf(false) }
-    var showNote by remember(state.sessionId) { mutableStateOf(state.note.isNotBlank()) }
     var showCategories by remember(state.sessionId) { mutableStateOf(false) }
     var showCleanConfirm by remember(state.sessionId) { mutableStateOf(false) }
     val today = LocalDate.now()
@@ -125,14 +133,108 @@ fun ManualEntrySheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Bạn đã làm gì?", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(WalletMintSoft)
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "+ Ghi mới",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = WalletMintDark
+                        )
+                    }
+                    Text("Bạn đã làm gì?", fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk)
+                }
                 if (hasDraftData) {
                     Text(
                         "Tự động lưu nháp",
-                        fontSize = 11.5.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = WalletMint
                     )
+                }
+            }
+
+            // Nhập tiêu đề / ghi nhanh câu ngắn như "Đọc sách 30 phút" ngay tại đầu biểu mẫu (không bắt buộc mốc giờ).
+            OutlinedTextField(
+                value = state.note,
+                onValueChange = { v -> onChange { it.copy(note = v.take(ManualEntry.MAX_NOTE_LENGTH)) } },
+                label = { Text("Tiêu đề / ghi nhanh (vd: Đọc sách 30 phút)") },
+                placeholder = { Text("Đọc sách, Code UI, Nghỉ trưa…", fontSize = 13.sp) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            val quickSuggestion = remember(state.note, state.dateLocal, allActiveTags) {
+                ManualEntry.parseQuickInput(state.note, allActiveTags, selectedDate)
+            }
+            if (quickSuggestion != null && quickSuggestion.durationMinutes != null) {
+                val mins = quickSuggestion.durationMinutes
+                val qCat = TimeCategory.fromKeyOrNull(quickSuggestion.categoryKey)
+                val alreadyMatches = state.note.trim() == quickSuggestion.cleanTitle &&
+                    ((quickSuggestion.startHm != null && state.mode == ManualMode.RANGE) ||
+                        (quickSuggestion.startHm == null && state.mode == ManualMode.DURATION && totalMinutes == mins))
+                if (!alreadyMatches) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = WalletMintTint,
+                        border = BorderStroke(1.dp, WalletStroke),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .walletClickable(onClickLabel = "Áp nhanh ${quickSuggestion.cleanTitle}") {
+                                val (h, m) = ManualEntry.split(mins)
+                                val hasClockBounds = quickSuggestion.startHm != null && quickSuggestion.endHm != null
+                                onChange { cur ->
+                                    if (hasClockBounds) {
+                                        cur.copy(
+                                            note = quickSuggestion.cleanTitle,
+                                            categoryKey = quickSuggestion.categoryKey ?: cur.categoryKey,
+                                            tagId = quickSuggestion.tagId ?: cur.tagId,
+                                            mode = ManualMode.RANGE,
+                                            startText = quickSuggestion.startHm!!.filter(Char::isDigit).take(4).padStart(4, '0'),
+                                            endText = quickSuggestion.endHm!!.filter(Char::isDigit).take(4).padStart(4, '0'),
+                                            endIsNow = false
+                                        )
+                                    } else {
+                                        cur.copy(
+                                            note = quickSuggestion.cleanTitle,
+                                            categoryKey = quickSuggestion.categoryKey ?: cur.categoryKey,
+                                            tagId = quickSuggestion.tagId ?: cur.tagId,
+                                            mode = ManualMode.DURATION,
+                                            hoursText = h.toString(),
+                                            minutesText = m.toString()
+                                        )
+                                    }
+                                }
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            qCat?.let { CategoryIcon(it, size = 16.dp, tint = WalletMintDark) }
+                            val rangeDesc = if (quickSuggestion.startHm != null && quickSuggestion.endHm != null) {
+                                "${quickSuggestion.startHm}–${quickSuggestion.endHm} (${TimeRange.formatDuration(mins)})"
+                            } else {
+                                "${TimeRange.formatDuration(mins)} (chỉ thời lượng)"
+                            }
+                            Text(
+                                text = "Áp nhanh: ${quickSuggestion.cleanTitle} · $rangeDesc",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = WalletMintDark,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text("Áp", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = WalletMint)
+                        }
+                    }
                 }
             }
 
@@ -167,7 +269,7 @@ fun ManualEntrySheet(
             // Nhóm: đi theo Tag; hiện gọn một dòng, bấm để đổi (hoặc chọn nhóm khi không dùng Tag).
             val cat = TimeCategory.fromKeyOrNull(state.categoryKey)
             if (state.tagId == null || showCategories || cat == null || state.creatingTag) {
-                SmallLabel(if (state.tagId == null) "Nhóm" else "Đổi nhóm")
+                SmallLabel(if (state.tagId == null) "Danh mục" else "Đổi nhóm")
                 CategoryChoiceRow(state.categoryKey) { k -> onChange { it.copy(categoryKey = k) } }
             } else {
                 TextButton(onClick = { showCategories = true }, modifier = Modifier.heightIn(min = 48.dp)) {
@@ -296,23 +398,6 @@ fun ManualEntrySheet(
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     ChoiceChip("Lưu làm Dự kiến", state.saveAsPlanned, "Lưu ở trạng thái Dự kiến, chưa tính vào thực tế") {
                         onChange { it.copy(saveAsPlanned = !it.saveAsPlanned) }
-                    }
-                }
-            }
-
-            if (showNote) {
-                OutlinedTextField(
-                    value = state.note,
-                    onValueChange = { v -> onChange { it.copy(note = v.take(ManualEntry.MAX_NOTE_LENGTH)) } },
-                    label = { Text("Ghi chú (tùy chọn)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            } else {
-                TextButton(onClick = { showNote = true }, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        GlyphIcon(WalletGlyph.PLUS, color = WalletMint, size = 15.dp)
-                        Text("Ghi chú", fontSize = 12.5.sp)
                     }
                 }
             }
