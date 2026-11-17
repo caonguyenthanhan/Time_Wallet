@@ -1,5 +1,6 @@
 package com.timewallet.mvp.domain.usecase
 
+import com.timewallet.mvp.domain.model.ConfirmationState
 import com.timewallet.mvp.domain.model.Goal
 import com.timewallet.mvp.domain.model.GoalGroupState
 import com.timewallet.mvp.domain.model.GoalKind
@@ -7,6 +8,7 @@ import com.timewallet.mvp.domain.model.GoalPeriod
 import com.timewallet.mvp.domain.model.GoalTargetType
 import com.timewallet.mvp.domain.model.GoalVersionStatus
 import com.timewallet.mvp.domain.model.LedgerRecord
+import com.timewallet.mvp.domain.model.OverlapResolution
 import com.timewallet.mvp.domain.model.Tag
 import com.timewallet.mvp.domain.model.TimeCategory
 import java.time.Instant
@@ -33,7 +35,8 @@ data class CoachDigest(
     val allowedDates: Set<String>,
     /** Câu số liệu trung lập do ứng dụng viết (không qua AI). */
     val facts: List<String>,
-    val hasAnyData: Boolean
+    val hasAnyData: Boolean,
+    val hasPlanOrStateHistory: Boolean = false
 )
 
 object CoachDigestBuilder {
@@ -58,30 +61,135 @@ object CoachDigestBuilder {
         val todayStr = today.toString()
         val tagById = tags.associateBy { it.id }
 
-        // 1) Gom thời gian đã diễn ra theo (ngày, đối tượng).
+        // 1) Gom thời gian đã diễn ra theo (ngày, đối tượng), phân tách trạng thái xác nhận, kế hoạch, gián đoạn, nghỉ/song song.
         data class Key(val date: LocalDate, val label: String, val category: TimeCategory)
         val perKey = HashMap<Key, Long>()
         val dataDays = HashSet<LocalDate>()
         var untaggedSeconds = 0L
+        var confirmedOnlyTotalSeconds = 0L
+        var doingTotalSeconds = 0L
+        var parallelDayOverlapSeconds = 0L
+
+        val plannedItems = ArrayList<String>()
+        val pendingConfirmItems = ArrayList<String>()
+        val reconcileItems = ArrayList<String>()
+        val cancelledItems = ArrayList<String>()
+        val adjustedOrInterruptedItems = ArrayList<String>()
+        val breakItems = ArrayList<String>()
+        val extraAllowedMinutes = HashSet<Int>()
+        val extraAllowedCounts = HashSet<Int>()
+
+        val fromStartMs = from.atStartOfDay(zone).toInstant().toEpochMilli()
+        val todayEndMs = today.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+
         for (r in records) {
             val d = runCatching { LocalDate.parse(r.date) }.getOrNull() ?: continue
-            if (d.isBefore(from) || d.isAfter(today)) continue
-            val sec = r.actualElapsedSecondsAt(nowEpochMs, todayStr)
-            if (sec <= 0L) continue
-            dataDays += d
+            val touchesRange = (!d.isBefore(from) && !d.isAfter(today)) ||
+                (r.startedAt != null && r.endedAt != null && r.endedAt > fromStartMs && r.startedAt < todayEndMs)
+            if (!touchesRange) continue
+            val inOwnDay = !d.isBefore(from) && !d.isAfter(today)
             val tag = r.tagId?.let { tagById[it] }
+            val objLabel = tag?.name ?: r.title
+            val conf = r.resolveConfirmationStateAt(nowEpochMs, todayStr)
+            val plannedMin = mins(r.plannedDurationSeconds ?: r.durationSeconds)
+
+            if (r.isNeedsReconciliation) {
+                if (!inOwnDay) continue
+                val m = mins(r.durationSeconds); extraAllowedMinutes += m
+                val kindVi = if (r.overlapResolution == OverlapResolution.BREAK_REJECTED) "cần làm rõ (không phải nghỉ)" else "chờ đối soát chồng lấn"
+                reconcileItems += "- $objLabel (${r.category.displayName}, ${d.format(dm)}): $m phút [$kindVi — CHƯA TÍNH VÀO THỰC TẾ]"
+                continue
+            }
+
+            when (conf) {
+                ConfirmationState.CANCELLED -> {
+                    if (!inOwnDay) continue
+                    extraAllowedMinutes += plannedMin
+                    cancelledItems += "- $objLabel (${r.category.displayName}, ${d.format(dm)}): dự kiến $plannedMin phút [ĐÃ HỦY / KHÔNG DIỄN RA]"
+                    continue
+                }
+                ConfirmationState.PLANNED -> {
+                    if (!inOwnDay) continue
+                    extraAllowedMinutes += plannedMin
+                    plannedItems += "- $objLabel (${r.category.displayName}, ${d.format(dm)}): $plannedMin phút [KẾ HOẠCH DỰ KIẾN — chưa thực hiện]"
+                    continue
+                }
+                ConfirmationState.PENDING_CONFIRMATION -> {
+                    val displayDay = if (inOwnDay) d else Instant.ofEpochMilli(r.endedAt ?: fromStartMs).atZone(zone).toLocalDate()
+                    if (!displayDay.isBefore(from) && !displayDay.isAfter(today)) {
+                        val elapsedM = mins(r.actualElapsedSecondsAt(nowEpochMs, todayStr))
+                        extraAllowedMinutes += elapsedM; extraAllowedMinutes += plannedMin
+                        pendingConfirmItems += "- $objLabel (${r.category.displayName}, ${displayDay.format(dm)}): dự kiến $plannedMin phút (đã qua phần khai báo $elapsedM phút) [CHỜ XÁC NHẬN — CHƯA TÍNH HOÀN THÀNH]"
+                    }
+                    continue
+                }
+                ConfirmationState.ADJUSTED -> if (inOwnDay) {
+                    val actualM = mins(r.durationSeconds)
+                    extraAllowedMinutes += actualM; extraAllowedMinutes += plannedMin
+                    adjustedOrInterruptedItems += "- $objLabel (${d.format(dm)}): kế hoạch $plannedMin phút -> điều chỉnh thực tế $actualM phút [ĐÃ ĐIỀU CHỈNH]"
+                }
+                ConfirmationState.INTERRUPTED -> if (inOwnDay) {
+                    val actualM = mins(r.durationSeconds)
+                    extraAllowedMinutes += actualM; extraAllowedMinutes += plannedMin
+                    adjustedOrInterruptedItems += "- $objLabel (${d.format(dm)}): kế hoạch $plannedMin phút -> gián đoạn/dừng sớm ở $actualM phút [GIÁN ĐOẠN]"
+                }
+                else -> Unit
+            }
+
+            if (r.overlapResolution == OverlapResolution.BREAK_CONFIRMED && r.category != TimeCategory.WORK && inOwnDay) {
+                val bm = mins(r.durationSeconds); extraAllowedMinutes += bm
+                breakItems += "- $objLabel (${r.category.displayName}, ${d.format(dm)}): $bm phút [KHOẢNG NGHỈ XEN GIỮA CÓ CHỦ ĐÍCH]"
+            }
+
             val label = tag?.name ?: ("(chưa gắn Tag) " + r.category.displayName)
-            if (tag == null) untaggedSeconds += sec
-            val k = Key(d, label, r.category)
-            perKey[k] = (perKey[k] ?: 0L) + sec
+            var sliceDay = from
+            while (!sliceDay.isAfter(today)) {
+                val daySec = LedgerAnalyticsCalculator.recordActualSecondsInDateRange(
+                    record = r,
+                    from = sliceDay,
+                    to = sliceDay,
+                    nowEpochMs = nowEpochMs,
+                    zoneId = zone,
+                    confirmedFinalOnly = false
+                )
+                if (daySec > 0L) {
+                    if (conf.isConfirmedFinalActual) confirmedOnlyTotalSeconds += daySec
+                    else if (conf == ConfirmationState.DOING) doingTotalSeconds += daySec
+                    dataDays += sliceDay
+                    if (tag == null) untaggedSeconds += daySec
+                    val k = Key(sliceDay, label, r.category)
+                    perKey[k] = (perKey[k] ?: 0L) + daySec
+                }
+                sliceDay = sliceDay.plusDays(1)
+            }
         }
 
-        val allowedMinutes = HashSet<Int>()
-        val allowedCounts = HashSet<Int>()
+        // Tính tổng chồng lấn song song theo từng ngày trong kỳ (không cộng trùng quỹ ngày).
+        var curDay = from
+        var dedupTimedSecondsPeriod = 0L
+        while (!curDay.isAfter(today)) {
+            val st = LedgerAnalyticsCalculator.computeDayStats(curDay.toString(), records, zone, nowEpochMs)
+            dedupTimedSecondsPeriod += st.timedSeconds
+            parallelDayOverlapSeconds += st.parallelOverlapSeconds
+            curDay = curDay.plusDays(1)
+        }
+
+        val allowedMinutes = HashSet<Int>(extraAllowedMinutes)
+        val allowedCounts = HashSet<Int>(extraAllowedCounts)
         val allowedDates = HashSet<String>()
         allowedCounts += n
         allowedCounts += dataDays.size
         allowedCounts += (n - dataDays.size).coerceAtLeast(0)
+        allowedCounts += plannedItems.size
+        allowedCounts += pendingConfirmItems.size
+        allowedCounts += reconcileItems.size
+        allowedCounts += cancelledItems.size
+        if (confirmedOnlyTotalSeconds > 0L) allowedMinutes += mins(confirmedOnlyTotalSeconds)
+        if (doingTotalSeconds > 0L) allowedMinutes += mins(doingTotalSeconds)
+        if (parallelDayOverlapSeconds > 0L) {
+            allowedMinutes += mins(parallelDayOverlapSeconds)
+            allowedMinutes += mins(dedupTimedSecondsPeriod)
+        }
         var d0 = from
         while (!d0.isAfter(today)) { allowedDates += d0.format(dm); d0 = d0.plusDays(1) }
 
@@ -127,27 +235,34 @@ object CoachDigestBuilder {
                     line.append(if (open.kind == GoalKind.MIN) "Đạt $met/${series.size} ngày." else "Trong giới hạn $met/${series.size} ngày.")
                 }
                 val used = GoalRules.progress(open, records, today, nowEpochMs, zone)
-                val u = mins(used.usedSeconds); val rem = mins(used.remainingSeconds); val over = mins(used.overSeconds)
-                allowedMinutes += u; allowedMinutes += rem; allowedMinutes += over
+                val confSec = GoalRules.confirmedUsedSeconds(open.targetType, open.targetKey, records, today, today, nowEpochMs, zone)
+                val u = mins(used.usedSeconds); val rem = mins(used.remainingSeconds); val over = mins(used.overSeconds); val cu = mins(confSec)
+                val minMetConfirmed = confSec >= open.targetSeconds
+                allowedMinutes += u; allowedMinutes += rem; allowedMinutes += over; allowedMinutes += cu
                 line.append(" Hôm nay: $u phút")
-                if (open.kind == GoalKind.MIN) line.append(if (used.met) "; đã đạt." else "; còn thiếu $rem phút.")
+                if (cu != u) line.append(" (đã chốt xác nhận: $cu phút)")
+                if (open.kind == GoalKind.MIN) line.append(if (minMetConfirmed) "; đã đạt." else "; còn thiếu $rem phút.")
                 else line.append(if (used.met) "; còn trong giới hạn (còn $rem phút)." else "; vượt giới hạn $over phút.")
                 facts += if (open.kind == GoalKind.MIN) {
-                    if (used.met) "$name hôm nay: ${TimeRange.formatDuration(u)} — đã đạt mục tiêu tối thiểu ${TimeRange.formatDuration(tgtMin)}."
+                    if (minMetConfirmed) "$name hôm nay: ${TimeRange.formatDuration(u)} — đã đạt mục tiêu tối thiểu ${TimeRange.formatDuration(tgtMin)}."
                     else if (u == 0) "$name hôm nay: chưa ghi nhận — mục tiêu tối thiểu ${TimeRange.formatDuration(tgtMin)}."
-                    else "$name hôm nay: ${TimeRange.formatDuration(u)} / ${TimeRange.formatDuration(tgtMin)} — còn thiếu ${TimeRange.formatDuration(rem)}."
+                    else "$name hôm nay: ${TimeRange.formatDuration(u)} / ${TimeRange.formatDuration(tgtMin)} (đã xác nhận ${TimeRange.formatDuration(cu)}) — chưa chốt đạt mục tiêu."
                 } else {
                     if (used.met) "$name hôm nay: ${TimeRange.formatDuration(u)} / giới hạn ${TimeRange.formatDuration(tgtMin)} — còn trong giới hạn."
                     else "$name hôm nay: ${TimeRange.formatDuration(u)} / giới hạn ${TimeRange.formatDuration(tgtMin)} — vượt ${TimeRange.formatDuration(over)}."
                 }
             } else {
                 val used = GoalRules.progress(open, records, today, nowEpochMs, zone)
-                val u = mins(used.usedSeconds); val rem = mins(used.remainingSeconds); val over = mins(used.overSeconds)
-                allowedMinutes += u; allowedMinutes += rem; allowedMinutes += over
+                val (pStart, pEnd) = GoalRules.periodBounds(GoalPeriod.WEEK, today)
+                val confSec = GoalRules.confirmedUsedSeconds(open.targetType, open.targetKey, records, pStart, pEnd, nowEpochMs, zone)
+                val u = mins(used.usedSeconds); val rem = mins(used.remainingSeconds); val over = mins(used.overSeconds); val cu = mins(confSec)
+                val minMetConfirmed = confSec >= open.targetSeconds
+                allowedMinutes += u; allowedMinutes += rem; allowedMinutes += over; allowedMinutes += cu
                 allowedDates += LocalDate.parse(used.periodStart).format(dm); allowedDates += LocalDate.parse(used.periodEnd).format(dm)
                 line.append(" Tuần này (${LocalDate.parse(used.periodStart).format(dm)}–${LocalDate.parse(used.periodEnd).format(dm)}) đến hiện tại: $u phút")
-                line.append(if (open.kind == GoalKind.MIN) (if (used.met) "; đã đạt." else "; còn thiếu $rem phút.") else (if (used.met) "; còn trong giới hạn (còn $rem phút)." else "; vượt giới hạn $over phút."))
-                facts += if (open.kind == GoalKind.MIN) "$name tuần này: ${TimeRange.formatDuration(u)} / ${TimeRange.formatDuration(tgtMin)}" + (if (used.met) " — đã đạt." else " — còn thiếu ${TimeRange.formatDuration(rem)}.")
+                if (cu != u) line.append(" (đã chốt xác nhận: $cu phút)")
+                line.append(if (open.kind == GoalKind.MIN) (if (minMetConfirmed) "; đã đạt." else "; còn thiếu $rem phút.") else (if (used.met) "; còn trong giới hạn (còn $rem phút)." else "; vượt giới hạn $over phút."))
+                facts += if (open.kind == GoalKind.MIN) "$name tuần này: ${TimeRange.formatDuration(u)} / ${TimeRange.formatDuration(tgtMin)}" + (if (minMetConfirmed) " — đã đạt." else " — chưa đạt mục tiêu xác nhận.")
                 else "$name tuần này: ${TimeRange.formatDuration(u)} / giới hạn ${TimeRange.formatDuration(tgtMin)}" + (if (used.met) " — còn trong giới hạn." else " — vượt ${TimeRange.formatDuration(over)}.")
             }
             goalLines += line.toString()
@@ -185,18 +300,53 @@ object CoachDigestBuilder {
                 val m = mins(v.first); allowedMinutes += m; "$label=$m"
             }).append('\n')
         }
+        if (parallelDayOverlapSeconds > 0L) {
+            val dedupMin = mins(dedupTimedSecondsPeriod)
+            val overlapMin = mins(parallelDayOverlapSeconds)
+            allowedMinutes += dedupMin; allowedMinutes += overlapMin
+            sb.append("Hoạt động song song: tổng quỹ thực tế đã khử trùng là $dedupMin phút (phần chạy song song $overlapMin phút không cộng trùng vào quỹ ngày).\n")
+            facts += "Thời gian song song trong kỳ: ${TimeRange.formatDuration(overlapMin)} (tổng quỹ ngày thực tế không cộng trùng)."
+        }
+        if (adjustedOrInterruptedItems.isNotEmpty()) {
+            sb.append("Điều chỉnh / Gián đoạn so với kế hoạch:\n")
+            adjustedOrInterruptedItems.take(8).forEach { sb.append(it).append('\n') }
+        }
+        if (breakItems.isNotEmpty()) {
+            sb.append("Khoảng nghỉ xen giữa đã xác nhận:\n")
+            breakItems.take(8).forEach { sb.append(it).append('\n') }
+        }
+        if (pendingConfirmItems.isNotEmpty()) {
+            sb.append("Chờ xác nhận (CHƯA TÍNH HOÀN THÀNH — tuyệt đối không xem là đã xảy ra xong):\n")
+            pendingConfirmItems.take(8).forEach { sb.append(it).append('\n') }
+            facts += "Có ${pendingConfirmItems.size} hoạt động đang chờ xác nhận kết thúc (chưa tính hoàn thành)."
+        }
+        if (reconcileItems.isNotEmpty()) {
+            sb.append("Cần đối soát chồng lấn (CHƯA XÁC NHẬN — không tính vào kết quả thực tế):\n")
+            reconcileItems.take(8).forEach { sb.append(it).append('\n') }
+            facts += "Có ${reconcileItems.size} mục chồng lấn cần đối soát (chưa tính vào thực tế)."
+        }
+        if (plannedItems.isNotEmpty()) {
+            sb.append("Kế hoạch dự kiến (chưa bắt đầu):\n")
+            plannedItems.take(8).forEach { sb.append(it).append('\n') }
+        }
+        if (cancelledItems.isNotEmpty()) {
+            sb.append("Kế hoạch đã hủy (không diễn ra):\n")
+            cancelledItems.take(8).forEach { sb.append(it).append('\n') }
+        }
+
         if (todayTotals.isNotEmpty()) {
             facts += "Hôm nay đã ghi nhận: " + todayTotals.entries.sortedByDescending { it.value.first }.take(6).joinToString(", ") { (label, v) -> "$label ${TimeRange.formatDuration(mins(v.first))}" } + "."
         }
         if (n > 1) {
             facts += "Có dữ liệu ${dataDays.size}/$n ngày trong kỳ ${from.format(dm)}–${today.format(dm)}."
         }
-        if (dataDays.isEmpty()) facts += "Chưa có bản ghi nào trong kỳ để phân tích."
+        val hasPlanHistory = plannedItems.isNotEmpty() || pendingConfirmItems.isNotEmpty() || reconcileItems.isNotEmpty() || cancelledItems.isNotEmpty()
+        if (dataDays.isEmpty()) facts += "Chưa có bản ghi thực tế nào trong kỳ để phân tích."
         return CoachDigest(
             text = sb.toString().trimEnd(),
             fromDate = from, toDate = today, totalDays = n, daysWithData = dataDays.size,
             allowedMinutes = allowedMinutes, allowedCounts = allowedCounts, allowedDates = allowedDates,
-            facts = facts, hasAnyData = dataDays.isNotEmpty()
+            facts = facts, hasAnyData = dataDays.isNotEmpty(), hasPlanOrStateHistory = hasPlanHistory
         )
     }
 }
@@ -225,6 +375,7 @@ object CoachGuard {
     // Đoán lý do/cảm xúc/ý định của người dùng (kể cả khi có "có vẻ"): dữ liệu thời gian không nói điều đó.
     private val motive = Rx.ascii("""(?<![a-z])(thu gian|giai tri cua ban|xa stress|giai toa|ban (dang )?(cam thay|met|ap luc|chan|buon|vui)|de nghi ngoi|sau nhung khoi|sau khi (tap trung|lam viec|hoc))""")
     private val negativeClaim = Rx.ascii("""(?<![a-z])(ban (da )?khong (he )?(chay|tap|doc|hoc|lam|danh|thuc hien|dung)|khong he (chay|tap|doc|hoc|lam|danh))""")
+    private val falseGoalMetWithoutActual = Rx.ascii("""(?<![a-z])(da dat muc tieu|hoan thanh muc tieu|da hoan thanh du)""")
 
     // Coach KHÔNG dùng ReplyGuard.claimsStateChange: "đã ghi nhận 175 phút" là MÔ TẢ dữ liệu người dùng (hợp lệ); chỉ chặn việc chính Wally nói mình đã/sẽ làm thay đổi.
     // Dùng chữ có dấu (không bỏ dấu): "đặt" (đặt mục tiêu) khác "đạt" (đạt mục tiêu).
@@ -270,6 +421,9 @@ object CoachGuard {
         if (causal.containsMatchIn(f)) return CoachCheck.Rejected("Khẳng định quan hệ nhân quả.")
         if (motive.containsMatchIn(f)) return CoachCheck.Rejected("Đoán lý do/cảm xúc của người dùng.")
         if (negativeClaim.containsMatchIn(f)) return CoachCheck.Rejected("Khẳng định người dùng không làm vì chưa có bản ghi.")
+        if (!digest.hasAnyData && falseGoalMetWithoutActual.containsMatchIn(f)) {
+            return CoachCheck.Rejected("Không thể kết luận đã đạt mục tiêu khi chưa có thời gian thực tế được xác nhận.")
+        }
         // Số: mọi thời lượng phải thuộc tập phút của dữ liệu; ngày/đếm phải thuộc tập tương ứng; không có số lạ.
         var rest = durationRange.replace(text) { m -> "${m.groupValues[1]} ${m.groupValues[3]} ${m.groupValues[2]} ${m.groupValues[3]}" }
         val expanded = rest

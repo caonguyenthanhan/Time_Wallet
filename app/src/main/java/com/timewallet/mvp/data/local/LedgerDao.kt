@@ -45,6 +45,9 @@ interface LedgerDao {
         SELECT * FROM ledger_records
         WHERE (layer = 'MEASURED' OR layer = 'REPORTED_TIMED' OR layer = 'ACTIVE')
           AND status != 'PLANNED'
+          AND status != 'CANCELLED'
+          AND (confirmationState IS NULL OR confirmationState != 'CANCELLED')
+          AND (overlapResolution IS NULL OR overlapResolution NOT IN ('PENDING', 'BREAK_REJECTED'))
           AND startedAt IS NOT NULL
           AND endedAt IS NOT NULL
           AND id != :excludeId
@@ -111,6 +114,9 @@ interface LedgerDao {
         val isTimedActualOrActive =
             (entity.layer == "MEASURED" || entity.layer == "REPORTED_TIMED" || entity.layer == "ACTIVE") &&
                 entity.status != "PLANNED" &&
+                entity.status != "CANCELLED" &&
+                entity.confirmationState != "CANCELLED" &&
+                entity.overlapResolution !in setOf("PENDING", "BREAK_REJECTED") &&
                 entity.startedAt != null && entity.endedAt != null
 
         if (isTimedActualOrActive) {
@@ -196,6 +202,9 @@ interface LedgerDao {
             val isTimedActualOrActive =
                 (entity.layer == "MEASURED" || entity.layer == "REPORTED_TIMED" || entity.layer == "ACTIVE") &&
                     entity.status != "PLANNED" &&
+                    entity.status != "CANCELLED" &&
+                    entity.confirmationState != "CANCELLED" &&
+                    entity.overlapResolution !in setOf("PENDING", "BREAK_REJECTED") &&
                     entity.startedAt != null && entity.endedAt != null
 
             if (isTimedActualOrActive) {
@@ -260,5 +269,61 @@ interface LedgerDao {
             abortedAtomically = false,
             errorMessage = null
         )
+    }
+
+    /**
+     * Ghi nguyên tử kết quả xác nhận/điều chỉnh/cắt khoảng nghỉ (BREAK_CONFIRMED) hoặc xác nhận song song (PARALLEL_CONFIRMED).
+     * Vẫn giữ chặn va chạm với các bản ghi độc lập ngoài nhóm phân giải.
+     */
+    @Transaction
+    suspend fun applyOverlapResolutionTransactionally(
+        updatedEntities: List<LedgerRecordEntity>,
+        deletedIds: List<String> = emptyList()
+    ): DbCommitOutcome = LedgerConcurrencyGate.mutex.withLock {
+        if (updatedEntities.isEmpty() && deletedIds.isEmpty()) return@withLock DbCommitOutcome.Saved
+        for (entity in updatedEntities) {
+            val structuralError = isEntityStructurallyValid(entity)
+            if (structuralError != null) {
+                return@withLock DbCommitOutcome.InvalidEntityRejected(structuralError)
+            }
+        }
+        val excludedIds = updatedEntities.map { it.id }.toSet() + deletedIds.toSet()
+        val existingOthers = getAllRecordsSnapshot().filterNot { it.id in excludedIds }
+        val allToCheck = existingOthers + updatedEntities
+        for (entity in updatedEntities) {
+            val activeTimed =
+                (entity.layer == "MEASURED" || entity.layer == "REPORTED_TIMED" || entity.layer == "ACTIVE") &&
+                    entity.status != "PLANNED" &&
+                    entity.status != "CANCELLED" &&
+                    entity.confirmationState != "CANCELLED" &&
+                    entity.overlapResolution !in setOf("PENDING", "BREAK_REJECTED") &&
+                    entity.startedAt != null && entity.endedAt != null
+            if (!activeTimed) continue
+            val startMs = entity.startedAt!!
+            val endMs = entity.endedAt!!
+            val clash = allToCheck.firstOrNull { other ->
+                if (other.id == entity.id) return@firstOrNull false
+                val otherTimed =
+                    (other.layer == "MEASURED" || other.layer == "REPORTED_TIMED" || other.layer == "ACTIVE") &&
+                        other.status != "PLANNED" &&
+                        other.status != "CANCELLED" &&
+                        other.confirmationState != "CANCELLED" &&
+                        other.overlapResolution !in setOf("PENDING", "BREAK_REJECTED") &&
+                        other.startedAt != null && other.endedAt != null
+                if (!otherTimed) return@firstOrNull false
+                val sameParallelGroup = entity.overlapResolution == "PARALLEL_CONFIRMED" &&
+                    other.overlapResolution == "PARALLEL_CONFIRMED" &&
+                    !entity.relationGroupId.isNullOrBlank() &&
+                    entity.relationGroupId == other.relationGroupId
+                if (sameParallelGroup) return@firstOrNull false
+                startMs < other.endedAt!! && endMs > other.startedAt!!
+            }
+            if (clash != null) {
+                return@withLock DbCommitOutcome.OverlapRejected(clash.title)
+            }
+        }
+        deletedIds.forEach { deleteById(it) }
+        updatedEntities.forEach { upsertInternal(it) }
+        DbCommitOutcome.Saved
     }
 }

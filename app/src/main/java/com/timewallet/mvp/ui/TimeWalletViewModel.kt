@@ -8,31 +8,49 @@ import com.timewallet.mvp.data.ai.GeminiProposalClient
 import com.timewallet.mvp.data.ai.GuardHealth
 import com.timewallet.mvp.data.local.ActivityReviewNoteEntity
 import com.timewallet.mvp.data.local.AiPreferences
+import com.timewallet.mvp.data.local.BackupParseResult
+import com.timewallet.mvp.data.local.BackupRestoreMode
+import com.timewallet.mvp.data.local.BatchOverlapStep
+import com.timewallet.mvp.data.local.BatchProposalPlanner
 import com.timewallet.mvp.data.local.CategoryBudgetEntity
 import com.timewallet.mvp.data.local.DailyReviewEntity
 import com.timewallet.mvp.data.local.DbCommitOutcome
+import com.timewallet.mvp.data.local.LedgerBackupRestorer
+import com.timewallet.mvp.data.local.LedgerJsonBackupParser
 import com.timewallet.mvp.data.local.LedgerJsonExporter
+import com.timewallet.mvp.data.local.ParsedBackupPayload
 import com.timewallet.mvp.data.local.LedgerRecordEntity
+import com.timewallet.mvp.data.local.ManualEntryDraft
 import com.timewallet.mvp.data.local.GoalEntity
 import com.timewallet.mvp.data.local.TagEntity
 import com.timewallet.mvp.data.local.TimeWalletDatabase
 import com.timewallet.mvp.data.local.TimerAndSettingsStore
+import com.timewallet.mvp.data.local.TimerInputDraft
+import com.timewallet.mvp.domain.model.ConfirmationState
 import com.timewallet.mvp.domain.model.Goal
 import com.timewallet.mvp.domain.model.GoalGroupState
 import com.timewallet.mvp.domain.model.GoalKind
 import com.timewallet.mvp.domain.model.GoalPeriod
 import com.timewallet.mvp.domain.model.GoalTargetType
 import com.timewallet.mvp.domain.model.GoalVersionStatus
+import com.timewallet.mvp.domain.model.OverlapResolution
 import com.timewallet.mvp.domain.model.Tag
+import com.timewallet.mvp.domain.usecase.ActivityBreakEngine
+import com.timewallet.mvp.domain.usecase.BreakDecision
 import com.timewallet.mvp.domain.usecase.CoachCheck
 import com.timewallet.mvp.domain.usecase.CoachDigestBuilder
 import com.timewallet.mvp.domain.usecase.CoachGuard
 import com.timewallet.mvp.domain.usecase.CoachSuggestion
+import com.timewallet.mvp.domain.usecase.ConfirmationActionResult
+import com.timewallet.mvp.domain.usecase.ConfirmationEngine
 import com.timewallet.mvp.domain.usecase.GoalRules
 import com.timewallet.mvp.domain.usecase.TagRules
 import com.timewallet.mvp.domain.usecase.TimeRange
+import com.timewallet.mvp.domain.usecase.TimerSegments
 import com.timewallet.mvp.data.local.TimerCommit
 import com.timewallet.mvp.data.local.TimerCommitResult
+import com.timewallet.mvp.notifications.AndroidCompletionReminderScheduler
+import com.timewallet.mvp.notifications.ReminderScheduler
 import com.timewallet.mvp.domain.model.ActiveTimerSession
 import com.timewallet.mvp.domain.model.ActivityProposal
 import com.timewallet.mvp.domain.model.ActivityReviewNote
@@ -94,6 +112,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -181,10 +202,56 @@ data class ManualEntryState(
     val endText: String = "",
     val endIsNow: Boolean = false,
     val creatingTag: Boolean = false,
-    val newTagName: String = ""
-)
+    val newTagName: String = "",
+    val saveAsPlanned: Boolean = false
+) {
+    fun hasUserData(todayLocal: String = LocalDate.now().toString()): Boolean =
+        categoryKey != null ||
+            tagId != null ||
+            tagQuery.isNotBlank() ||
+            hoursText.isNotBlank() ||
+            minutesText.isNotBlank() ||
+            startText.isNotBlank() ||
+            endText.isNotBlank() ||
+            endIsNow ||
+            saveAsPlanned ||
+            note.isNotBlank() ||
+            dateLocal != todayLocal
+
+    fun isPersistable(todayLocal: String = LocalDate.now().toString()): Boolean =
+        hasUserData(todayLocal) || mode != ManualMode.DURATION
+
+    fun toDraft(nowMs: Long = System.currentTimeMillis()): ManualEntryDraft = ManualEntryDraft(
+        sessionId = sessionId,
+        categoryKey = categoryKey,
+        hoursText = hoursText,
+        minutesText = minutesText,
+        dateLocal = dateLocal,
+        note = note,
+        modeName = mode.name,
+        tagId = tagId,
+        tagQuery = tagQuery,
+        startText = startText,
+        endText = endText,
+        endIsNow = endIsNow,
+        saveAsPlanned = saveAsPlanned,
+        updatedAtEpochMs = nowMs
+    )
+}
 
 enum class ManualMode { RANGE, DURATION }
+
+data class PendingOverlapConflict(
+    val incoming: LedgerRecord,
+    val conflicts: List<LedgerRecord>,
+    val clearedDraftIds: List<String> = emptyList(),
+    val remainingChatDraftIds: List<String> = emptyList(),
+    val priorSavedCount: Int = 0,
+    val priorSkippedDuplicates: Int = 0,
+    val closeManualOnResolve: Boolean = false,
+    val closeEditOnResolve: Boolean = false,
+    val finishTimerOnResolve: Boolean = false
+)
 
 /** v1.1.0 (D): trạng thái thẻ AI Time Coach. `facts` do ỨNG DỤNG viết (luôn có); `story` chỉ có khi AI trả lời và qua [CoachGuard]. */
 data class CoachUiState(
@@ -218,6 +285,13 @@ data class GoalEditorState(
     val hoursText: String = "",
     val minutesText: String = "30",
     val error: String? = null
+)
+
+data class ImportBackupUiState(
+    val rawJson: String = "",
+    val parsedPayload: ParsedBackupPayload? = null,
+    val errorMessage: String? = null,
+    val isRestoring: Boolean = false
 )
 
 data class TimeWalletUiState(
@@ -281,9 +355,11 @@ data class TimeWalletUiState(
     val editingBudgetCategory: TimeCategory? = null,
     val editingRecord: LedgerRecord? = null,
     val exportedJsonContent: String? = null,
+    val importBackup: ImportBackupUiState? = null,
     val showProductInfoDialog: Boolean = false,
     val showAiSettingsDialog: Boolean = false,
     val manualEntry: ManualEntryState? = null,
+    val pendingManualDraft: ManualEntryDraft? = null,
     // v1.1.0: Tag cá nhân, Mục tiêu (mọi phiên bản), Quản lý Tag, Mục tiêu, AI Coach.
     val tags: List<Tag> = emptyList(),
     val goals: List<Goal> = emptyList(),
@@ -291,6 +367,9 @@ data class TimeWalletUiState(
     val showGoals: Boolean = false,
     val goalEditor: GoalEditorState? = null,
     val coach: CoachUiState = CoachUiState(),
+    val confirmingRecord: LedgerRecord? = null,
+    val pendingOverlapConflict: PendingOverlapConflict? = null,
+    val requestNotificationPermissionNonce: Int = 0,
     val lastCrashReport: String? = null,
     val aiConnectionTestMessage: String? = null,
     val aiConnectionTesting: Boolean = false,
@@ -307,6 +386,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
     private val tagDao = database.tagDao()
     private val goalDao = database.goalDao()
     private val settingsStore = TimerAndSettingsStore(application)
+    private val reminderScheduler: ReminderScheduler = AndroidCompletionReminderScheduler(application)
 
     private val confirmGuard = ChatAnalysisGuard()
     private val manualSaveGuard = ChatAnalysisGuard()
@@ -350,7 +430,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         },
         launchContext = safeHandler,
         // v1.0.13 (F4): nút Hủy chỉ có hiệu lực sau CancelArming.DEFAULT_ARM_MS kể từ lúc gửi (bấm đúp Gửi không tự hủy).
-        cancelArming = CancelArming()
+        cancelArming = CancelArming(),
+        onChatInputConsumed = { settingsStore.saveChatInputDraft("") }
     )
 
     // v1.0.9: khởi tạo guard NGOÀI luồng chính ngay khi mở app (không bao giờ ném); lần gửi đầu không phải biên dịch regex trên Main.
@@ -371,12 +452,18 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             CrashRecorder.record(e)
             AiPreferences(keyUnavailable = true)
         }
+        val restoredManualDraft = runCatching { settingsStore.loadManualEntryDraft() }.getOrNull()
+        val restoredChatDraft = runCatching { settingsStore.loadChatInputDraft() }.getOrDefault("")
+        val restoredTimerDraft = runCatching { settingsStore.loadTimerInputDraft() }.getOrDefault(TimerInputDraft())
         _uiState.update { state ->
             state.copy(
                 lastCrashReport = CrashRecorder.readLast(),
                 activeTimer = restoredTimer,
-                timerInputTitle = restoredTimer?.title ?: state.timerInputTitle,
-                timerInputCategoryKey = restoredTimer?.categoryKey ?: state.timerInputCategoryKey,
+                timerInputTitle = restoredTimer?.title ?: restoredTimerDraft.title,
+                timerInputCategoryKey = restoredTimer?.categoryKey ?: restoredTimerDraft.categoryKey,
+                timerInputTagId = if (restoredTimer == null) restoredTimerDraft.tagId else restoredTimer.tagId,
+                chatInputText = restoredChatDraft,
+                pendingManualDraft = restoredManualDraft,
                 aiPreferences = aiPrefs
             )
         }
@@ -392,10 +479,18 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             }
         }
 
+        // v1.2.0: tự động đồng bộ mọi thay đổi của chatInputText (gõ tay, áp gợi ý, lệnh hủy hoặc AI tiêu thụ) xuống SharedPreferences.
+        viewModelScope.launch(safeHandler) {
+            _uiState.map { it.chatInputText }.distinctUntilChanged().drop(1).collect { text ->
+                settingsStore.saveChatInputDraft(text)
+            }
+        }
+
         // Quan sát toàn bộ sổ cái từ Room (bảo toàn dữ liệu cũ)
         viewModelScope.launch(safeHandler) {
             ledgerDao.observeAllRecords().collect { entities ->
                 val domainRecords = entities.map { it.toDomain() }
+                reminderScheduler.syncReminders(domainRecords, System.currentTimeMillis())
                 recomputeStats(records = domainRecords)
             }
         }
@@ -460,10 +555,19 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    /** Ngừng vòng cập nhật khi ứng dụng không còn hiển thị (đồng hồ vẫn đúng vì tính từ mốc thời gian, không từ số lần tick). */
+    /** Ngừng vòng cập nhật khi ứng dụng không còn hiển thị và đồng bộ ngay các bản nháp đang nhập xuống bộ nhớ bền vững. */
     fun onAppPaused() {
         tickerJob?.cancel()
         tickerJob = null
+        val s = _uiState.value
+        s.manualEntry?.let { syncManualDraftPersistence(it, immediate = true) }
+        settingsStore.saveChatInputDraft(s.chatInputText, immediate = true)
+        if (s.activeTimer == null) {
+            settingsStore.saveTimerInputDraft(
+                TimerInputDraft(s.timerInputTitle, s.timerInputCategoryKey, s.timerInputTagId),
+                immediate = true
+            )
+        }
     }
 
     private var recomputeJob: Job? = null
@@ -533,6 +637,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         if (_uiState.value.activeTimer == null && persistedTimer != null) {
             _uiState.update { it.copy(activeTimer = persistedTimer) }
         }
+        reminderScheduler.syncReminders(_uiState.value.records, System.currentTimeMillis())
         refreshTimerTick()
         recomputeStats(_uiState.value.records)
         startTicker()
@@ -588,7 +693,9 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
 
     fun onTimerTitleChange(newTitle: String) {
         if (_uiState.value.activeTimer != null) return
-        _uiState.update { it.copy(timerInputTitle = newTitle.take(110)) }
+        val capped = newTitle.take(110)
+        _uiState.update { it.copy(timerInputTitle = capped) }
+        persistPreTimerDraft()
     }
 
     fun onTimerCategoryChange(categoryKey: String) {
@@ -609,6 +716,22 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 diceFaceProbabilities = probItems
             )
         }
+        persistPreTimerDraft()
+    }
+
+    fun cleanTimerDraft() {
+        if (_uiState.value.activeTimer != null) return
+        _uiState.update { it.copy(timerInputTitle = "", timerInputCategoryKey = "work", timerInputTagId = null) }
+        settingsStore.saveTimerInputDraft(null, immediate = true)
+    }
+
+    private fun persistPreTimerDraft(immediate: Boolean = false) {
+        val s = _uiState.value
+        if (s.activeTimer != null) return
+        settingsStore.saveTimerInputDraft(
+            TimerInputDraft(s.timerInputTitle, s.timerInputCategoryKey, s.timerInputTagId),
+            immediate = immediate
+        )
     }
 
     fun rollTimeDice() {
@@ -685,6 +808,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             startedBootCount = currentBootCount
         )
         settingsStore.saveActiveTimer(session)
+        settingsStore.saveTimerInputDraft(null, immediate = true)
         _uiState.update {
             it.copy(
                 activeTimer = session,
@@ -720,6 +844,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             tagId = current.timerInputTagId
         )
         settingsStore.saveActiveTimer(session)
+        settingsStore.saveTimerInputDraft(null, immediate = true)
         _uiState.update {
             it.copy(
                 activeTimer = session,
@@ -767,9 +892,50 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 zone = zone,
                 tagId = session.tagId
             )) {
-                is TimerCommitResult.Overlap -> showToast(
-                    result.message + " Phiên đo vẫn được giữ: hãy sửa hoặc xóa bản ghi trùng rồi bấm Dừng & Lưu lại."
-                )
+                is TimerCommitResult.Overlap -> {
+                    val durationMs = endEpochMs - session.startedAtEpochMs
+                    if (durationMs in 1L..86_400_000L) {
+                        val currentRecords = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
+                        val dateLocal = Instant.ofEpochMilli(session.startedAtEpochMs).atZone(zone).toLocalDate().toString()
+                        val conflicts = ActivityBreakEngine.findAllOverlaps(
+                            startMs = session.startedAtEpochMs,
+                            endMs = endEpochMs,
+                            existingRecords = currentRecords,
+                            activeTimer = null,
+                            nowEpochMs = endEpochMs
+                        )
+                        val built = LedgerValidator.validateAndBuildRecord(
+                            source = "timer",
+                            rawTitle = session.title,
+                            rawCategory = session.categoryKey,
+                            dateLocal = dateLocal,
+                            inputDurationMinutes = null,
+                            startedAt = session.startedAtEpochMs,
+                            endedAt = endEpochMs,
+                            existingRecords = emptyList(),
+                            activeTimer = null,
+                            nowEpochMs = endEpochMs,
+                            zoneId = zone,
+                            idempotencyKey = TimerSegments.idempotencyKey(session.startedAtEpochMs, 0),
+                            tagId = session.tagId
+                        )
+                        if (conflicts.isNotEmpty() && built is ValidationResult.Valid) {
+                            _uiState.update {
+                                it.copy(
+                                    pendingOverlapConflict = PendingOverlapConflict(
+                                        incoming = built.record,
+                                        conflicts = conflicts,
+                                        finishTimerOnResolve = true
+                                    )
+                                )
+                            }
+                            return
+                        }
+                    }
+                    showToast(
+                        result.message + " Phiên đo vẫn được giữ: hãy sửa hoặc xóa bản ghi trùng rồi bấm Dừng & Lưu lại."
+                    )
+                }
                 is TimerCommitResult.Invalid -> showToast(result.message)
                 is TimerCommitResult.Saved -> {
                     finishTimerAfterCommit()
@@ -818,10 +984,17 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
 
     fun onChatInputChange(text: String) {
         _uiState.update { it.copy(chatInputText = text) }
+        settingsStore.saveChatInputDraft(text)
     }
 
     fun applyChatExample(example: String) {
         _uiState.update { it.copy(chatInputText = example) }
+        settingsStore.saveChatInputDraft(example)
+    }
+
+    fun cleanChatInput() {
+        _uiState.update { it.copy(chatInputText = "") }
+        settingsStore.saveChatInputDraft("", immediate = true)
     }
 
     fun analyzeChatInput() {
@@ -984,7 +1157,11 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         confirmProposalsList(drafts)
     }
 
-    private fun confirmProposalsList(drafts: List<EditableProposalDraft>) {
+    private fun confirmProposalsList(
+        drafts: List<EditableProposalDraft>,
+        priorSavedCount: Int = 0,
+        priorSkippedDuplicates: Int = 0
+    ) {
         val zone = ZoneId.systemDefault()
 
         // WALLY A08: một lượt xác nhận tại một thời điểm; bấm lặp không tạo lượt ghi thứ hai.
@@ -993,39 +1170,136 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             return
         }
         val job = viewModelScope.launch(safeHandler) {
-            val result = BatchConfirm.run(
-                dao = ledgerDao,
-                inputs = drafts.map { it.toBatchInput() },
-                activeTimer = _uiState.value.activeTimer,
-                readActiveTimer = { settingsStore.loadActiveTimer() },
-                nowEpochMs = System.currentTimeMillis(),
-                zone = zone
-            )
-            when (result) {
-                is ConfirmResult.Invalid -> {
-                    showToast("Đã hủy lưu lô để bảo toàn dữ liệu: ${result.message}")
-                    return@launch
+            val nowMs = System.currentTimeMillis()
+            val existing = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
+            when (
+                val step = BatchProposalPlanner.plan(
+                    inputs = drafts.map { it.toBatchInput() },
+                    existingRecords = existing,
+                    activeTimer = _uiState.value.activeTimer,
+                    nowEpochMs = nowMs,
+                    zone = zone
+                )
+            ) {
+                is BatchOverlapStep.Invalid -> {
+                    val prefix = if (priorSavedCount > 0) "Đã lưu $priorSavedCount bản ghi trước đó; mục kế tiếp không hợp lệ: " else "Đã hủy lưu lô để bảo toàn dữ liệu: "
+                    showToast(prefix + step.message)
                 }
-                is ConfirmResult.Aborted -> {
-                    showToast("Đã hủy lưu lô: ${result.message}")
-                    return@launch
-                }
-                is ConfirmResult.Committed -> {
-                    val confirmedIds = drafts.map { it.id }.toSet()
-                    _uiState.update { state ->
-                        val remaining = state.proposals.filterNot { confirmedIds.contains(it.id) }
-                        state.copy(
-                            proposals = remaining,
-                            expandedProposalId = state.expandedProposalId?.takeIf { id -> remaining.any { it.id == id } },
-                            // Thẻ trạng thái ("còn N đề xuất đang chờ") sẽ cũ ngay sau khi commit: xóa; chỉ toast do ứng dụng báo "Đã lưu" sau commit.
-                            chatAnswer = state.chatAnswer?.takeUnless { it.isTransactionStatus }
+
+                is BatchOverlapStep.ReadyAll -> {
+                    val result = if (step.inputs.isEmpty()) {
+                        ConfirmResult.Committed(0, step.skippedDuplicates)
+                    } else {
+                        BatchConfirm.run(
+                            dao = ledgerDao,
+                            inputs = step.inputs,
+                            activeTimer = _uiState.value.activeTimer,
+                            readActiveTimer = { settingsStore.loadActiveTimer() },
+                            nowEpochMs = nowMs,
+                            zone = zone
                         )
                     }
-                    showToast(ConfirmFeedback.message(result.savedCount, result.skippedDuplicates))
+                    when (result) {
+                        is ConfirmResult.Invalid -> showToast("Đã hủy lưu lô để bảo toàn dữ liệu: ${result.message}")
+                        is ConfirmResult.Aborted -> showToast("Đã hủy lưu lô: ${result.message}")
+                        is ConfirmResult.Committed -> {
+                            val totalSaved = priorSavedCount + result.savedCount
+                            val totalSkipped = priorSkippedDuplicates + result.skippedDuplicates +
+                                (if (step.inputs.isEmpty()) 0 else step.skippedDuplicates)
+                            clearConfirmedDraftsAndNotify(drafts, result.savedCount > 0, zone, nowMs)
+                            showToast(ConfirmFeedback.message(totalSaved, totalSkipped))
+                        }
+                    }
+                }
+
+                is BatchOverlapStep.ConflictAt -> {
+                    var runningSaved = priorSavedCount
+                    var runningSkipped = priorSkippedDuplicates + step.skippedDuplicates
+                    if (step.safePrefix.isNotEmpty()) {
+                        val prefixRes = BatchConfirm.run(
+                            dao = ledgerDao,
+                            inputs = step.safePrefix,
+                            activeTimer = _uiState.value.activeTimer,
+                            readActiveTimer = { settingsStore.loadActiveTimer() },
+                            nowEpochMs = nowMs,
+                            zone = zone
+                        )
+                        when (prefixRes) {
+                            is ConfirmResult.Invalid -> {
+                                showToast("Đã hủy lưu lô để bảo toàn dữ liệu: ${prefixRes.message}")
+                                return@launch
+                            }
+                            is ConfirmResult.Aborted -> {
+                                showToast("Đã hủy lưu lô: ${prefixRes.message}")
+                                return@launch
+                            }
+                            is ConfirmResult.Committed -> {
+                                runningSaved += prefixRes.savedCount
+                                runningSkipped += prefixRes.skippedDuplicates
+                                val safeIds = step.safePrefix.mapNotNull { it.id }.toSet()
+                                val safeDrafts = drafts.filter { it.id in safeIds }
+                                clearConfirmedDraftsAndNotify(safeDrafts, prefixRes.savedCount > 0, zone, nowMs)
+                            }
+                        }
+                    }
+                    val latestRecords = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
+                    val candidate = step.conflictCandidate
+                    val freshConflicts = if (candidate.startedAt != null && candidate.endedAt != null) {
+                        ActivityBreakEngine.findAllOverlaps(
+                            startMs = candidate.startedAt,
+                            endMs = candidate.endedAt,
+                            existingRecords = latestRecords,
+                            activeTimer = _uiState.value.activeTimer,
+                            nowEpochMs = nowMs
+                        )
+                    } else emptyList()
+                    _uiState.update { state ->
+                        state.copy(
+                            pendingOverlapConflict = PendingOverlapConflict(
+                                incoming = candidate,
+                                conflicts = freshConflicts.ifEmpty { step.conflicts },
+                                clearedDraftIds = listOf(step.conflictInputId),
+                                remainingChatDraftIds = step.remainingInputIds,
+                                priorSavedCount = runningSaved,
+                                priorSkippedDuplicates = runningSkipped
+                            )
+                        )
+                    }
                 }
             }
         }
         job.invokeOnCompletion { confirmGuard.release() }
+    }
+
+    private fun clearConfirmedDraftsAndNotify(
+        confirmedDrafts: List<EditableProposalDraft>,
+        didSaveNewRows: Boolean,
+        zone: ZoneId,
+        nowMs: Long
+    ) {
+        if (confirmedDrafts.isEmpty()) return
+        val confirmedIds = confirmedDrafts.map { it.id }.toSet()
+        val needsReminderPermission = didSaveNewRows && confirmedDrafts.any { d ->
+            if (d.isFuturePlanned) return@any true
+            val r = if (d.startLocal.isNotBlank() && d.endLocal.isNotBlank()) {
+                LedgerValidator.parseTimeRangeToEpochMillis(d.dateLocal, d.startLocal, d.endLocal, zone)
+            } else null
+            r != null && r.second > nowMs
+        }
+        _uiState.update { state ->
+            val remaining = state.proposals.filterNot { confirmedIds.contains(it.id) }
+            state.copy(
+                proposals = remaining,
+                expandedProposalId = state.expandedProposalId?.takeIf { id -> remaining.any { it.id == id } },
+                // Thẻ trạng thái ("còn N đề xuất đang chờ") sẽ cũ ngay sau khi commit: xóa; chỉ toast do ứng dụng báo "Đã lưu" sau commit.
+                chatAnswer = state.chatAnswer?.takeUnless { it.isTransactionStatus },
+                requestNotificationPermissionNonce = if (needsReminderPermission) {
+                    state.requestNotificationPermissionNonce + 1
+                } else {
+                    state.requestNotificationPermissionNonce
+                }
+            )
+        }
     }
 
     // ------------------- LUỒNG C: HISTORY, CHUYỂN DỰ KIẾN -> THỰC TẾ, SỬA & XÓA -------------------
@@ -1043,41 +1317,418 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     /**
-     * Xác nhận chuyển bản ghi Dự kiến (PLANNED) hoặc Đang diễn ra (ACTIVE) thành Thực tế đã sử dụng.
+     * Mở hộp thoại xác nhận trạng thái thực tế cho bản ghi PLANNED / DOING / PENDING_CONFIRMATION,
+     * hoặc mở hộp thoại đối soát chồng lấn nếu bản ghi đang ở trạng thái PENDING / BREAK_REJECTED.
      */
     fun confirmPlannedOrActiveRecord(record: LedgerRecord) {
-        val zone = ZoneId.systemDefault()
-        val nowMs = System.currentTimeMillis()
+        if (record.isNeedsReconciliation) {
+            openReconciliationDialog(record)
+        } else {
+            openConfirmationDialog(record)
+        }
+    }
 
+    fun openConfirmationDialog(record: LedgerRecord) {
+        _uiState.update { it.copy(confirmingRecord = record) }
+    }
+
+    fun closeConfirmationDialog() {
+        _uiState.update { it.copy(confirmingRecord = null) }
+    }
+
+    fun openActivityConfirmationFromNotification(recordId: String) {
+        viewModelScope.launch(safeHandler) {
+            val target = _uiState.value.records.firstOrNull { it.id == recordId }
+                ?: ledgerDao.getAllRecordsSnapshot().firstOrNull { it.id == recordId }?.toDomain()
+            if (target == null) {
+                showToast("Hoạt động này không còn tồn tại trong sổ cái.")
+                return@launch
+            }
+            if (target.isCancelled) {
+                showToast("Hoạt động \"${target.title}\" đã được đánh dấu hủy trước đó.")
+                return@launch
+            }
+            _uiState.update { it.copy(isShowingDailyReview = false) }
+            if (target.isNeedsReconciliation) {
+                openReconciliationDialog(target)
+            } else {
+                _uiState.update { it.copy(confirmingRecord = target) }
+            }
+        }
+    }
+
+    fun openReconciliationDialog(record: LedgerRecord) {
+        val nowMs = System.currentTimeMillis()
         viewModelScope.launch(safeHandler) {
             val currentRecords = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
-            val validation = LedgerValidator.confirmPlannedOrActiveToActual(
-                record = record,
-                existingRecords = currentRecords,
-                activeTimer = _uiState.value.activeTimer,
-                nowEpochMs = nowMs,
-                zoneId = zone
-            )
-            when (validation) {
-                is ValidationResult.Invalid -> showToast(validation.message)
-                is ValidationResult.Valid -> {
-                    val commit = ledgerDao.commitRecordTransactionally(
-                        entity = LedgerRecordEntity.fromDomain(validation.record),
-                        isUpdateExisting = true
+            val start = record.startedAt
+            val end = record.endedAt
+            val conflicts = if (start != null && end != null) {
+                ActivityBreakEngine.findAllOverlaps(
+                    startMs = start,
+                    endMs = end,
+                    existingRecords = currentRecords,
+                    activeTimer = _uiState.value.activeTimer,
+                    nowEpochMs = nowMs,
+                    excludeRecordIds = setOf(record.id)
+                )
+            } else emptyList()
+            if (conflicts.isNotEmpty()) {
+                _uiState.update {
+                    it.copy(pendingOverlapConflict = PendingOverlapConflict(incoming = record, conflicts = conflicts))
+                }
+            } else {
+                _uiState.update { it.copy(confirmingRecord = record) }
+            }
+        }
+    }
+
+    private suspend fun applyConfirmationAction(
+        result: ConfirmationActionResult,
+        closeConfirmOnSuccess: Boolean = false,
+        closeEditOnSuccess: Boolean = false
+    ) {
+        when (result) {
+            is ConfirmationActionResult.Invalid -> showToast(result.messageVi)
+            is ConfirmationActionResult.Overlap -> {
+                _uiState.update {
+                    it.copy(
+                        confirmingRecord = null,
+                        pendingOverlapConflict = PendingOverlapConflict(
+                            incoming = result.candidate,
+                            conflicts = result.conflicts,
+                            closeEditOnResolve = closeEditOnSuccess
+                        )
                     )
-                    when (commit) {
-                        is DbCommitOutcome.OverlapRejected -> {
-                            showToast("Bị trùng mốc giờ thực tế với \"${commit.conflictingTitle}\".")
+                }
+            }
+            is ConfirmationActionResult.Applied -> {
+                val entities = result.updatedRecords.map { LedgerRecordEntity.fromDomain(it) }
+                when (val commit = ledgerDao.applyOverlapResolutionTransactionally(entities)) {
+                    is DbCommitOutcome.OverlapRejected ->
+                        showToast("Bị trùng mốc giờ thực tế với \"${commit.conflictingTitle}\".")
+                    is DbCommitOutcome.InvalidEntityRejected ->
+                        showToast(commit.reason)
+                    DbCommitOutcome.Saved, DbCommitOutcome.DuplicateIgnored -> {
+                        val needsReminder = result.updatedRecords.any {
+                            it.layer == TimeLayer.PLANNED || it.layer == TimeLayer.ACTIVE
                         }
-                        is DbCommitOutcome.InvalidEntityRejected -> {
-                            showToast(commit.reason)
+                        result.updatedRecords.forEach {
+                            if (it.isCancelled || (it.layer != TimeLayer.PLANNED && it.layer != TimeLayer.ACTIVE)) {
+                                reminderScheduler.cancelReminder(it.id)
+                            }
                         }
-                        DbCommitOutcome.Saved, DbCommitOutcome.DuplicateIgnored -> {
-                            showToast("Đã xác nhận \"${record.title}\" thành thời gian thực tế.")
+                        _uiState.update { s ->
+                            s.copy(
+                                confirmingRecord = if (closeConfirmOnSuccess) null else s.confirmingRecord,
+                                editingRecord = if (closeEditOnSuccess) null else s.editingRecord,
+                                requestNotificationPermissionNonce = if (needsReminder) {
+                                    s.requestNotificationPermissionNonce + 1
+                                } else {
+                                    s.requestNotificationPermissionNonce
+                                }
+                            )
                         }
+                        showToast(result.messageVi)
                     }
                 }
             }
+        }
+    }
+
+    fun confirmStartDoing() {
+        val record = _uiState.value.confirmingRecord ?: return
+        val zone = ZoneId.systemDefault()
+        val nowMs = System.currentTimeMillis()
+        viewModelScope.launch(safeHandler) {
+            val currentRecords = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
+            applyConfirmationAction(
+                result = ConfirmationEngine.startDoingNow(record, currentRecords, _uiState.value.activeTimer, nowMs, zone),
+                closeConfirmOnSuccess = true
+            )
+        }
+    }
+
+    fun confirmCompleted() {
+        val record = _uiState.value.confirmingRecord ?: return
+        val zone = ZoneId.systemDefault()
+        val nowMs = System.currentTimeMillis()
+        viewModelScope.launch(safeHandler) {
+            val currentRecords = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
+            applyConfirmationAction(
+                result = ConfirmationEngine.confirmCompleted(record, currentRecords, _uiState.value.activeTimer, nowMs, zone),
+                closeConfirmOnSuccess = true
+            )
+        }
+    }
+
+    fun confirmAdjusted(title: String, startHm: String, endHm: String) {
+        val record = _uiState.value.confirmingRecord ?: return
+        val zone = ZoneId.systemDefault()
+        val nowMs = System.currentTimeMillis()
+        val mins = (record.durationSeconds / 60L).toInt().coerceIn(1, 1440)
+        viewModelScope.launch(safeHandler) {
+            val currentRecords = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
+            applyConfirmationAction(
+                result = ConfirmationEngine.adjustRecord(
+                    existing = record,
+                    newTitle = title,
+                    newCategoryKey = record.category.key,
+                    newDateLocal = record.date,
+                    newDurationMinutes = mins,
+                    newStartHm = startHm,
+                    newEndHm = endHm,
+                    allowFutureAsPlanned = false,
+                    existingRecords = currentRecords,
+                    activeTimer = _uiState.value.activeTimer,
+                    nowEpochMs = nowMs,
+                    zoneId = zone
+                ),
+                closeConfirmOnSuccess = true
+            )
+        }
+    }
+
+    fun confirmInterrupted(actualEndHm: String) {
+        val record = _uiState.value.confirmingRecord ?: return
+        val startMs = record.startedAt
+        if (startMs == null) {
+            showToast("Chỉ hoạt động có mốc giờ mới ghi nhận điểm gián đoạn theo giờ.")
+            return
+        }
+        val zone = ZoneId.systemDefault()
+        val nowMs = System.currentTimeMillis()
+        val hmFmt = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+        val startZoned = Instant.ofEpochMilli(startMs).atZone(zone)
+        val parsed = LedgerValidator.parseTimeRangeToEpochMillis(
+            dateLocal = startZoned.toLocalDate().toString(),
+            startHm = startZoned.format(hmFmt),
+            endHm = actualEndHm.trim(),
+            zoneId = zone
+        )
+        if (parsed == null) {
+            showToast("Giờ kết thúc gián đoạn không hợp lệ (HH:mm) hoặc trùng giờ bắt đầu.")
+            return
+        }
+        viewModelScope.launch(safeHandler) {
+            val currentRecords = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
+            applyConfirmationAction(
+                result = ConfirmationEngine.interruptRecord(
+                    existing = record,
+                    actualEndedAtMs = parsed.second,
+                    existingRecords = currentRecords,
+                    activeTimer = _uiState.value.activeTimer,
+                    nowEpochMs = nowMs,
+                    zoneId = zone
+                ),
+                closeConfirmOnSuccess = true
+            )
+        }
+    }
+
+    fun confirmContinued(newEndHm: String) {
+        val record = _uiState.value.confirmingRecord ?: return
+        val zone = ZoneId.systemDefault()
+        val nowMs = System.currentTimeMillis()
+        val startMs = record.startedAt ?: nowMs
+        val hmFmt = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+        val startZoned = Instant.ofEpochMilli(startMs).atZone(zone)
+        val parsed = LedgerValidator.parseTimeRangeToEpochMillis(
+            dateLocal = startZoned.toLocalDate().toString(),
+            startHm = startZoned.format(hmFmt),
+            endHm = newEndHm.trim(),
+            zoneId = zone
+        )
+        if (parsed == null) {
+            showToast("Giờ kết thúc mới không hợp lệ (HH:mm).")
+            return
+        }
+        viewModelScope.launch(safeHandler) {
+            val currentRecords = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
+            applyConfirmationAction(
+                result = ConfirmationEngine.continueRecord(
+                    existing = record,
+                    newEndedAtMs = parsed.second,
+                    existingRecords = currentRecords,
+                    activeTimer = _uiState.value.activeTimer,
+                    nowEpochMs = nowMs,
+                    zoneId = zone
+                ),
+                closeConfirmOnSuccess = true
+            )
+        }
+    }
+
+    fun confirmCancelled() {
+        val record = _uiState.value.confirmingRecord ?: return
+        val nowMs = System.currentTimeMillis()
+        viewModelScope.launch(safeHandler) {
+            applyConfirmationAction(
+                result = ConfirmationEngine.cancelRecord(existing = record, nowEpochMs = nowMs),
+                closeConfirmOnSuccess = true
+            )
+        }
+    }
+
+    fun dismissOverlapConflict() {
+        _uiState.update { it.copy(pendingOverlapConflict = null) }
+    }
+
+    fun resolveOverlapConflict(
+        decision: BreakDecision,
+        adjustedStartHm: String? = null,
+        adjustedEndHm: String? = null
+    ) {
+        val conflict = _uiState.value.pendingOverlapConflict ?: return
+        val zone = ZoneId.systemDefault()
+        val nowMs = System.currentTimeMillis()
+        viewModelScope.launch(safeHandler) {
+            val currentRecords = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
+            if (decision == BreakDecision.TIME_ADJUSTED) {
+                val range = LedgerValidator.parseTimeRangeToEpochMillis(
+                    dateLocal = conflict.incoming.date,
+                    startHm = adjustedStartHm.orEmpty(),
+                    endHm = adjustedEndHm.orEmpty(),
+                    zoneId = zone
+                )
+                if (range == null) {
+                    showToast("Giờ bắt đầu/kết thúc mới không hợp lệ (định dạng HH:mm).")
+                    return@launch
+                }
+                val alreadyExists = currentRecords.any { it.id == conflict.incoming.id }
+                val activeTimerForCheck = if (conflict.finishTimerOnResolve) null else _uiState.value.activeTimer
+                val newConflicts = ActivityBreakEngine.findAllOverlaps(
+                    startMs = range.first,
+                    endMs = range.second,
+                    existingRecords = currentRecords,
+                    activeTimer = activeTimerForCheck,
+                    nowEpochMs = nowMs,
+                    excludeRecordIds = setOf(conflict.incoming.id)
+                )
+                val built = LedgerValidator.validateAndBuildRecord(
+                    id = conflict.incoming.id,
+                    source = conflict.incoming.source,
+                    rawTitle = conflict.incoming.title,
+                    rawCategory = conflict.incoming.category.key,
+                    dateLocal = conflict.incoming.date,
+                    inputDurationMinutes = null,
+                    startedAt = range.first,
+                    endedAt = range.second,
+                    existingRecords = currentRecords.filterNot { c -> newConflicts.any { it.id == c.id } },
+                    activeTimer = null,
+                    nowEpochMs = nowMs,
+                    zoneId = zone,
+                    idempotencyKey = conflict.incoming.idempotencyKey,
+                    excludeRecordId = conflict.incoming.id,
+                    convertFutureToPlanned = false,
+                    tagId = conflict.incoming.tagId,
+                    confirmationStateOverride = if (alreadyExists && range.second <= nowMs) {
+                        ConfirmationState.ADJUSTED.name
+                    } else null,
+                    plannedStartedAt = conflict.incoming.plannedStartedAt ?: conflict.incoming.startedAt,
+                    plannedEndedAt = conflict.incoming.plannedEndedAt ?: conflict.incoming.endedAt,
+                    plannedDurationSeconds = conflict.incoming.plannedDurationSeconds ?: conflict.incoming.durationSeconds
+                )
+                when (built) {
+                    is ValidationResult.Invalid -> showToast(built.message)
+                    is ValidationResult.Valid -> {
+                        val candidate = built.record.copy(createdAt = conflict.incoming.createdAt)
+                        if (newConflicts.isNotEmpty()) {
+                            _uiState.update {
+                                it.copy(
+                                    pendingOverlapConflict = conflict.copy(
+                                        incoming = candidate,
+                                        conflicts = newConflicts
+                                    )
+                                )
+                            }
+                            showToast("Khoảng giờ vừa chỉnh vẫn trùng với hoạt động khác.")
+                        } else {
+                            when (val commit = ledgerDao.applyOverlapResolutionTransactionally(
+                                updatedEntities = listOf(LedgerRecordEntity.fromDomain(candidate))
+                            )) {
+                                is DbCommitOutcome.OverlapRejected -> showToast("Vẫn trùng mốc giờ với \"${commit.conflictingTitle}\".")
+                                is DbCommitOutcome.InvalidEntityRejected -> showToast(commit.reason)
+                                DbCommitOutcome.Saved, DbCommitOutcome.DuplicateIgnored -> {
+                                    finalizeOverlapResolved(conflict, listOf(candidate), "Đã điều chỉnh giờ cho \"${candidate.title}\".")
+                                }
+                            }
+                        }
+                    }
+                }
+                return@launch
+            }
+
+            val plan = ActivityBreakEngine.resolveBreak(
+                incoming = conflict.incoming,
+                conflicts = conflict.conflicts,
+                decision = decision,
+                nowEpochMs = nowMs,
+                zoneId = zone
+            ).getOrElse { err ->
+                showToast(err.message ?: "Không thể xử lý chồng lấn thời gian.")
+                return@launch
+            }
+
+            val commit = ledgerDao.applyOverlapResolutionTransactionally(
+                updatedEntities = plan.updatedRecords.map { LedgerRecordEntity.fromDomain(it) },
+                deletedIds = plan.deletedIds
+            )
+            when (commit) {
+                is DbCommitOutcome.OverlapRejected ->
+                    showToast("Bị trùng mốc giờ thực tế với \"${commit.conflictingTitle}\".")
+                is DbCommitOutcome.InvalidEntityRejected ->
+                    showToast(commit.reason)
+                DbCommitOutcome.Saved, DbCommitOutcome.DuplicateIgnored -> {
+                    finalizeOverlapResolved(conflict, plan.updatedRecords, plan.summaryVi)
+                }
+            }
+        }
+    }
+
+    private fun finalizeOverlapResolved(
+        conflict: PendingOverlapConflict,
+        savedRecords: List<LedgerRecord>,
+        messageVi: String
+    ) {
+        if (conflict.finishTimerOnResolve) {
+            finishTimerAfterCommit()
+        }
+        if (conflict.closeManualOnResolve) {
+            ManualEntryDraftCoordinator.clearOnCommitSuccess(settingsStore)
+        }
+        val cleared = conflict.clearedDraftIds.toSet()
+        val needsReminder = savedRecords.any { it.layer == TimeLayer.PLANNED || it.layer == TimeLayer.ACTIVE }
+        val nextQueuedDrafts = if (conflict.remainingChatDraftIds.isEmpty()) {
+            emptyList()
+        } else {
+            val byId = _uiState.value.proposals.filterNot { it.id in cleared }.associateBy { it.id }
+            conflict.remainingChatDraftIds.mapNotNull { byId[it] }
+        }
+        _uiState.update { state ->
+            val remainingProposals = if (cleared.isEmpty()) state.proposals else state.proposals.filterNot { it.id in cleared }
+            state.copy(
+                pendingOverlapConflict = null,
+                manualEntry = if (conflict.closeManualOnResolve) null else state.manualEntry,
+                pendingManualDraft = if (conflict.closeManualOnResolve) null else state.pendingManualDraft,
+                editingRecord = if (conflict.closeEditOnResolve) null else state.editingRecord,
+                proposals = remainingProposals,
+                expandedProposalId = state.expandedProposalId?.takeIf { id -> remainingProposals.any { it.id == id } },
+                chatAnswer = if (cleared.isNotEmpty() && nextQueuedDrafts.isEmpty()) state.chatAnswer?.takeUnless { it.isTransactionStatus } else state.chatAnswer,
+                requestNotificationPermissionNonce = if (needsReminder) {
+                    state.requestNotificationPermissionNonce + 1
+                } else {
+                    state.requestNotificationPermissionNonce
+                }
+            )
+        }
+        showToast(messageVi)
+        if (nextQueuedDrafts.isNotEmpty()) {
+            confirmProposalsList(
+                drafts = nextQueuedDrafts,
+                priorSavedCount = conflict.priorSavedCount + 1,
+                priorSkippedDuplicates = conflict.priorSkippedDuplicates
+            )
         }
     }
 
@@ -1091,87 +1742,34 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         newEndHm: String,
         allowFutureAsPlanned: Boolean
     ) {
-        val st = newStartHm.trim()
-        val en = newEndHm.trim()
-        if ((st.isNotEmpty() && en.isEmpty()) || (st.isEmpty() && en.isNotEmpty())) {
-            showToast("Hãy nhập cả giờ bắt đầu và giờ kết thúc, hoặc bỏ trống cả hai.")
-            return
-        }
-
         val zone = ZoneId.systemDefault()
-        var startMs: Long? = null
-        var endMs: Long? = null
-        if (st.isNotEmpty() && en.isNotEmpty()) {
-            val parsed = LedgerValidator.parseTimeRangeToEpochMillis(newDateLocal, st, en, zone)
-            if (parsed == null) {
-                showToast("Giờ bắt đầu/kết thúc không hợp lệ (định dạng HH:mm).")
-                return
-            }
-            startMs = parsed.first
-            endMs = parsed.second
-        }
-
-        val mins = if (startMs != null && endMs != null) {
-            null
-        } else {
-            newDurationMinutesText.trim().toIntOrNull()
-        }
+        val nowMs = System.currentTimeMillis()
+        val hasRange = newStartHm.trim().isNotEmpty() || newEndHm.trim().isNotEmpty()
+        val mins = if (hasRange) null else newDurationMinutesText.trim().toIntOrNull()
 
         viewModelScope.launch(safeHandler) {
             val currentRecords = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
-            val effectiveSource = if (existing.source == "timer" && startMs != null &&
-                startMs == existing.startedAt && endMs == existing.endedAt
-            ) {
-                "timer"
-            } else {
-                "manual"
-            }
-
-            val validation = LedgerValidator.validateAndBuildRecord(
-                id = existing.id,
-                source = effectiveSource,
-                rawTitle = newTitle,
-                rawCategory = newCategoryKey,
-                dateLocal = newDateLocal,
-                inputDurationMinutes = mins,
-                startedAt = startMs,
-                endedAt = endMs,
+            val result = ConfirmationEngine.adjustRecord(
+                existing = existing,
+                newTitle = newTitle,
+                newCategoryKey = newCategoryKey,
+                newDateLocal = newDateLocal,
+                newDurationMinutes = mins,
+                newStartHm = newStartHm,
+                newEndHm = newEndHm,
+                allowFutureAsPlanned = allowFutureAsPlanned,
                 existingRecords = currentRecords,
                 activeTimer = _uiState.value.activeTimer,
-                nowEpochMs = System.currentTimeMillis(),
-                zoneId = zone,
-                idempotencyKey = existing.idempotencyKey,
-                excludeRecordId = existing.id,
-                convertFutureToPlanned = allowFutureAsPlanned
+                nowEpochMs = nowMs,
+                zoneId = zone
             )
-
-            when (validation) {
-                is ValidationResult.Invalid -> showToast(validation.message)
-                is ValidationResult.Valid -> {
-                    val updated = validation.record.copy(createdAt = existing.createdAt)
-                    val commit = ledgerDao.commitRecordTransactionally(
-                        entity = LedgerRecordEntity.fromDomain(updated),
-                        isUpdateExisting = true
-                    )
-                    when (commit) {
-                        is DbCommitOutcome.OverlapRejected -> {
-                            showToast("Bị trùng mốc giờ với \"${commit.conflictingTitle}\". Chưa lưu.")
-                        }
-                        is DbCommitOutcome.InvalidEntityRejected -> {
-                            showToast(commit.reason)
-                        }
-                        DbCommitOutcome.Saved, DbCommitOutcome.DuplicateIgnored -> {
-                            _uiState.update { it.copy(editingRecord = null) }
-                            showToast("Đã cập nhật bản ghi.")
-                        }
-                    }
-                }
-            }
+            applyConfirmationAction(result = result, closeEditOnSuccess = true)
         }
     }
 
     fun deleteRecord(recordId: String) {
         viewModelScope.launch(safeHandler) {
+            reminderScheduler.cancelReminder(recordId)
             // WALLY: bản ghi và ghi chú liên quan cùng bị xóa hoặc cùng hoàn tác (một giao dịch Room).
             database.withTransaction {
                 ledgerDao.deleteById(recordId)
@@ -1181,12 +1779,32 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    fun resizePlannedRecord(recordId: String, deltaMinutes: Int) {
+        if (deltaMinutes == 0) return
+        val zone = ZoneId.systemDefault()
+        val nowMs = System.currentTimeMillis()
+        viewModelScope.launch(safeHandler) {
+            val existing = ledgerDao.getAllRecordsSnapshot()
+                .firstOrNull { it.id == recordId }
+                ?.toDomain()
+                ?: return@launch
+            val result = ConfirmationEngine.resizePlannedRecord(
+                existing = existing,
+                deltaMinutes = deltaMinutes,
+                nowEpochMs = nowMs,
+                zoneId = zone
+            )
+            applyConfirmationAction(result = result, closeEditOnSuccess = false)
+        }
+    }
+
     fun clearAllData() {
         if (_uiState.value.activeTimer != null) {
             showToast("Hãy kết thúc đồng hồ đang chạy trước khi xóa toàn bộ dữ liệu.")
             return
         }
         viewModelScope.launch(safeHandler) {
+            _uiState.value.records.forEach { reminderScheduler.cancelReminder(it.id) }
             database.withTransaction {
                 ledgerDao.deleteAll()
                 dailyReviewDao.deleteAllDailyReviews()
@@ -1360,6 +1978,19 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    fun reorderBudgetPriority(fromCategoryKey: String, toCategoryKey: String) {
+        val updated = BudgetPolicy.reorderBudgetsPreservingGroup(
+            existing = _uiState.value.budgets,
+            fromCategoryKey = fromCategoryKey,
+            toCategoryKey = toCategoryKey,
+            nowMs = System.currentTimeMillis()
+        )
+        if (updated.isEmpty()) return
+        viewModelScope.launch(safeHandler) {
+            budgetDao.upsertBudgetsTransactionally(updated.map { CategoryBudgetEntity.fromDomain(it) })
+        }
+    }
+
     // ------------------- LUỒNG E: DAILY REVIEW & PHẢN TƯ FEYNMAN -------------------
 
     fun openDailyReview(dateLocal: String? = null) {
@@ -1487,11 +2118,131 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         _uiState.update { it.copy(exportedJsonContent = null) }
     }
 
+    fun openImportJsonDialog() {
+        _uiState.update { it.copy(importBackup = ImportBackupUiState()) }
+    }
+
+    fun updateImportJsonText(rawJson: String) {
+        if (rawJson.isBlank()) {
+            _uiState.update {
+                it.copy(
+                    importBackup = (it.importBackup ?: ImportBackupUiState()).copy(
+                        rawJson = rawJson,
+                        parsedPayload = null,
+                        errorMessage = null
+                    )
+                )
+            }
+            return
+        }
+        when (val result = LedgerJsonBackupParser.parse(rawJson)) {
+            is BackupParseResult.Valid -> {
+                _uiState.update {
+                    it.copy(
+                        importBackup = (it.importBackup ?: ImportBackupUiState()).copy(
+                            rawJson = rawJson,
+                            parsedPayload = result.payload,
+                            errorMessage = null
+                        )
+                    )
+                }
+            }
+            is BackupParseResult.Invalid -> {
+                _uiState.update {
+                    it.copy(
+                        importBackup = (it.importBackup ?: ImportBackupUiState()).copy(
+                            rawJson = rawJson,
+                            parsedPayload = null,
+                            errorMessage = result.reasonVi
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    fun closeImportJsonDialog() {
+        _uiState.update { it.copy(importBackup = null) }
+    }
+
+    fun confirmImportJson(mode: BackupRestoreMode) {
+        val currentImport = _uiState.value.importBackup ?: return
+        if (currentImport.isRestoring) return
+        val parseResult = LedgerJsonBackupParser.parse(currentImport.rawJson)
+        if (parseResult is BackupParseResult.Invalid) {
+            _uiState.update {
+                it.copy(
+                    importBackup = currentImport.copy(
+                        parsedPayload = null,
+                        errorMessage = parseResult.reasonVi
+                    )
+                )
+            }
+            return
+        }
+        val payload = (parseResult as BackupParseResult.Valid).payload
+        val previousRecordIds = _uiState.value.records.map { it.id }
+        _uiState.update {
+            it.copy(importBackup = currentImport.copy(parsedPayload = payload, errorMessage = null, isRestoring = true))
+        }
+        viewModelScope.launch(safeHandler) {
+            val outcome = runCatching {
+                LedgerBackupRestorer.restore(
+                    database = database,
+                    payload = payload,
+                    mode = mode
+                )
+            }
+            outcome.onSuccess { summary ->
+                val nowMs = System.currentTimeMillis()
+                if (mode == BackupRestoreMode.REPLACE_ALL) {
+                    previousRecordIds.forEach { reminderScheduler.cancelReminder(it) }
+                }
+                val restoredDomain = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
+                reminderScheduler.syncReminders(restoredDomain, nowMs)
+                _uiState.update { it.copy(importBackup = null) }
+                showToast(summary.toUserMessage())
+            }.onFailure { err ->
+                _uiState.update { state ->
+                    state.copy(
+                        importBackup = state.importBackup?.copy(
+                            isRestoring = false,
+                            errorMessage = err.message ?: "Khôi phục thất bại. Dữ liệu hiện tại được giữ nguyên."
+                        )
+                    )
+                }
+            }
+        }
+    }
+
     // ------------------- WALLY: NHẬP GIỜ THỦ CÔNG -------------------
 
+    private fun syncManualDraftPersistence(form: ManualEntryState, immediate: Boolean = false) {
+        val draft = ManualEntryDraftCoordinator.syncDraft(
+            store = settingsStore,
+            form = form,
+            todayLocal = LocalDate.now().toString(),
+            nowEpochMs = System.currentTimeMillis(),
+            immediate = immediate
+        )
+        _uiState.update { it.copy(pendingManualDraft = draft) }
+    }
+
     fun openManualEntry(categoryKey: String? = null) {
+        if (_uiState.value.manualEntry != null) return
+        val draft = _uiState.value.pendingManualDraft
+            ?: runCatching { settingsStore.loadManualEntryDraft() }.getOrNull()
+        val (restored, activeDraft) = ManualEntryDraftCoordinator.openOrRestore(
+            storedDraft = draft,
+            requestedCategoryKey = categoryKey,
+            tags = _uiState.value.tags,
+            todayLocal = LocalDate.now().toString()
+        )
         _uiState.update {
-            it.copy(manualEntry = ManualEntryState(categoryKey = categoryKey, dateLocal = LocalDate.now().toString()))
+            it.copy(
+                manualEntry = restored,
+                pendingManualDraft = activeDraft
+            )
         }
     }
 
@@ -1516,8 +2267,20 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         }
         viewModelScope.launch(safeHandler) {
             when (val r = createTagInternal(form.newTagName, category)) {
-                is TagActionResult.Created -> _uiState.update {
-                    it.copy(manualEntry = it.manualEntry?.copy(tagId = r.tag.id, categoryKey = r.tag.category.key, creatingTag = false, newTagName = "", error = null))
+                is TagActionResult.Created -> {
+                    var updatedForm: ManualEntryState? = null
+                    _uiState.update {
+                        val next = it.manualEntry?.copy(
+                            tagId = r.tag.id,
+                            categoryKey = r.tag.category.key,
+                            creatingTag = false,
+                            newTagName = "",
+                            error = null
+                        )
+                        updatedForm = next
+                        it.copy(manualEntry = next)
+                    }
+                    updatedForm?.let { syncManualDraftPersistence(it) }
                 }
                 is TagActionResult.Failed -> _uiState.update { it.copy(manualEntry = it.manualEntry?.copy(error = r.message)) }
             }
@@ -1525,14 +2288,41 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun updateManualEntry(transform: (ManualEntryState) -> ManualEntryState) {
+        var nextSnapshot: ManualEntryState? = null
         _uiState.update { state ->
             val current = state.manualEntry ?: return@update state
-            if (current.saving) state else state.copy(manualEntry = transform(current).copy(error = null))
+            if (current.saving) return@update state
+            val next = transform(current).copy(error = null)
+            nextSnapshot = next
+            state.copy(manualEntry = next)
+        }
+        nextSnapshot?.let { syncManualDraftPersistence(it) }
+    }
+
+    /** Thoát khỏi form KHÔNG xóa bản nháp; giữ nguyên để khôi phục khi quay lại hoặc mở lại ứng dụng. */
+    fun closeManualEntry() {
+        _uiState.value.manualEntry?.let { syncManualDraftPersistence(it, immediate = true) }
+        _uiState.update { it.copy(manualEntry = null) }
+    }
+
+    /** Chủ động làm sạch biểu mẫu đang mở (nút Clean) và cấp sessionId mới cho lần nhập sạch. */
+    fun cleanManualEntry() {
+        _uiState.update { state ->
+            val resetForm = ManualEntryDraftCoordinator.cleanAndReset(
+                store = settingsStore,
+                keepSheetOpen = state.manualEntry != null,
+                todayLocal = LocalDate.now().toString()
+            )
+            state.copy(
+                manualEntry = resetForm,
+                pendingManualDraft = null
+            )
         }
     }
 
-    fun closeManualEntry() {
-        _uiState.update { it.copy(manualEntry = null) }
+    fun discardPendingManualDraft() {
+        ManualEntryDraftCoordinator.clearOnCommitSuccess(settingsStore)
+        _uiState.update { it.copy(pendingManualDraft = null) }
     }
 
     fun saveManualEntry() {
@@ -1551,7 +2341,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 dateLocal = form.dateLocal,
                 note = form.note,
                 today = LocalDate.now(zone),
-                nowHm = TimeRange.formatHm(LocalTime.now(zone).hour * 60 + LocalTime.now(zone).minute)
+                nowHm = TimeRange.formatHm(LocalTime.now(zone).hour * 60 + LocalTime.now(zone).minute),
+                saveAsPlanned = form.saveAsPlanned
             )
         } else {
             ManualEntry.validate(
@@ -1562,7 +2353,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 note = form.note,
                 today = LocalDate.now(zone),
                 tagId = form.tagId,
-                tagName = tagName
+                tagName = tagName,
+                saveAsPlanned = form.saveAsPlanned
             )
         }
         if (validation is ManualEntryValidation.Invalid) {
@@ -1574,12 +2366,61 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         _uiState.update { it.copy(manualEntry = it.manualEntry?.copy(saving = true, error = null)) }
 
         val job = viewModelScope.launch(safeHandler) {
+            val nowMs = System.currentTimeMillis()
+            val batchInput = ManualEntry.toBatchInput(validation, form.sessionId)
+            val range = if (!batchInput.startHm.isNullOrBlank() && !batchInput.endHm.isNullOrBlank()) {
+                LedgerValidator.parseTimeRangeToEpochMillis(batchInput.dateLocal, batchInput.startHm, batchInput.endHm, zone)
+            } else null
+
+            if (range != null) {
+                val existing = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
+                val conflicts = ActivityBreakEngine.findAllOverlaps(
+                    startMs = range.first,
+                    endMs = range.second,
+                    existingRecords = existing,
+                    activeTimer = _uiState.value.activeTimer,
+                    nowEpochMs = nowMs
+                )
+                if (conflicts.isNotEmpty()) {
+                    val built = LedgerValidator.validateAndBuildRecord(
+                        id = batchInput.id!!,
+                        source = batchInput.source,
+                        rawTitle = batchInput.rawTitle,
+                        rawCategory = batchInput.rawCategory,
+                        dateLocal = batchInput.dateLocal,
+                        inputDurationMinutes = batchInput.durationMinutes,
+                        startedAt = range.first,
+                        endedAt = range.second,
+                        existingRecords = existing.filterNot { c -> conflicts.any { it.id == c.id } },
+                        activeTimer = null,
+                        nowEpochMs = nowMs,
+                        zoneId = zone,
+                        idempotencyKey = batchInput.idempotencyKey!!,
+                        convertFutureToPlanned = batchInput.convertFutureToPlanned,
+                        tagId = batchInput.tagId
+                    )
+                    if (built is ValidationResult.Valid) {
+                        _uiState.update {
+                            it.copy(
+                                manualEntry = it.manualEntry?.copy(saving = false),
+                                pendingOverlapConflict = PendingOverlapConflict(
+                                    incoming = built.record,
+                                    conflicts = conflicts,
+                                    closeManualOnResolve = true
+                                )
+                            )
+                        }
+                        return@launch
+                    }
+                }
+            }
+
             val result = BatchConfirm.run(
                 dao = ledgerDao,
-                inputs = listOf(ManualEntry.toBatchInput(validation, form.sessionId)),
+                inputs = listOf(batchInput),
                 activeTimer = _uiState.value.activeTimer,
                 readActiveTimer = { settingsStore.loadActiveTimer() },
-                nowEpochMs = System.currentTimeMillis(),
+                nowEpochMs = nowMs,
                 zone = zone
             )
             when (result) {
@@ -1588,10 +2429,23 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 is ConfirmResult.Aborted ->
                     _uiState.update { it.copy(manualEntry = it.manualEntry?.copy(saving = false, error = result.message)) }
                 is ConfirmResult.Committed -> {
-                    _uiState.update { it.copy(manualEntry = null) }
+                    ManualEntryDraftCoordinator.clearOnCommitSuccess(settingsStore)
+                    val needsReminderPermission = validation.saveAsPlanned || (range != null && range.second > nowMs)
+                    _uiState.update {
+                        it.copy(
+                            manualEntry = null,
+                            pendingManualDraft = null,
+                            requestNotificationPermissionNonce = if (needsReminderPermission && result.savedCount > 0) {
+                                it.requestNotificationPermissionNonce + 1
+                            } else {
+                                it.requestNotificationPermissionNonce
+                            }
+                        )
+                    }
                     showToast(
                         if (result.savedCount > 0) {
-                            "Đã ghi ${LedgerAnalyticsCalculator.formatCompactDurationSeconds(validation.durationMinutes * 60L)} ${validation.category.displayName} vào ${validation.dateLocal}."
+                            val label = if (validation.saveAsPlanned) "Dự kiến" else validation.category.displayName
+                            "Đã ghi ${LedgerAnalyticsCalculator.formatCompactDurationSeconds(validation.durationMinutes * 60L)} $label vào ${validation.dateLocal}."
                         } else {
                             ConfirmFeedback.message(0, result.skippedDuplicates)
                         }
@@ -1716,6 +2570,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 s.copy(timerInputTagId = tag.id, timerInputCategoryKey = tag.category.key, timerInputTitle = tag.name)
             }
         }
+        persistPreTimerDraft()
     }
 
     // ------------------- v1.1.0: MỤC TIÊU -------------------
@@ -1830,7 +2685,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         val now = System.currentTimeMillis()
         val digest = CoachDigestBuilder.build(s.records, s.tags, s.goals, days, now, zone)
         val prefs = s.aiPreferences
-        if (!digest.hasAnyData) {
+        if (!digest.hasAnyData && !digest.hasPlanOrStateHistory) {
             _uiState.update { it.copy(coach = CoachUiState(rangeDays = days, facts = digest.facts, requested = true,
                 note = "Chưa có dữ liệu trong kỳ này nên Wally chưa có gì để kể. Hãy ghi nhận vài hoạt động trước.")) }
             return

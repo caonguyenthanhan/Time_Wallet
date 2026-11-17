@@ -47,7 +47,13 @@ data class DayLedgerStats(
     val activeRecordsCount: Int,
     val categoryBreakdown: List<CategoryDurationStat>,
     val untimedCategoryBreakdown: List<CategoryDurationStat> = emptyList(),
-    val plannedCategoryBreakdown: List<CategoryDurationStat> = emptyList()
+    val plannedCategoryBreakdown: List<CategoryDurationStat> = emptyList(),
+    val confirmedCompletedSeconds: Long = 0L,
+    val doingElapsedSeconds: Long = 0L,
+    val parallelOverlapSeconds: Long = 0L,
+    val standaloneCategorySeconds: Map<TimeCategory, Long> = emptyMap(),
+    val pendingConfirmationCount: Int = 0,
+    val reconciliationPendingCount: Int = 0
 ) {
     // Tương thích ngược với các thuộc tính cũ (luôn tách riêng, không bao giờ gộp timed + untimed)
     val unplacedSeconds: Long
@@ -135,6 +141,43 @@ object LedgerAnalyticsCalculator {
     }
 
     /**
+     * Số giây thực tế đã trôi qua của [record] nằm trong khoảng ngày lịch `from..to` theo [zoneId].
+     * Bản ghi có mốc giờ xuyên nửa đêm (`20:00 hôm qua → 07:00 hôm nay`) được cắt chính xác theo ranh giới `00:00`
+     * để Tổng quan, Nhật ký, Phân tích, Mục tiêu và AI Coach luôn thống nhất cùng một nguồn tính.
+     */
+    internal fun recordActualSecondsInDateRange(
+        record: LedgerRecord,
+        from: LocalDate,
+        to: LocalDate,
+        nowEpochMs: Long,
+        zoneId: ZoneId,
+        confirmedFinalOnly: Boolean = false
+    ): Long {
+        if (to.isBefore(from) || record.isCancelled || record.isNeedsReconciliation) return 0L
+        val todayStr = Instant.ofEpochMilli(nowEpochMs).atZone(zoneId).toLocalDate().toString()
+        val conf = record.resolveConfirmationStateAt(nowEpochMs, todayStr)
+        if (confirmedFinalOnly && !conf.isConfirmedFinalActual) return 0L
+        if (record.resolveLayerAt(nowEpochMs, todayStr) == TimeLayer.PLANNED) return 0L
+
+        val start = record.startedAt
+        val end = record.endedAt
+        if (start != null && end != null) {
+            val winStartMs = from.atStartOfDay(zoneId).toInstant().toEpochMilli()
+            val winEndMs = to.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
+            val cutoffEnd = min(record.confirmedCutoffEpochMsAt(nowEpochMs), end)
+            val clipped = clipIntervalToDay(start, cutoffEnd, winStartMs, winEndMs, nowEpochMs) ?: return 0L
+            return ((clipped.second - clipped.first) / 1000L).coerceAtLeast(0L)
+        }
+
+        val d = runCatching { LocalDate.parse(record.date) }.getOrNull() ?: return 0L
+        return if (!d.isBefore(from) && !d.isAfter(to)) {
+            record.actualElapsedSecondsAt(nowEpochMs, todayStr)
+        } else {
+            0L
+        }
+    }
+
+    /**
      * Chuyển bảng mili-giây theo danh mục thành số giây nguyên sao cho tổng theo danh mục khớp [totalSeconds]
      * (Largest Remainder / Hamilton method khi các mảnh < 1s thuộc nhiều danh mục gộp lại thành giây nguyên).
      */
@@ -197,6 +240,13 @@ object LedgerAnalyticsCalculator {
         val isFutureDate = localDate.isAfter(todayLocal)
 
         val rawActualIntervals = mutableListOf<TaggedInterval>()
+        val rawConfirmedIntervals = mutableListOf<TaggedInterval>()
+        val rawDoingIntervals = mutableListOf<TaggedInterval>()
+        val standaloneCategoryMsMap = mutableMapOf<TimeCategory, Long>()
+        var standaloneActualMsTotal = 0L
+        var confirmedUntimedSecondsTotal = 0L
+        var pendingConfirmCount = 0
+        var reconcilePendingCount = 0
         val plannedTimedMsMap = mutableMapOf<TimeCategory, Long>()
         var plannedTimedMsTotal = 0L
         val plannedUntimedCategoryMap = mutableMapOf<TimeCategory, Long>()
@@ -204,7 +254,21 @@ object LedgerAnalyticsCalculator {
         var activeCount = 0
 
         for (record in records) {
+            if (record.isCancelled) continue
+
+            val confState = record.resolveConfirmationStateAt(nowEpochMs, todayLocal.toString())
             val resolvedLayer = record.resolveLayerAt(nowEpochMs, todayLocal.toString())
+
+            val touchesDay = if (record.startedAt != null && record.endedAt != null) {
+                record.endedAt > dayStartMs - 1000L && record.startedAt < dayEndMs + 1000L
+            } else {
+                record.date == dateLocal
+            }
+            if (touchesDay) {
+                if (confState == com.timewallet.mvp.domain.model.ConfirmationState.PENDING_CONFIRMATION) pendingConfirmCount++
+                if (record.isNeedsReconciliation) reconcilePendingCount++
+            }
+            if (record.isNeedsReconciliation) continue
 
             if (resolvedLayer == TimeLayer.ACTIVE && record.date == dateLocal) {
                 activeCount++
@@ -225,13 +289,20 @@ object LedgerAnalyticsCalculator {
                     val confirmedCutoffMs = min(nowEpochMs, record.confirmedCutoffEpochMsAt(nowEpochMs))
                     val rawConfirmedEnd = min(confirmedCutoffMs, end)
                     clipIntervalToDay(start, rawConfirmedEnd, dayStartMs, dayEndMs, nowEpochMs)?.let { (aStart, aEnd) ->
-                        rawActualIntervals.add(
-                            TaggedInterval(
-                                startMs = aStart,
-                                endMs = aEnd,
-                                category = record.category
-                            )
+                        val interval = TaggedInterval(
+                            startMs = aStart,
+                            endMs = aEnd,
+                            category = record.category
                         )
+                        rawActualIntervals.add(interval)
+                        val durMs = aEnd - aStart
+                        standaloneActualMsTotal += durMs
+                        standaloneCategoryMsMap[record.category] = (standaloneCategoryMsMap[record.category] ?: 0L) + durMs
+                        if (confState.isConfirmedFinalActual) {
+                            rawConfirmedIntervals.add(interval)
+                        } else if (confState == com.timewallet.mvp.domain.model.ConfirmationState.DOING) {
+                            rawDoingIntervals.add(interval)
+                        }
                     }
                     // Phần chưa xác nhận hoặc thuộc tương lai -> đưa vào plannedSeconds, KHÔNG tính vào đã sử dụng
                     val unconfirmedStart = max(confirmedCutoffMs, start)
@@ -248,6 +319,8 @@ object LedgerAnalyticsCalculator {
                         plannedUntimedSecondsTotal += record.durationSeconds
                         plannedUntimedCategoryMap[record.category] =
                             (plannedUntimedCategoryMap[record.category] ?: 0L) + record.durationSeconds
+                    } else if (confState.isConfirmedFinalActual) {
+                        confirmedUntimedSecondsTotal += record.durationSeconds
                     }
                 }
             }
@@ -302,7 +375,11 @@ object LedgerAnalyticsCalculator {
                 }
             }
         }
-        val timedSecondsTotal = timedMsTotal / 1000L
+        val timedSecondsTotal = unionMsOf(rawActualIntervals) / 1000L
+        val confirmedTimedSeconds = unionMsOf(rawConfirmedIntervals) / 1000L
+        val doingElapsedSeconds = unionMsOf(rawDoingIntervals) / 1000L
+        val parallelOverlapSeconds = ((standaloneActualMsTotal - timedMsTotal).coerceAtLeast(0L)) / 1000L
+        val standaloneCategorySeconds = standaloneCategoryMsMap.mapValues { (_, ms) -> ms / 1000L }.filterValues { it > 0L }
         val categorySecondsMap = conserveCategorySecondsFromMs(categoryMsMap, timedSecondsTotal)
 
         // Thời lượng chưa gắn giờ (REPORTED_UNTIMED) — tách riêng theo danh mục, không cộng vào timedSecondsTotal
@@ -311,7 +388,9 @@ object LedgerAnalyticsCalculator {
         if (!isFutureDate) {
             records
                 .filter {
-                    it.date == dateLocal &&
+                    !it.isCancelled &&
+                        !it.isNeedsReconciliation &&
+                        it.date == dateLocal &&
                         it.startedAt == null &&
                         it.endedAt == null &&
                         it.layer != TimeLayer.PLANNED &&
@@ -370,8 +449,28 @@ object LedgerAnalyticsCalculator {
             activeRecordsCount = activeCount,
             categoryBreakdown = breakdown,
             untimedCategoryBreakdown = untimedBreakdown,
-            plannedCategoryBreakdown = plannedBreakdown
+            plannedCategoryBreakdown = plannedBreakdown,
+            confirmedCompletedSeconds = confirmedTimedSeconds + confirmedUntimedSecondsTotal,
+            doingElapsedSeconds = doingElapsedSeconds,
+            parallelOverlapSeconds = parallelOverlapSeconds,
+            standaloneCategorySeconds = standaloneCategorySeconds,
+            pendingConfirmationCount = pendingConfirmCount,
+            reconciliationPendingCount = reconcilePendingCount
         )
+    }
+
+    private fun unionMsOf(intervals: List<TaggedInterval>): Long {
+        if (intervals.isEmpty()) return 0L
+        val boundaries = intervals.flatMap { listOf(it.startMs, it.endMs) }.distinct().sorted()
+        var sum = 0L
+        for (i in 0 until boundaries.size - 1) {
+            val s = boundaries[i]
+            val e = boundaries[i + 1]
+            if (e > s && intervals.any { it.startMs <= s && it.endMs >= e }) {
+                sum += (e - s)
+            }
+        }
+        return sum
     }
 
     /**

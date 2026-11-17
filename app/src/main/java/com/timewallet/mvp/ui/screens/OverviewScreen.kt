@@ -12,15 +12,24 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,6 +44,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.timewallet.mvp.R
+import com.timewallet.mvp.data.local.ManualEntryDraft
 import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.model.TimeBudgetProgress
 import com.timewallet.mvp.domain.model.TimeCategory
@@ -66,6 +76,10 @@ fun OverviewScreen(
     onOpenDailyReview: () -> Unit = {},
     onOpenBudgetEditor: (TimeCategory?) -> Unit = {},
     onAddManual: () -> Unit = {},
+    onConfirmOrResolveRecord: (LedgerRecord) -> Unit = {},
+    pendingManualDraft: ManualEntryDraft? = null,
+    onResumeManualDraft: () -> Unit = {},
+    onCleanManualDraft: () -> Unit = {},
     onNavigateToTab: (AppTab) -> Unit
 ) {
     val dateHeader = remember(todayDateLocal) {
@@ -222,23 +236,29 @@ fun OverviewScreen(
                         }
                     }
                 } else {
-                    val donutDescription = summary.slices.joinToString(", ") { "${it.category.displayName} ${it.percent}%" }
+                    val displaySlices = remember(summary.slices) { capDonutSlices(summary.slices, maxSlices = 6) }
+                    var selectedSliceIndex by remember(displaySlices) { mutableStateOf<Int?>(null) }
+                    val selectedSlice = selectedSliceIndex?.let { displaySlices.getOrNull(it) }
+                    val donutDescription = displaySlices.joinToString(", ") { "${it.category.displayName} ${it.percent}%" }
                     DonutWithLegend(
-                        slices = summary.slices,
-                        centerTop = recordedFormatted,
-                        centerBottom = "đã ghi nhận",
-                        description = "Biểu đồ phân bổ theo danh mục: $donutDescription"
+                        slices = displaySlices,
+                        centerTop = selectedSlice?.let { fmt(it.seconds) } ?: recordedFormatted,
+                        centerBottom = selectedSlice?.let { "${it.category.displayName} · ${it.percent}%" } ?: "đã ghi nhận",
+                        description = "Biểu đồ phân bổ theo danh mục: $donutDescription",
+                        selectedIndex = selectedSliceIndex,
+                        onSelectSlice = { selectedSliceIndex = it }
                     ) {
-                        summary.slices.take(5).forEach { slice ->
+                        displaySlices.forEachIndexed { idx, slice ->
                             LegendRow(
                                 label = "${slice.category.emoji} ${slice.category.displayName}",
                                 value = fmt(slice.seconds),
                                 dot = Color(slice.category.colorHex),
-                                percentText = "${slice.percent}%"
+                                percentText = "${slice.percent}%",
+                                isSelected = selectedSliceIndex == idx,
+                                onClick = {
+                                    selectedSliceIndex = if (selectedSliceIndex == idx) null else idx
+                                }
                             )
-                        }
-                        if (summary.slices.size > 5) {
-                            Text(text = "+${summary.slices.size - 5} danh mục khác", fontSize = 12.sp, color = WalletMuted)
                         }
                     }
                 }
@@ -387,6 +407,103 @@ fun OverviewScreen(
                         if (idx < shown.lastIndex) HorizontalDivider(color = Color(0xFFEFF2EE))
                     }
                 }
+            }
+        }
+
+        val pendingActionRecords = remember(recentRecords) {
+            val now = System.currentTimeMillis()
+            recentRecords.filter { !it.isCancelled && (it.isNeedsReconciliation || it.requiresCompletionConfirmationAt(now)) }
+        }
+        if (pendingActionRecords.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SectionTitle(
+                    text = "Cần xác nhận & đối soát",
+                    actionText = "Xem tất cả",
+                    onAction = { onNavigateToTab(AppTab.HISTORY) }
+                )
+                SoftCard(padding = 14.dp) {
+                    val now = System.currentTimeMillis()
+                    val shownPending = pendingActionRecords.take(3)
+                    shownPending.forEachIndexed { idx, record ->
+                        ActivityRecordRow(
+                            record = record,
+                            nowEpochMs = now,
+                            todayDateLocal = todayDateLocal,
+                            showEditAndDelete = true,
+                            onConfirmActualClick = onConfirmOrResolveRecord,
+                            onEditClick = null,
+                            onDeleteClick = null
+                        )
+                        if (idx < shownPending.lastIndex) HorizontalDivider(color = Color(0xFFEFF2EE))
+                    }
+                }
+            }
+        }
+
+        if (pendingManualDraft != null) {
+            var confirmCleanOverviewDraft by remember { mutableStateOf(false) }
+            val catLabel = pendingManualDraft.categoryKey?.let { TimeCategory.fromKeyOrNull(it)?.displayName } ?: "Chưa chọn nhóm"
+            val summaryTitle = pendingManualDraft.note.ifBlank { catLabel }
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SectionTitle("Bản nháp đang nhập dở")
+                SoftCard(padding = 14.dp) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "$summaryTitle · ${pendingManualDraft.dateLocal}",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = WalletInk
+                        )
+                        Text(
+                            text = "Chưa ghi vào sổ cái và chưa tính vào thống kê.",
+                            fontSize = 12.sp,
+                            color = WalletMuted
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { confirmCleanOverviewDraft = true },
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                            ) {
+                                Text("Clean · Xóa nháp", color = Color(0xFFB3261E), fontSize = 12.5.sp)
+                            }
+                            Button(
+                                onClick = onResumeManualDraft,
+                                colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                            ) {
+                                Text("Tiếp tục nhập", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                            }
+                        }
+                    }
+                }
+            }
+            if (confirmCleanOverviewDraft) {
+                AlertDialog(
+                    onDismissRequest = { confirmCleanOverviewDraft = false },
+                    containerColor = Color.White,
+                    title = { Text("Xóa bản nháp đang nhập dở?", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
+                    text = {
+                        Text(
+                            "Nội dung nháp \"$summaryTitle\" sẽ bị xóa sạch để bắt đầu ghi nhận mới.",
+                            fontSize = 12.5.sp,
+                            color = WalletMuted
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                confirmCleanOverviewDraft = false
+                                onCleanManualDraft()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB3261E))
+                        ) { Text("Xóa nháp", fontWeight = FontWeight.Bold) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { confirmCleanOverviewDraft = false }) {
+                            Text("Giữ lại", color = WalletMuted)
+                        }
+                    }
+                )
             }
         }
     }

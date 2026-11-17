@@ -74,7 +74,7 @@ object GeminiProposalClient {
     const val SAFE_FALLBACK_WARNING_VI =
         "Không thể kết nối máy chủ AI. Hãy thử lại hoặc Ghi thủ công."
 
-    const val PROMPT_VERSION = "wally-prompt-7"
+    const val PROMPT_VERSION = "wally-prompt-8"
 
     // v1.0.13: 45 s overall (was 30 s). Observed gemini latency p50 ~8 s, p95 ~21 s, max ~34 s: 30 s timed out valid answers.
     private const val DEADLINE_MS = 45_000L
@@ -210,7 +210,7 @@ object GeminiProposalClient {
     // ------------------------------------------------------------------------------------------------ v1.1.0: AI Time Coach
 
     /** Phiên bản prompt của Coach (tách khỏi [PROMPT_VERSION] của chat: prompt chat và các test ghim nó không đổi). */
-    const val COACH_PROMPT_VERSION = "wally-coach-3"
+    const val COACH_PROMPT_VERSION = "wally-coach-4"
 
     val coachSystemPrompt: String = """
         Bạn là Wally Coach: kể một câu chuyện ngắn, thân thiện từ dữ liệu thời gian cá nhân. Người dùng cung cấp KHỐI DỮ LIỆU đã được ứng dụng tính sẵn.
@@ -218,13 +218,14 @@ object GeminiProposalClient {
         QUY TẮC BẮT BUỘC:
         1. Chỉ nhắc các con số CÓ TRONG khối dữ liệu, chép đúng như đã cho (ví dụ "30 phút", "2 giờ"). Không tự cộng, trừ, làm tròn khác hay suy ra số mới. Nếu không chắc một con số, đừng nêu số. Khi gợi ý, chỉ dùng các mức đã có trong khối dữ liệu (ví dụ mức mục tiêu hiện tại); mức MỚI chỉ đặt trong "suggestions", tuyệt đối không nhắc con số mới đó trong "story".
         2. "Chưa có bản ghi" nghĩa là CHƯA GHI NHẬN, không phải người dùng không làm. Dùng "chưa ghi nhận"; không viết "bạn không chạy/đọc/học/tập...".
-        3. Không phán xét. Giải trí không phải lãng phí. Không dùng các từ như lười, lãng phí, thất bại, vô ích. Giọng ấm áp, tối đa 5 câu.
-        4. Không khẳng định hay đoán nguyên nhân – kết quả, lý do, cảm xúc hay ý định của người dùng (ví dụ "để thư giãn", "vì mệt", "sau khi tập trung"). Thêm "có vẻ"/"có lẽ" KHÔNG làm cho một lời đoán trở nên hợp lệ. Chỉ nêu điều có trong số liệu: cái gì được ghi, bao nhiêu, ngày nào, so với mục tiêu và so với các ngày khác.
-        5. Nếu dữ liệu mỏng hoặc nhiều thời gian chưa gắn Tag, nói rõ mức đầy đủ của dữ liệu và nhận xét thận trọng.
-        6. Bạn không ghi, lưu, sửa hay xóa gì và không tự đặt mục tiêu; không nói "mình đã/sẽ ghi, lưu, tạo, đặt...". Được dùng "đã ghi nhận" để MÔ TẢ dữ liệu có sẵn của người dùng.
-        7. Có thể gợi ý MỘT thay đổi nhỏ, thực tế theo kiểu "nếu phù hợp với lịch của bạn", dựa trên mục tiêu và số liệu có thật.
-        8. Trường "suggestions" (tùy chọn, tối đa 2) là đề xuất mục tiêu mới để người dùng tự quyết: {"targetType":"tag"|"category","target":"<đúng tên Tag hoặc khóa danh mục có trong dữ liệu>","kind":"MIN"|"MAX","period":"DAY"|"WEEK","minutes":<số nguyên>}. Chỉ đề xuất khi dữ liệu ủng hộ; có thể để mảng rỗng.
-        9. Chỉ trả về MỘT JSON object hợp lệ: {"story":"...","suggestions":[]}
+        3. Không phán xét. Giải trí, nghỉ ngơi có chủ đích hay đọc sách xen giữa KHÔNG phải lãng phí hay mất tập trung tiêu cực. Không dùng các từ như lười, lãng phí, thất bại, vô ích. Giọng ấm áp, tối đa 5 câu.
+        4. Không khẳng định hay đoán nguyên nhân – kết quả, lý do, cảm xúc hay ý định của người dùng (ví dụ "để thư giãn", "vì mệt", "sau khi tập trung"). Thêm "có vẻ"/"có lẽ" KHÔNG làm cho một lời đoán trở nên hợp lệ. Chỉ nêu điều có trong số liệu: cái gì được ghi, bao nhiêu, ngày nào, so với mục tiêu, so với kế hoạch/gián đoạn/điều chỉnh và so với các ngày khác.
+        5. Phân biệt rõ KẾ HOẠCH DỰ KIẾN, ĐANG DIỄN RA, CHỜ XÁC NHẬN, CẦN ĐỐI SOÁT, ĐÃ HỦY với THỰC TẾ ĐÃ XÁC NHẬN. Tuyệt đối không dùng dữ liệu đang chờ xác nhận hoặc cần đối soát như sự thật đã hoàn thành; chỉ đánh giá đạt mục tiêu dựa trên thời gian thực tế đã xác nhận.
+        6. Nếu dữ liệu mỏng hoặc nhiều thời gian chưa gắn Tag, nói rõ mức đầy đủ của dữ liệu và nhận xét thận trọng.
+        7. Bạn không ghi, lưu, sửa hay xóa gì và không tự đặt mục tiêu; không nói "mình đã/sẽ ghi, lưu, tạo, đặt...". Được dùng "đã ghi nhận" để MÔ TẢ dữ liệu có sẵn của người dùng.
+        8. Có thể gợi ý MỘT thay đổi nhỏ, thực tế theo kiểu "nếu phù hợp với lịch của bạn", dựa trên mục tiêu, khoảng nghỉ, điều chỉnh hoặc gián đoạn có trong dữ liệu.
+        9. Trường "suggestions" (tùy chọn, tối đa 2) là đề xuất mục tiêu mới để người dùng tự quyết: {"targetType":"tag"|"category","target":"<đúng tên Tag hoặc khóa danh mục có trong dữ liệu>","kind":"MIN"|"MAX","period":"DAY"|"WEEK","minutes":<số nguyên>}. Chỉ đề xuất khi dữ liệu ủng hộ; có thể để mảng rỗng.
+        10. Chỉ trả về MỘT JSON object hợp lệ: {"story":"...","suggestions":[]}
     """.trimIndent()
 
     /** Kết quả thô của Coach: chưa qua [com.timewallet.mvp.domain.usecase.CoachGuard]. */
@@ -431,6 +432,10 @@ object GeminiProposalClient {
     private fun testFailureDetail(f: AiHttpException): String = when {
         f.fault == AiFault.RATE_LIMIT && f.retryAfterMs != null ->
             f.fault.messageVi + " Thử lại sau khoảng ${(f.retryAfterMs + 999) / 1000} giây."
+        f.fault == AiFault.SERVER ->
+            "Tuyến model hiện tại trên máy chủ AI đang gặp lỗi (5xx). Hãy đổi sang model khác (ví dụ cinb/claude-sonnet-4-6) hoặc thử lại sau."
+        f.fault == AiFault.NOT_FOUND ->
+            "Không tìm thấy endpoint hoặc model này trên máy chủ (404). Kiểm tra Base URL hoặc chọn lại model."
         f.fault == AiFault.MALFORMED ->
             "Máy chủ trả mã thành công (2xx) nhưng nội dung không phải phản hồi chat-completions hợp lệ. Kiểm tra Base URL có đúng địa chỉ API chat không."
         f.fault == AiFault.UNKNOWN && f.status in 300..399 ->
@@ -517,6 +522,13 @@ object GeminiProposalClient {
                "hôm kia" = 2 ngày trước; "ngày mai"/"mai" = ngày sau.
                Nếu câu có tiền tố ngày (ví dụ "Hôm qua: học 1h, đọc 30p") thì áp dụng cho mọi hoạt động trong câu.
                Không có từ chỉ ngày thì dateLocal = ngày hiện tại.
+            5b. XUYÊN NỬA ĐÊM / QUA HAI NGÀY (UC-15) & MỐC GIỜ MƠ HỒ:
+                - Khi hoạt động bắt đầu ở ngày trước và kết thúc sang ngày hôm sau (ví dụ "ngủ từ 20h tối hôm qua đến 7h sáng hôm nay"):
+                  BẮT BUỘC đặt dateLocal = ngày BẮT ĐẦU (ngày hôm qua), startLocal = "20:00", endLocal = "07:00",
+                  durationSeconds = khoảng thời gian xuyên đêm (tối đa 86400), timeEvidence = "explicit_range", missingFields = [].
+                - KHÔNG TỰ SUY ĐOÁN khi mốc giờ 1–12 thiếu từ chỉ buổi ("sáng/trưa/chiều/tối/đêm") khiến giờ bắt đầu hoặc kết thúc mơ hồ
+                  (chẳng hạn "từ 8h ngày hôm qua đến 7h sáng hôm nay"): để proposals = [], queries = [], và hỏi lại MỘT câu ngắn kết thúc bằng dấu "?"
+                  chỉ dùng đúng số giờ người dùng nêu (chẳng hạn "Bạn bắt đầu lúc 8h sáng hay 8h tối hôm qua?").
             6. MỆNH ĐỀ TỔNG HỢP: BỎ QUA các mệnh đề chốt tổng thời gian ("tổng cộng 5 tiếng", "cả ngày hết 8h").
                Không tạo proposal cho mệnh đề tổng hợp; chỉ tạo proposal cho từng hoạt động riêng lẻ.
             7. GIỜ 12h: "2h chiều" = 14:00, "10h tối" = 22:00; luôn trả startLocal/endLocal theo định dạng 24h "HH:mm".

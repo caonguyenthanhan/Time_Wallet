@@ -84,7 +84,8 @@ class WallyManualEntryTest {
         assertTrue(bad(h = "24", m = "30")!!.contains("24 giờ"))
         assertTrue(bad(m = "1x")!!.contains("số"))
         assertTrue(bad(date = "not-a-date")!!.contains("Ngày"))
-        assertTrue(bad(date = today.plusDays(1).toString())!!.contains("tương lai"))
+        val tomorrowValid = ManualEntry.validate("work", "", "30", today.plusDays(1).toString(), "", today)
+        assertTrue("ngày tương lai cho phép nhập dưới dạng Dự kiến", tomorrowValid is ManualEntryValidation.Valid && tomorrowValid.saveAsPlanned)
     }
 
     @Test

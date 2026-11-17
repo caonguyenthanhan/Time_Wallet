@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.layout.padding
@@ -62,8 +63,15 @@ import com.timewallet.mvp.ui.theme.WalletMicroText
 import com.timewallet.mvp.ui.theme.WalletMint
 import com.timewallet.mvp.ui.theme.WalletMuted
 import com.timewallet.mvp.ui.theme.WalletStroke
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.fillMaxSize
@@ -73,11 +81,17 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import com.timewallet.mvp.R
+import com.timewallet.mvp.ui.theme.WalletMintDark
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -105,7 +119,8 @@ fun ChatScreen(
     onConfirmSingleProposal: (String) -> Unit,
     onConfirmAllProposals: () -> Unit,
     lastUserMessage: String?,
-    onLastUserMessageChange: (String?) -> Unit
+    onLastUserMessageChange: (String?) -> Unit,
+    onCleanChatInput: () -> Unit = {}
 ) {
     // v1.0.11: ba gợi ý ngắn thay cho năm chip; câu đầy đủ vẫn được điền vào ô nhập để người dùng xem/sửa trước khi gửi.
     val examples = listOf(
@@ -118,8 +133,17 @@ fun ChatScreen(
     val scroll = rememberScrollState()
     // Màn thấp (xoay ngang): ẩn đầu trang và gợi ý nhanh để vùng hội thoại còn đủ chỗ đọc và ô nhập luôn thấy được.
     val compactHeight = LocalConfiguration.current.screenHeightDp < 480
+    val maxBubbleWidth = ((LocalConfiguration.current.screenWidthDp.dp - 32.dp) * 0.75f).coerceIn(220.dp, 360.dp)
     val hasReply = isAnalyzing || chatAnswer != null || chatFault != null || proposals.isNotEmpty()
     LaunchedEffect(hasReply) { if (!hasReply) onLastUserMessageChange(null) }
+    var lastUserTimeText by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(lastUserMessage) {
+        lastUserTimeText = if (lastUserMessage != null) {
+            LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))
+        } else {
+            ""
+        }
+    }
     // v1.0.13 (F4): nút Gửi biến thành nút Hủy tại chỗ nên cú chạm thứ hai của bấm đúp rơi vào Hủy. Hủy hiện ra nhưng khóa trong CancelArming.DEFAULT_ARM_MS
     // đầu (ViewModel/WallyChatRunner cũng bỏ qua Hủy trong cửa sổ đó); chạm sau đó hủy ngay như cũ. Ô này bắt đầu muộn hơn đồng hồ của runner ít nhất một khung hình,
     // nên khi nút sáng lên thì runner chắc chắn đã "lên đạn".
@@ -187,11 +211,12 @@ fun ChatScreen(
         }
         }
 
-        // Hội thoại (cuộn); ô nhập luôn ghim ở dưới.
+        // Hội thoại (cuộn, role log / live region); ô nhập luôn ghim ở dưới.
         Column(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
+                .semantics { liveRegion = LiveRegionMode.Polite }
                 .verticalScroll(scroll),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -225,13 +250,33 @@ fun ChatScreen(
                     )
                 }
             } else {
-                lastUserMessage?.let { UserBubble(it) }
+                lastUserMessage?.let { sentText ->
+                    val statusLabel = when {
+                        isAnalyzing -> "Đã gửi ✓"
+                        chatAnswer != null || proposals.isNotEmpty() -> "Wally đã xem ✓✓"
+                        chatFault != null -> "Đã gửi"
+                        else -> "Đã gửi ✓"
+                    }
+                    UserBubble(
+                        text = sentText,
+                        maxWidth = maxBubbleWidth,
+                        timeText = lastUserTimeText.ifBlank { null },
+                        statusText = statusLabel,
+                        isRead = !isAnalyzing && (chatAnswer != null || proposals.isNotEmpty())
+                    )
+                }
             }
 
             if (isAnalyzing) {
-                WallyBubble {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(text = "Wally đang trả lời…", fontSize = 13.5.sp, color = WalletMuted, modifier = Modifier.weight(1f))
+                WallyBubble(maxWidth = maxBubbleWidth) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        WallyTypingDots()
+                        Text(
+                            text = "Wally đang soạn…",
+                            fontSize = 12.5.sp,
+                            color = WalletMuted,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
                         TextButton(onClick = onCancelAnalysis, enabled = cancelArmed, modifier = Modifier.heightIn(min = 48.dp)) {
                             Text("Hủy", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
@@ -241,8 +286,13 @@ fun ChatScreen(
 
             // WALLY: lỗi AI không được im lặng; luôn có Thử lại và đường ghi thủ công. Nội dung đã nhập được giữ.
             if (chatFault != null) {
-                WallyBubble(tint = Color(0xFFFFF8E8)) {
-                    val needsSetup = chatFault == AiFault.NOT_CONFIGURED || chatFault == AiFault.CONFIG || chatFault == AiFault.AUTH || chatFault == AiFault.KEY_INVALID
+                WallyBubble(tint = Color(0xFFFFF8E8), maxWidth = maxBubbleWidth) {
+                    val needsSetup = chatFault == AiFault.NOT_CONFIGURED ||
+                        chatFault == AiFault.CONFIG ||
+                        chatFault == AiFault.AUTH ||
+                        chatFault == AiFault.KEY_INVALID ||
+                        chatFault == AiFault.NOT_FOUND ||
+                        chatFault == AiFault.SERVER
                     Text(
                         text = if (lastAnalysisSource == OutcomeSource.NOT_CONFIGURED) "Wally chưa được cấu hình AI" else "Wally chưa trả lời được",
                         fontSize = 12.sp, fontWeight = FontWeight.Bold, color = WalletMuted
@@ -277,7 +327,7 @@ fun ChatScreen(
             }
 
             if (aiPreferences.keyUnavailable) {
-                WallyBubble(tint = Color(0xFFFFF8E8)) {
+                WallyBubble(tint = Color(0xFFFFF8E8), maxWidth = maxBubbleWidth) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -294,7 +344,10 @@ fun ChatScreen(
 
             // AI-01: câu trả lời số liệu (chỉ-đọc, tính cục bộ)
             if (chatAnswer != null) {
-                WallyBubble(tint = if (chatAnswer.isClarification) Color(0xFFFFF8E8) else Color.White) {
+                WallyBubble(
+                    tint = if (chatAnswer.isClarification) Color(0xFFFFF8E8) else Color.White,
+                    maxWidth = maxBubbleWidth
+                ) {
                     ChatAnswerContent(
                         answer = chatAnswer,
                         onDismiss = onDismissAnswer,
@@ -337,6 +390,7 @@ fun ChatScreen(
             }
         }
 
+        var showCleanChatConfirm by remember { mutableStateOf(false) }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -350,6 +404,16 @@ fun ChatScreen(
                 placeholder = { Text("Kể tiếp ngày của bạn…", fontSize = 14.sp) },
                 minLines = 1,
                 maxLines = 4,
+                trailingIcon = if (chatInputText.isNotBlank() && !isAnalyzing) {
+                    {
+                        TextButton(
+                            onClick = { showCleanChatConfirm = true },
+                            modifier = Modifier.semantics { contentDescription = "Clean · Xóa nhập liệu" }
+                        ) {
+                            Text("✕", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = WalletMuted)
+                        }
+                    }
+                } else null,
                 shape = RoundedCornerShape(26.dp),
                 modifier = Modifier.weight(1f)
             )
@@ -392,16 +456,48 @@ fun ChatScreen(
                 GlyphIcon(WalletGlyph.SEND, color = Color.White, size = 24.dp)
             }
         }
+        if (showCleanChatConfirm) {
+            AlertDialog(
+                onDismissRequest = { showCleanChatConfirm = false },
+                containerColor = Color.White,
+                title = { Text("Xóa nội dung đang nhập?", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
+                text = {
+                    Text(
+                        "Câu nháp đang gõ ở Wally sẽ bị xóa sạch để bắt đầu nhập mới.",
+                        fontSize = 12.5.sp,
+                        color = WalletMuted
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showCleanChatConfirm = false
+                            onCleanChatInput()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB3261E))
+                    ) { Text("Xóa nhập liệu", fontWeight = FontWeight.Bold) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showCleanChatConfirm = false }) {
+                        Text("Giữ lại", color = WalletMuted)
+                    }
+                }
+            )
+        }
     }
 }
 
-/** Bong bóng của Wally: avatar + nội dung (nền trắng hoặc nền cảnh báo). */
+/** Bong bóng của Wally (chat-start): avatar + nội dung bo rộng với đuôi góc dưới-trái, rộng tối đa ~75% cột. */
 @Composable
-private fun WallyBubble(tint: Color = Color.White, content: @Composable () -> Unit) {
+private fun WallyBubble(
+    tint: Color = Color.White,
+    maxWidth: androidx.compose.ui.unit.Dp = 300.dp,
+    content: @Composable () -> Unit
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.Top
+        verticalAlignment = Alignment.Bottom
     ) {
         Image(
             painter = painterResource(id = R.drawable.ic_wally),
@@ -410,26 +506,81 @@ private fun WallyBubble(tint: Color = Color.White, content: @Composable () -> Un
         )
         Column(
             modifier = Modifier
-                .weight(1f)
-                .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 20.dp, bottomEnd = 20.dp, bottomStart = 20.dp))
+                .widthIn(max = maxWidth)
+                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomEnd = 20.dp, bottomStart = 5.dp))
                 .background(tint)
-                .padding(14.dp)
+                .padding(horizontal = 14.dp, vertical = 12.dp)
         ) { content() }
     }
 }
 
-/** Bong bóng của người dùng (căn phải, màu thương hiệu). */
+/** Chỉ báo đang gõ: 3 chấm nảy nối tiếp nhau trong bong bóng của Wally. */
 @Composable
-private fun UserBubble(text: String) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+private fun WallyTypingDots(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "wallyTypingDots")
+    Row(
+        modifier = modifier
+            .padding(vertical = 4.dp)
+            .semantics { contentDescription = "Wally đang soạn câu trả lời" },
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        (0..2).forEach { idx ->
+            val bounce by transition.animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(
+                        durationMillis = 520,
+                        delayMillis = idx * 140,
+                        easing = FastOutSlowInEasing
+                    ),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "dotBounce_$idx"
+            )
+            Box(
+                modifier = Modifier
+                    .offset(y = (-5f * bounce).dp)
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(WalletMint.copy(alpha = 0.45f + 0.55f * bounce))
+            )
+        }
+    }
+}
+
+/** Bong bóng của người dùng (chat-end): căn phải, màu thương hiệu, đuôi góc dưới-phải, tối đa ~75% cột + dòng metadata dưới cùng. */
+@Composable
+private fun UserBubble(
+    text: String,
+    maxWidth: androidx.compose.ui.unit.Dp = 300.dp,
+    timeText: String? = null,
+    statusText: String? = null,
+    isRead: Boolean = false
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.End
+    ) {
         Box(
             modifier = Modifier
-                .widthIn(max = 300.dp)
-                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 6.dp, bottomEnd = 20.dp, bottomStart = 20.dp))
+                .widthIn(max = maxWidth)
+                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomEnd = 5.dp, bottomStart = 20.dp))
                 .background(WalletMint)
                 .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
             Text(text = text, fontSize = 14.sp, color = Color.White, lineHeight = 20.sp)
+        }
+        val meta = listOfNotNull(timeText?.takeIf { it.isNotBlank() }, statusText?.takeIf { it.isNotBlank() }).joinToString(" · ")
+        if (meta.isNotEmpty()) {
+            Text(
+                text = meta,
+                fontSize = 11.sp,
+                fontWeight = if (isRead) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (isRead) WalletMintDark else WalletMuted,
+                modifier = Modifier.padding(top = 3.dp, end = 4.dp)
+            )
         }
     }
 }

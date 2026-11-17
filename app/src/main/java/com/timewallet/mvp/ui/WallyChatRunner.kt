@@ -54,7 +54,8 @@ class WallyChatRunner(
     private val launchContext: CoroutineContext = EmptyCoroutineContext,
     val owner: ChatRequestOwner = ChatRequestOwner(),
     // v1.0.13 (F4): mặc định armMs = 0 (Hủy có hiệu lực ngay) cho test/F3-F5; ViewModel truyền CancelArming() = 700 ms để bấm đúp Gửi không tự hủy.
-    private val cancelArming: CancelArming = CancelArming(armMs = 0L)
+    private val cancelArming: CancelArming = CancelArming(armMs = 0L),
+    private val onChatInputConsumed: () -> Unit = {}
 ) {
     val epoch: AnalysisEpoch get() = owner.epoch
 
@@ -152,6 +153,9 @@ class WallyChatRunner(
                 when (step) {
                     Step.STALE -> return
                     Step.APPLIED -> {
+                        if (state.value.chatInputText.isEmpty()) {
+                            onChatInputConsumed()
+                        }
                         if (outcome.fault == null && newDrafts.isNotEmpty()) {
                             toast(ChatAnalysisFeedback.toastMessage(newDrafts.size, effective.warnings))
                         } else if (outcome.fault == null && !producedCard) {

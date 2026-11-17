@@ -152,7 +152,7 @@ class V1012OwnerSentenceTest {
     fun `the static prompt documents the until-now rule with the owner example and the version moved`() {
         val s = GeminiProposalClient.staticSystemPrompt
         assertTrue(s.contains("đến giờ") && s.contains("Code từ lúc 14h đến giờ") && s.contains("currentTime"))
-        assertEquals("wally-prompt-7", GeminiProposalClient.PROMPT_VERSION)
+        assertEquals("wally-prompt-8", GeminiProposalClient.PROMPT_VERSION)
         assertNotNull(GeminiProposalClient.staticPromptHash)
     }
 }

@@ -31,10 +31,15 @@ object LedgerValidator {
         existingRecords: List<LedgerRecord>,
         activeTimer: ActiveTimerSession? = null,
         nowEpochMs: Long = System.currentTimeMillis(),
-        excludeRecordId: String? = null
+        excludeRecordId: String? = null,
+        parallelGroupId: String? = null
     ): String? {
         val hit = existingRecords.firstOrNull { record ->
+            val sameParallelGroup = !parallelGroupId.isNullOrBlank() &&
+                record.overlapResolution == com.timewallet.mvp.domain.model.OverlapResolution.PARALLEL_CONFIRMED &&
+                record.relationGroupId == parallelGroupId
             record.id != excludeRecordId &&
+                !sameParallelGroup &&
                 record.isTimedActualOrActive &&
                 record.startedAt != null &&
                 record.endedAt != null &&
@@ -145,7 +150,14 @@ object LedgerValidator {
         idempotencyKey: String = UUID.randomUUID().toString(),
         excludeRecordId: String? = null,
         convertFutureToPlanned: Boolean = false,
-        tagId: String? = null
+        tagId: String? = null,
+        confirmationStateOverride: String? = null,
+        plannedStartedAt: Long? = null,
+        plannedEndedAt: Long? = null,
+        plannedDurationSeconds: Long? = null,
+        overlapResolutionOverride: String? = null,
+        relationGroupId: String? = null,
+        overlapWithTitle: String? = null
     ): ValidationResult {
         val title = rawTitle.trim()
         if (title.isEmpty()) {
@@ -171,6 +183,10 @@ object LedgerValidator {
 
         val isPlanned = convertFutureToPlanned || isFutureDate || isFutureStart
 
+        val isNeedsReconciliation = com.timewallet.mvp.domain.model.OverlapResolution.fromStorage(overlapResolutionOverride)
+            .isUnresolvedReconciliation
+        val isParallel = com.timewallet.mvp.domain.model.OverlapResolution.fromStorage(overlapResolutionOverride) ==
+            com.timewallet.mvp.domain.model.OverlapResolution.PARALLEL_CONFIRMED
         val finalDurationSeconds: Long
         if (startedAt != null && endedAt != null) {
             if (endedAt <= startedAt) {
@@ -191,14 +207,15 @@ object LedgerValidator {
             }
             finalDurationSeconds = computedSeconds
 
-            if (!isPlanned) {
+            if (!isPlanned && !isNeedsReconciliation) {
                 val overlappingTitle = findOverlap(
                     startEpochMs = startedAt,
                     endEpochMs = endedAt,
                     existingRecords = existingRecords,
                     activeTimer = if (source == "timer") null else activeTimer,
                     nowEpochMs = nowEpochMs,
-                    excludeRecordId = excludeRecordId
+                    excludeRecordId = excludeRecordId,
+                    parallelGroupId = if (isParallel) relationGroupId else null
                 )
                 if (overlappingTitle != null) {
                     return ValidationResult.Invalid("Bị trùng mốc giờ thực tế với \"$overlappingTitle\".")
@@ -235,6 +252,15 @@ object LedgerValidator {
             parsedDate.toString()
         }
 
+        val effectiveConfirmationState = confirmationStateOverride ?: when (layer) {
+            TimeLayer.PLANNED -> com.timewallet.mvp.domain.model.ConfirmationState.PLANNED.name
+            TimeLayer.ACTIVE -> com.timewallet.mvp.domain.model.ConfirmationState.DOING.name
+            else -> com.timewallet.mvp.domain.model.ConfirmationState.COMPLETED.name
+        }
+        val effectivePlannedStart = plannedStartedAt ?: if (isPlanned || isSpanningNow) startedAt else null
+        val effectivePlannedEnd = plannedEndedAt ?: if (isPlanned || isSpanningNow) endedAt else null
+        val effectivePlannedDuration = plannedDurationSeconds ?: if (isPlanned || isSpanningNow) finalDurationSeconds else null
+
         return ValidationResult.Valid(
             LedgerRecord(
                 id = id,
@@ -251,7 +277,14 @@ object LedgerValidator {
                 timezone = zoneId.id,
                 status = status,
                 idempotencyKey = idempotencyKey,
-                tagId = tagId
+                tagId = tagId,
+                confirmationStateRaw = effectiveConfirmationState,
+                plannedStartedAt = effectivePlannedStart,
+                plannedEndedAt = effectivePlannedEnd,
+                plannedDurationSeconds = effectivePlannedDuration,
+                overlapResolutionRaw = overlapResolutionOverride,
+                relationGroupId = relationGroupId,
+                overlapWithTitle = overlapWithTitle
             )
         )
     }
@@ -315,7 +348,11 @@ object LedgerValidator {
                     durationSeconds = actualSeconds,
                     endedAt = effectiveEndMs,
                     userConfirmedAt = nowEpochMs,
-                    status = "CONFIRMED"
+                    status = "CONFIRMED",
+                    confirmationStateRaw = com.timewallet.mvp.domain.model.ConfirmationState.COMPLETED.name,
+                    plannedStartedAt = record.plannedStartedAt ?: record.startedAt,
+                    plannedEndedAt = record.plannedEndedAt ?: record.endedAt,
+                    plannedDurationSeconds = record.plannedDurationSeconds ?: record.durationSeconds
                 )
             )
         } else {
@@ -323,7 +360,8 @@ object LedgerValidator {
                 record.copy(
                     layer = TimeLayer.REPORTED_UNTIMED,
                     userConfirmedAt = nowEpochMs,
-                    status = "CONFIRMED"
+                    status = "CONFIRMED",
+                    confirmationStateRaw = com.timewallet.mvp.domain.model.ConfirmationState.COMPLETED.name
                 )
             )
         }
@@ -392,7 +430,10 @@ object LedgerValidator {
                 zoneId = zoneId,
                 idempotencyKey = item.idempotencyKey ?: UUID.randomUUID().toString(),
                 convertFutureToPlanned = item.convertFutureToPlanned,
-                tagId = item.tagId
+                tagId = item.tagId,
+                overlapResolutionOverride = item.overlapResolutionRaw,
+                relationGroupId = item.relationGroupId,
+                overlapWithTitle = item.overlapWithTitle
             )
 
             when (validation) {
@@ -426,7 +467,10 @@ data class BatchRecordInput(
     val convertFutureToPlanned: Boolean = false,
     val idempotencyKey: String? = null,
     /** v1.1.0: Tag cá nhân (id) gắn vào bản ghi sẽ tạo; null = không gắn. */
-    val tagId: String? = null
+    val tagId: String? = null,
+    val overlapResolutionRaw: String? = null,
+    val relationGroupId: String? = null,
+    val overlapWithTitle: String? = null
 )
 
 sealed class BatchValidationResult {

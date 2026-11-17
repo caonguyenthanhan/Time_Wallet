@@ -74,15 +74,19 @@ import com.timewallet.mvp.data.diagnostics.CrashRecorder
 import com.timewallet.mvp.data.diagnostics.CrashReportInfo
 import com.timewallet.mvp.R
 import com.timewallet.mvp.data.local.AiPreferences
+import com.timewallet.mvp.data.local.BackupRestoreMode
 import com.timewallet.mvp.domain.model.BudgetPeriod
 import com.timewallet.mvp.domain.model.CategoryTimeBudget
+import com.timewallet.mvp.domain.model.ConfirmationState
 import com.timewallet.mvp.domain.model.LedgerRecord
+import com.timewallet.mvp.domain.model.OverlapResolution
 import com.timewallet.mvp.domain.model.TimeBudgetProgress
 import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.model.TimeLayer
 import com.timewallet.mvp.domain.usecase.ApiKeyHygiene
 import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
 import com.timewallet.mvp.ui.AppTab
+import com.timewallet.mvp.ui.ImportBackupUiState
 import com.timewallet.mvp.ui.theme.WalletCardBg
 import com.timewallet.mvp.ui.theme.WalletDangerBg
 import com.timewallet.mvp.ui.theme.WalletDangerBorder
@@ -412,27 +416,50 @@ fun ActivityRecordRow(
     val resolvedLayer = remember(record, nowEpochMs, todayDateLocal) {
         record.resolveLayerAt(nowEpochMs, todayDateLocal)
     }
+    val confState = remember(record, nowEpochMs, todayDateLocal) {
+        record.resolveConfirmationStateAt(nowEpochMs, todayDateLocal)
+    }
+    val overlapRes = remember(record) { record.overlapResolution }
     val timeDescription = remember(record, resolvedLayer, nowEpochMs) {
         formatRecordWhenLabelVi(record, resolvedLayer, nowEpochMs)
     }
-    val durationText = remember(record, resolvedLayer, nowEpochMs) {
-        if (resolvedLayer == TimeLayer.ACTIVE) {
-            val actualSecs = record.actualElapsedSecondsAt(nowEpochMs, todayDateLocal)
-            "${LedgerAnalyticsCalculator.formatCompactDurationSeconds(actualSecs)} / ${
-                LedgerAnalyticsCalculator.formatCompactDurationSeconds(record.durationSeconds)
-            }"
-        } else {
-            LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(record.durationSeconds)
+    val durationText = remember(record, resolvedLayer, confState, nowEpochMs) {
+        when {
+            record.isCancelled -> "0p (đã hủy)"
+            record.isNeedsReconciliation -> "Chưa tính · ${LedgerAnalyticsCalculator.formatCompactDurationSeconds(record.durationSeconds)}"
+            resolvedLayer == TimeLayer.ACTIVE && confState != ConfirmationState.PENDING_CONFIRMATION -> {
+                val actualSecs = record.actualElapsedSecondsAt(nowEpochMs, todayDateLocal)
+                "${LedgerAnalyticsCalculator.formatCompactDurationSeconds(actualSecs)} / ${
+                    LedgerAnalyticsCalculator.formatCompactDurationSeconds(record.durationSeconds)
+                }"
+            }
+            else -> LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(record.durationSeconds)
         }
     }
 
     val needsCompletionConfirm = remember(record, nowEpochMs) {
         record.requiresCompletionConfirmationAt(nowEpochMs)
     }
-    val badgeLabel = if (needsCompletionConfirm) "Cần chốt giờ" else resolvedLayer.badgeShortVi
+    val badgeLabel = when {
+        confState == ConfirmationState.CANCELLED -> "Đã hủy"
+        overlapRes == OverlapResolution.PENDING -> "Chờ đối soát"
+        overlapRes == OverlapResolution.BREAK_REJECTED -> "Cần làm rõ"
+        needsCompletionConfirm -> "Chờ xác nhận"
+        overlapRes == OverlapResolution.PARALLEL_CONFIRMED -> "Song song"
+        resolvedLayer == TimeLayer.ACTIVE -> resolvedLayer.badgeShortVi
+        overlapRes == OverlapResolution.BREAK_CONFIRMED && resolvedLayer != TimeLayer.PLANNED -> "Khoảng nghỉ"
+        confState == ConfirmationState.INTERRUPTED -> "Gián đoạn"
+        confState == ConfirmationState.ADJUSTED -> "Đã điều chỉnh"
+        else -> resolvedLayer.badgeShortVi
+    }
 
     val (badgeBg, badgeTextColor) = when {
+        confState == ConfirmationState.CANCELLED -> Color(0xFFF0F2F1) to Color(0xFF63736B)
+        overlapRes == OverlapResolution.PENDING -> Color(0xFFFFF0D9) to Color(0xFF9C540B)
+        overlapRes == OverlapResolution.BREAK_REJECTED -> Color(0xFFFDECEC) to Color(0xFFB42318)
         needsCompletionConfirm -> Color(0xFFFFECCC) to Color(0xFF9C540B)
+        overlapRes == OverlapResolution.PARALLEL_CONFIRMED -> Color(0xFFE6EEFF) to Color(0xFF1D4ED8)
+        confState == ConfirmationState.INTERRUPTED -> Color(0xFFFFF3E0) to Color(0xFFA15C07)
         resolvedLayer == TimeLayer.MEASURED -> Color(0xFFDDF3E8) to Color(0xFF175C47)
         resolvedLayer == TimeLayer.REPORTED_TIMED -> Color(0xFFE7F4EA) to Color(0xFF256B48)
         resolvedLayer == TimeLayer.REPORTED_UNTIMED -> Color(0xFFEDF1EE) to Color(0xFF5A6B62)
@@ -442,9 +469,8 @@ fun ActivityRecordRow(
 
     val canConfirmToActual = showEditAndDelete &&
         onConfirmActualClick != null &&
-        (resolvedLayer == TimeLayer.PLANNED || resolvedLayer == TimeLayer.ACTIVE) &&
-        (record.startedAt == null || record.startedAt <= nowEpochMs) &&
-        (todayDateLocal == null || record.date <= todayDateLocal)
+        !record.isCancelled &&
+        (record.isNeedsReconciliation || resolvedLayer == TimeLayer.PLANNED || resolvedLayer == TimeLayer.ACTIVE)
 
     Row(
         modifier = Modifier
@@ -504,7 +530,9 @@ fun ActivityRecordRow(
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 // v1.0.11: nhãn trạng thái và mốc giờ nằm cùng một dòng (tự xuống dòng khi hẹp); nhãn đã nêu tầng dữ liệu nên bỏ phần lặp.
-                val rangeOnly = resolvedLayer == TimeLayer.MEASURED || resolvedLayer == TimeLayer.REPORTED_TIMED
+                val rangeOnly = !record.isNeedsReconciliation &&
+                    !record.isCancelled &&
+                    (resolvedLayer == TimeLayer.MEASURED || resolvedLayer == TimeLayer.REPORTED_TIMED)
                 val shownWhen = when {
                     rangeOnly -> timeDescription.substringBefore(" · ")
                     resolvedLayer == TimeLayer.REPORTED_UNTIMED && timeDescription.startsWith("Chưa gắn giờ · ") ->
@@ -569,19 +597,25 @@ fun ActivityRecordRow(
                     }
                 }
             }
-            // Dòng 3 (hiếm): nút chốt thực tế nằm riêng để không ép dòng 1-2.
+            // Dòng 3 (hiếm): nút xác nhận / điều chỉnh trạng thái hoặc đối soát chồng lấn.
             if (canConfirmToActual) {
+                val actionBg = if (record.isNeedsReconciliation) Color(0xFFB55D0E) else WalletMint
+                val actionLabel = when {
+                    record.isNeedsReconciliation -> "⚖ Đối soát chồng lấn"
+                    needsCompletionConfirm -> "✓ Xác nhận kết quả"
+                    else -> "⚙ Xác nhận / Điều chỉnh"
+                }
                 Box(
                     modifier = Modifier
                         .minimumInteractiveComponentSize()
                         .clip(RoundedCornerShape(6.dp))
-                        .background(WalletMint)
-                        .semantics { contentDescription = "Chốt ${record.title} thành thực tế"; role = Role.Button }
+                        .background(actionBg)
+                        .semantics { contentDescription = "$actionLabel ${record.title}"; role = Role.Button }
                         .clickable { onConfirmActualClick?.invoke(record) }
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = "✓ Chốt thực tế",
+                        text = actionLabel,
                         fontSize = cappedSp(12f),
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -610,15 +644,37 @@ fun formatRecordWhenLabelVi(
         val crossDay = startZoned.toLocalDate() != endZoned.toLocalDate()
         val rangeStr = "${startZoned.format(hmFormatter)}–${endZoned.format(hmFormatter)}${if (crossDay) " (+1 ngày)" else ""}"
 
+        val confState = record.resolveConfirmationStateAt(nowEpochMs)
+        val overlapSuffix = when (record.overlapResolution) {
+            OverlapResolution.PENDING -> " · Chờ đối soát (${record.overlapWithTitle ?: "trùng giờ"})"
+            OverlapResolution.BREAK_REJECTED -> " · Cần làm rõ (${record.overlapWithTitle ?: "không phải nghỉ"})"
+            OverlapResolution.PARALLEL_CONFIRMED -> " · Hoạt động song song"
+            OverlapResolution.BREAK_CONFIRMED -> " · Khoảng nghỉ xác nhận"
+            OverlapResolution.NONE -> ""
+        }
+        if (confState == ConfirmationState.CANCELLED) {
+            return "$rangeStr · Đã hủy (không diễn ra)"
+        }
+        if (record.isNeedsReconciliation) {
+            return "$rangeStr$overlapSuffix"
+        }
+
         return when (resolvedLayer) {
-            TimeLayer.MEASURED -> "$rangeStr · Đã đo đồng hồ"
-            TimeLayer.REPORTED_TIMED -> "$rangeStr · Thực tế có giờ"
+            TimeLayer.MEASURED -> "$rangeStr · Đã đo đồng hồ$overlapSuffix"
+            TimeLayer.REPORTED_TIMED -> {
+                val stateLabel = when (confState) {
+                    ConfirmationState.ADJUSTED -> "Đã điều chỉnh & xác nhận"
+                    ConfirmationState.INTERRUPTED -> "Gián đoạn / kết thúc sớm"
+                    else -> "Thực tế có giờ"
+                }
+                "$rangeStr · $stateLabel$overlapSuffix"
+            }
             TimeLayer.ACTIVE -> {
                 if (record.requiresCompletionConfirmationAt(nowEpochMs)) {
-                    "$rangeStr · Qua giờ dự kiến, cần chốt kết thúc thực tế"
+                    "$rangeStr · Đã tới giờ dự kiến, chờ bạn xác nhận$overlapSuffix"
                 } else {
                     val nowHm = Instant.ofEpochMilli(nowEpochMs).atZone(zone).format(hmFormatter)
-                    "$rangeStr · Đang diễn ra (tính tới $nowHm)"
+                    "$rangeStr · Đang diễn ra (tính tới $nowHm)$overlapSuffix"
                 }
             }
             TimeLayer.PLANNED -> "$rangeStr · Dự kiến (chưa tính vào đã dùng)"
@@ -956,6 +1012,204 @@ fun ExportJsonDialog(
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ImportJsonDialog(
+    state: ImportBackupUiState,
+    onJsonChange: (String) -> Unit,
+    onPickFileClick: () -> Unit,
+    onConfirm: (BackupRestoreMode) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selectedMode by remember { mutableStateOf(BackupRestoreMode.MERGE_SAFE) }
+    val parsed = state.parsedPayload
+
+    AlertDialog(
+        onDismissRequest = { if (!state.isRestoring) onDismiss() },
+        containerColor = Color.White,
+        title = {
+            Text(
+                text = "Nhập & khôi phục dữ liệu (JSON)",
+                fontSize = 16.5.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = WalletInk
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(WalletMicroBg)
+                        .padding(9.dp)
+                ) {
+                    Text(
+                        text = "• Chọn tệp .json đã xuất (hoặc dán nội dung JSON) để chuyển dữ liệu sang bản Release mà không mất bản ghi, tag, mục tiêu, ngân sách hay phản tư.\n" +
+                            "• Khóa API AI & cấu hình bảo mật được giữ riêng trên thiết bị, không bị ghi đè.",
+                        fontSize = 10.5.sp,
+                        color = WalletMicroText,
+                        lineHeight = 14.5.sp
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = onPickFileClick,
+                    enabled = !state.isRestoring,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                ) {
+                    Text("Chọn tệp .JSON từ thiết bị", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                }
+
+                if (state.rawJson.length > 20_000) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFFF3F6F3))
+                            .border(1.dp, WalletStroke, RoundedCornerShape(10.dp))
+                            .padding(10.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = "Đã nạp tệp JSON (${state.rawJson.length} ký tự). Xem trước 500 ký tự đầu:\n" +
+                                    state.rawJson.take(500) + "…",
+                                fontSize = 10.sp,
+                                color = WalletInk,
+                                lineHeight = 14.sp
+                            )
+                            TextButton(
+                                onClick = { onJsonChange("") },
+                                enabled = !state.isRestoring,
+                                modifier = Modifier.heightIn(min = 48.dp)
+                            ) {
+                                Text("Xóa nội dung đã nạp", fontSize = 11.5.sp)
+                            }
+                        }
+                    }
+                } else {
+                    OutlinedTextField(
+                        value = state.rawJson,
+                        onValueChange = onJsonChange,
+                        enabled = !state.isRestoring,
+                        label = { Text("Nội dung sao lưu JSON") },
+                        placeholder = { Text("{\"schemaVersion\": 1, \"items\": [...]}") },
+                        minLines = 3,
+                        maxLines = 6,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                if (!state.errorMessage.isNullOrBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(WalletDangerBg)
+                            .border(1.dp, WalletDangerBorder, RoundedCornerShape(9.dp))
+                            .padding(9.dp)
+                    ) {
+                        Text(
+                            text = state.errorMessage,
+                            fontSize = 11.sp,
+                            color = WalletDangerText,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+
+                if (parsed != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(WalletMintSoft)
+                            .border(1.dp, WalletMint.copy(alpha = 0.4f), RoundedCornerShape(9.dp))
+                            .padding(9.dp)
+                    ) {
+                        Text(
+                            text = "Hợp lệ · Phát hiện ${parsed.records.size} bản ghi, ${parsed.tags.size} tag, " +
+                                "${parsed.goals.size} mục tiêu, ${parsed.budgets.size} ngân sách, " +
+                                "${parsed.dailyReviews.size} phản tư ngày.",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = WalletInk,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Chế độ khôi phục",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = WalletInk
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    BackupRestoreMode.entries.forEach { mode ->
+                        val active = selectedMode == mode
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (active) (if (mode == BackupRestoreMode.REPLACE_ALL) WalletDangerBg else WalletMintSoft) else Color(0xFFF3F6F3))
+                                .border(
+                                    1.dp,
+                                    if (active) (if (mode == BackupRestoreMode.REPLACE_ALL) WalletDangerText else WalletMint) else WalletStroke,
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .walletClickable(
+                                    onClickLabel = mode.labelVi,
+                                    enabled = !state.isRestoring,
+                                    onClick = { selectedMode = mode }
+                                )
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = mode.labelVi,
+                                fontSize = 11.5.sp,
+                                fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                                color = if (active && mode == BackupRestoreMode.REPLACE_ALL) WalletDangerText else WalletInk
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = if (selectedMode == BackupRestoreMode.MERGE_SAFE) {
+                        "Gộp an toàn: Giữ dữ liệu đang có, chỉ thêm bản ghi chưa trùng mã/khóa và không chồng lấn giờ."
+                    } else {
+                        "Khôi phục toàn bộ: Thay thế toàn bộ sổ cái, tag, mục tiêu, ngân sách và phản tư hiện tại bằng tệp sao lưu (nên dùng khi chuyển máy/Debug → Release)."
+                    },
+                    fontSize = 10.5.sp,
+                    color = if (selectedMode == BackupRestoreMode.REPLACE_ALL) WalletDangerText else WalletMuted,
+                    lineHeight = 14.5.sp
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(selectedMode) },
+                enabled = parsed != null && state.errorMessage == null && !state.isRestoring,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (selectedMode == BackupRestoreMode.REPLACE_ALL) WalletDangerText else WalletMint
+                )
+            ) {
+                Text(
+                    text = if (state.isRestoring) "Đang khôi phục…" else selectedMode.labelVi,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !state.isRestoring) {
+                Text("Hủy", color = WalletMuted)
+            }
+        }
+    )
+}
+
 @Composable
 fun AiSettingsDialog(
     initialPreferences: AiPreferences,
@@ -1086,10 +1340,35 @@ fun AiSettingsDialog(
                     value = modelName,
                     onValueChange = { modelName = it },
                     label = { Text("Tên model") },
-                    placeholder = { Text("cinb/gemini-3.8-flash") },
+                    placeholder = { Text(AiPreferences.DEFAULT_AI_MODEL) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        AiPreferences.DEFAULT_AI_MODEL to "Mặc định ổn định",
+                        "cinb/gemini-3.8-flash" to "Gemini (khi rảnh tải)"
+                    ).forEach { (preset, tagLabel) ->
+                        val selectedPreset = modelName.trim() == preset
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (selectedPreset) WalletMintSoft else Color(0xFFF3F6F3))
+                                .border(1.dp, if (selectedPreset) WalletMint else WalletStroke, RoundedCornerShape(8.dp))
+                                .walletClickable(onClickLabel = "Chọn model $preset") { modelName = preset }
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Column {
+                                Text(preset, fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = WalletInk, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(tagLabel, fontSize = 8.5.sp, color = WalletMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
 
                 // WALLY: kiểm tra kết nối bằng payload tổng hợp "ping"; không gửi nhật ký của bạn.
                 OutlinedButton(
@@ -1101,6 +1380,14 @@ fun AiSettingsDialog(
                 }
                 if (!connectionTestMessage.isNullOrBlank()) {
                     Text(text = connectionTestMessage, fontSize = 11.sp, color = WalletInk, lineHeight = 15.sp)
+                    if (connectionTestMessage.startsWith("✗") && (connectionTestMessage.contains("503") || connectionTestMessage.contains("5xx") || connectionTestMessage.contains("403") || connectionTestMessage.contains("404"))) {
+                        Text(
+                            text = "Gợi ý: Nếu tuyến đang chọn lỗi 503/403 hoặc 404, hãy chạm chọn \"${AiPreferences.DEFAULT_AI_MODEL}\" ở trên rồi Kiểm tra kết nối lại.",
+                            fontSize = 10.sp,
+                            color = Color(0xFF9C540B),
+                            lineHeight = 14.sp
+                        )
+                    }
                 }
                 if (diagnosticsText.isNotBlank()) {
                     Text("Chẩn đoán gần đây (không chứa khóa hay nội dung nhật ký)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = WalletMuted)
@@ -1291,7 +1578,11 @@ fun TimeBudgetItemCard(
     progress: TimeBudgetProgress,
     compactMode: Boolean = false,
     onEditClick: (TimeCategory) -> Unit,
-    onDeleteClick: ((TimeCategory) -> Unit)? = null
+    onDeleteClick: ((TimeCategory) -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    isBeingDragged: Boolean = false,
+    dragHandleContent: (@Composable () -> Unit)? = null,
+    extraFooterContent: (@Composable () -> Unit)? = null
 ) {
     val cat = progress.category
     val catColor = Color(cat.colorHex)
@@ -1301,24 +1592,29 @@ fun TimeBudgetItemCard(
     val percentInt = (progress.combinedProgressFraction * 100f).toInt()
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
-            .background(Color.White)
-            .border(1.dp, Color(0xFFE8EEE9), RoundedCornerShape(20.dp))
+            .background(if (isBeingDragged) Color(0xFFF6FBF8) else Color.White)
+            .border(
+                width = if (isBeingDragged) 2.dp else 1.dp,
+                color = if (isBeingDragged) WalletMint else Color(0xFFE8EEE9),
+                shape = RoundedCornerShape(20.dp)
+            )
             .semantics { role = Role.Button }
             .heightIn(min = 48.dp)
             .clickable { onEditClick(cat) }
             .padding(if (compactMode) 14.dp else 16.dp)
     ) {
         // v1.0.10 - bố cục XẾP CHỒNG (không còn một hàng ngang ép chữ):
-        // hàng 1 = biểu tượng + TÊN (tối đa 2 dòng) + sửa/xóa; hàng 2 = chip kỳ hạn/ưu tiên + nhãn còn/vượt (tự xuống dòng nguyên khối);
+        // hàng 1 = (tay kéo) + biểu tượng + TÊN (tối đa 2 dòng) + sửa/xóa; hàng 2 = chip kỳ hạn/ưu tiên + nhãn còn/vượt (tự xuống dòng nguyên khối);
         // hàng 3 = câu tiến độ ở TOÀN BỘ chiều rộng thẻ; sau đó là thanh tiến độ như cũ.
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            dragHandleContent?.invoke()
             Box(
                 modifier = Modifier
                     .size(if (compactMode) 38.dp else 42.dp)
@@ -1487,6 +1783,7 @@ fun TimeBudgetItemCard(
                 color = Color(0xFF7B8C81)
             )
         }
+        extraFooterContent?.invoke()
     }
 }
 

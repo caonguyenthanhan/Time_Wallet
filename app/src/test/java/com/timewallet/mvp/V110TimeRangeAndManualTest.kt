@@ -117,9 +117,16 @@ class V110TimeRangeAndManualTest {
     }
 
     @Test
-    fun `range entry refuses future days and a future end time today but accepts a past day`() {
-        assertTrue(range("14:00", "15:00", date = today.plusDays(1).toString()) is ManualEntryValidation.Invalid)
-        assertTrue("kết thúc 17:00 khi bây giờ là 16:30", range("15:00", "17:00") is ManualEntryValidation.Invalid)
+    fun `range entry accepts future day as PLANNED and ongoing interval as DOING while validating inputs`() {
+        val futureDay = range("14:00", "15:00", date = today.plusDays(1).toString()) as ManualEntryValidation.Valid
+        assertTrue(futureDay.saveAsPlanned)
+        val futureRec = (LedgerValidator.validateBatchAtomic(listOf(ManualEntry.toBatchInput(futureDay, "f1")), emptyList(), null, nowMs, zone) as BatchValidationResult.Valid).records.single()
+        assertEquals(TimeLayer.PLANNED, futureRec.layer)
+
+        val ongoing = range("15:00", "17:00") as ManualEntryValidation.Valid
+        val ongoingRec = (LedgerValidator.validateBatchAtomic(listOf(ManualEntry.toBatchInput(ongoing, "o1")), emptyList(), null, nowMs, zone) as BatchValidationResult.Valid).records.single()
+        assertEquals(TimeLayer.ACTIVE, ongoingRec.layer)
+
         assertTrue(range("14:00", "15:00", date = today.minusDays(1).toString()) is ManualEntryValidation.Valid)
         assertTrue("chưa chọn nhóm", range("14:00", "15:00", cat = null) is ManualEntryValidation.Invalid)
     }

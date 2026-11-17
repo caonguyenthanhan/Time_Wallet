@@ -54,17 +54,26 @@ object TimeRange {
 
     /**
      * @param nowHm đồng hồ hiện tại "HH:mm" (bắt buộc khi [end] là [End.Now]).
-     * @param isToday ngày ghi nhận có phải hôm nay không ("Bây giờ" chỉ có nghĩa với hôm nay).
+     * @param isToday ngày ghi nhận có phải hôm nay không.
+     * @param allowEndNowFromYesterday cho phép chọn "Bây giờ" khi ngày bắt đầu là hôm qua (vd ngủ từ tối hôm qua tới sáng nay).
      */
-    fun compute(startHm: String?, end: End, nowHm: String?, isToday: Boolean): Result {
+    fun compute(
+        startHm: String?,
+        end: End,
+        nowHm: String?,
+        isToday: Boolean,
+        allowEndNowFromYesterday: Boolean = false
+    ): Result {
         val start = parseMinuteOfDay(startHm)
             ?: return Result.Invalid("Hãy nhập giờ bắt đầu, ví dụ 14:00.")
         val endMinute: Int = when (end) {
             is End.At -> parseMinuteOfDay(end.hm) ?: return Result.Invalid("Hãy nhập giờ kết thúc, ví dụ 15:12.")
             End.Now -> {
-                if (!isToday) return Result.Invalid("\"Bây giờ\" chỉ dùng cho hôm nay. Hãy nhập giờ kết thúc.")
+                if (!isToday && !allowEndNowFromYesterday) {
+                    return Result.Invalid("\"Bây giờ\" chỉ dùng cho hôm nay hoặc bắt đầu từ hôm qua. Hãy nhập giờ kết thúc.")
+                }
                 val now = parseMinuteOfDay(nowHm) ?: return Result.Invalid("Không đọc được giờ hiện tại.")
-                if (start > now) return Result.Invalid("Giờ bắt đầu chưa tới. Chọn giờ bắt đầu trước bây giờ.")
+                if (isToday && start > now) return Result.Invalid("Giờ bắt đầu chưa tới. Chọn giờ bắt đầu trước bây giờ.")
                 now
             }
         }
@@ -74,7 +83,7 @@ object TimeRange {
             )
         }
         val crosses = endMinute < start
-        if (crosses && end === End.Now) return Result.Invalid("Giờ bắt đầu chưa tới. Chọn giờ bắt đầu trước bây giờ.")
+        if (crosses && end === End.Now && isToday) return Result.Invalid("Giờ bắt đầu chưa tới. Chọn giờ bắt đầu trước bây giờ.")
         val minutes = if (crosses) (24 * 60 - start) + endMinute else endMinute - start
         return Result.Ok(formatHm(start), formatHm(endMinute), minutes, crosses)
     }

@@ -113,9 +113,23 @@ object AiProposalGuard {
         VietnameseChatParser.unresolvableNegationReason(text)?.let { reason ->
             return Result(emptyList(), listOf(reason))
         }
+        VietnameseChatParser.findAmbiguousCrossDayClock(text)?.let { ambiguous ->
+            return Result(
+                emptyList(),
+                listOf("Mốc giờ \"$ambiguous\" trong khoảng xuyên ngày chưa rõ sáng hay tối nên Wally chưa tự suy đoán. Hãy nói rõ buổi (ví dụ \"20h tối\" hoặc \"8h sáng\").")
+            )
+        }
 
         val warnings = mutableListOf<String>()
         var kept = proposals
+
+        val crossDayMatches = text.split(',', ';', '\n').mapNotNull { VietnameseChatParser.extractCrossDayRange(it) }
+        if (crossDayMatches.any { it.exceeds24Hours }) {
+            return Result(
+                emptyList(),
+                listOf("Khoảng thời gian xuyên ngày vượt quá 24 giờ nên không thể ghi trong một hoạt động thủ công hoặc chat.")
+            )
+        }
 
         val clauses = VietnameseChatParser.durationClauses(text)
         if (clauses.any { it.negated }) {
@@ -143,7 +157,36 @@ object AiProposalGuard {
             }
         }
         kept = reconcileOpenEnded(text, kept, today, nowTime, warnings)
+        kept = reconcileCrossDayAnchors(crossDayMatches, kept, today, warnings)
         return Result(kept, warnings)
+    }
+
+    private fun reconcileCrossDayAnchors(
+        matches: List<VietnameseChatParser.CrossDayRangeMatch>,
+        proposals: List<ActivityProposal>,
+        today: LocalDate?,
+        warnings: MutableList<String>
+    ): List<ActivityProposal> {
+        if (today == null || matches.isEmpty()) return proposals
+        val yest = matches.firstOrNull { !it.exceeds24Hours && it.startDayOffset < 0 } ?: return proposals
+        val expectedDate = today.plusDays(yest.startDayOffset.toLong()).toString()
+        var shifted = false
+        val out = proposals.map { p ->
+            if (p.timeEvidence == "explicit_range" &&
+                p.startLocal == yest.range.startLocal &&
+                p.endLocal == yest.range.endLocal &&
+                p.dateLocal == today.toString()
+            ) {
+                shifted = true
+                p.copy(dateLocal = expectedDate, isFuturePlanned = false)
+            } else {
+                p
+            }
+        }
+        if (shifted) {
+            warnings += "Đã neo ngày bắt đầu về $expectedDate cho hoạt động xuyên qua nửa đêm."
+        }
+        return out
     }
 
     private val OPEN_END_PHRASE = Rx.uni("(?:đến|tới)\\s+(?:bây\\s+giờ|giờ|nay|lúc\\s+này)")
@@ -195,15 +238,31 @@ object AiProposalGuard {
         null
     }
 
-    /** Đề xuất khoảng giờ của hôm nay có giờ bắt đầu khớp mệnh đề "đến giờ": thời lượng của nó đến từ đồng hồ, không phải từ con số nào trong câu. */
-    private fun isOpenEndedRange(p: ActivityProposal, starts: Set<Int>, today: LocalDate?): Boolean =
-        starts.isNotEmpty() && p.timeEvidence == "explicit_range" && (today == null || p.dateLocal == today.toString()) &&
+    internal fun hasYesterdayBeforeOpenEnded(text: String): Boolean {
+        val t = VietnameseChatParser.restoreUnaccented(text.lowercase(Locale("vi")))
+        return openEndedPhraseMatches(t).any { m ->
+            val before = t.substring(0, m.range.first)
+            val clauseStart = (before.lastIndexOfAny(charArrayOf(',', ';', '.', '\n', '!', '?')) + 1)
+            val clause = before.substring(clauseStart)
+            clause.contains("hôm qua") || clause.contains("đêm qua")
+        }
+    }
+
+    /** Đề xuất khoảng giờ của hôm nay (hoặc bắt đầu từ hôm qua khi có "hôm qua/đêm qua") có giờ bắt đầu khớp mệnh đề "đến giờ". */
+    private fun isOpenEndedRange(p: ActivityProposal, starts: Set<Int>, today: LocalDate?, allowYesterday: Boolean = false): Boolean {
+        val expectedDates: Set<String>? = today?.let { d ->
+            buildSet {
+                add(d.toString())
+                if (allowYesterday) add(d.minusDays(1).toString())
+            }
+        }
+        return starts.isNotEmpty() && p.timeEvidence == "explicit_range" &&
+            (expectedDates == null || p.dateLocal in expectedDates) &&
             parseHm(p.startLocal)?.let { it in starts } == true
+    }
 
     /**
-     * v1.0.12: "Code từ lúc 14h đến giờ" — giờ kết thúc là NGHĨA ĐEN của câu (giờ hiện tại do ứng dụng cung cấp), không phải điều AI đoán.
-     * Chỉ chỉnh đề xuất khoảng giờ của HÔM NAY có giờ bắt đầu khớp mệnh đề "đến giờ" (liên kết theo giờ bắt đầu, không theo thứ tự hay số lượng),
-     * khi bắt đầu nằm trước bây giờ và giờ kết thúc AI đưa lệch quá 2 phút. Bắt đầu không trước bây giờ thì giữ nguyên và cảnh báo.
+     * v1.0.12 + v1.2.0 (UC-15): "Code từ lúc 14h đến giờ" / "Ngủ từ 22h tối hôm qua đến giờ" — giờ kết thúc là giờ hiện tại do ứng dụng cung cấp.
      */
     private fun reconcileOpenEnded(
         text: String,
@@ -215,13 +274,29 @@ object AiProposalGuard {
         if (today == null || nowTime == null) return proposals
         val starts = openEndedStartCandidates(text)
         if (starts.isEmpty()) return proposals
+        val allowYesterday = hasYesterdayBeforeOpenEnded(text)
+        val yesterdayStr = today.minusDays(1).toString()
         val nowMin = nowTime.hour * 60 + nowTime.minute
         val nowHm = "%02d:%02d".format(nowTime.hour, nowTime.minute)
         return proposals.map { p ->
-            if (!isOpenEndedRange(p, starts, today)) return@map p
+            if (!isOpenEndedRange(p, starts, today, allowYesterday)) return@map p
             val end = parseHm(p.endLocal) ?: return@map p
-            if (kotlin.math.abs(end - nowMin) <= 2) return@map p
             val startMin = parseHm(p.startLocal) ?: return@map p
+            if (allowYesterday && (p.dateLocal == yesterdayStr || (p.dateLocal == today.toString() && startMin > nowMin))) {
+                val expectedMins = (1440 - startMin) + nowMin
+                if (expectedMins in 1..1440) {
+                    if (p.dateLocal == yesterdayStr && kotlin.math.abs(end - nowMin) <= 2 && p.durationMinutes == expectedMins) return@map p
+                    warnings += "Giờ kết thúc được đặt theo \"đến giờ\" = $nowHm cho khoảng xuyên đêm từ hôm qua."
+                    return@map p.copy(
+                        dateLocal = yesterdayStr,
+                        endLocal = nowHm,
+                        durationSeconds = expectedMins * 60L,
+                        isFuturePlanned = false
+                    )
+                }
+                return@map p
+            }
+            if (kotlin.math.abs(end - nowMin) <= 2) return@map p
             if (startMin >= nowMin) {
                 warnings += "Câu có \"đến giờ\" (bây giờ là $nowHm) nhưng mốc bắt đầu ${p.startLocal} chưa tới. Hãy kiểm tra kỹ mốc giờ trước khi xác nhận."
                 return@map p

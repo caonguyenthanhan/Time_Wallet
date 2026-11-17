@@ -39,7 +39,7 @@ data class AiPreferences(
     companion object {
         const val DEFAULT_AI_BASE_URL = "https://api.foza.ai/v1"
         const val DEFAULT_AI_HOST = "api.foza.ai"
-        const val DEFAULT_AI_MODEL = "cinb/gemini-3.8-flash"
+        const val DEFAULT_AI_MODEL = "cinb/claude-sonnet-4-6"
 
         /**
          * Chỉ chấp nhận URL có scheme HTTPS hợp lệ, không chứa userInfo (@), và trả về host viết thường.
@@ -95,6 +95,50 @@ interface ApiKeyVault {
 
 /** Keystore không dùng được (không có provider, bị khóa, hỏng khóa...). KHÔNG bao giờ được thay bằng khóa trong RAM. */
 class KeyVaultUnavailableException(cause: Throwable?) : Exception("KEYSTORE_UNAVAILABLE", cause)
+
+/** Bản nháp form Nhập giờ thủ công (lưu cục bộ ngoài sổ cái, không tạo bản ghi và không ảnh hưởng thống kê). */
+data class ManualEntryDraft(
+    val sessionId: String,
+    val categoryKey: String? = null,
+    val hoursText: String = "",
+    val minutesText: String = "",
+    val dateLocal: String,
+    val note: String = "",
+    val modeName: String = "DURATION",
+    val tagId: String? = null,
+    val tagQuery: String = "",
+    val startText: String = "",
+    val endText: String = "",
+    val endIsNow: Boolean = false,
+    val saveAsPlanned: Boolean = false,
+    val updatedAtEpochMs: Long = 0L
+) {
+    fun hasUserData(todayLocal: String): Boolean =
+        categoryKey != null ||
+            tagId != null ||
+            tagQuery.isNotBlank() ||
+            hoursText.isNotBlank() ||
+            minutesText.isNotBlank() ||
+            startText.isNotBlank() ||
+            endText.isNotBlank() ||
+            endIsNow ||
+            saveAsPlanned ||
+            note.isNotBlank() ||
+            dateLocal != todayLocal
+
+    fun isPersistable(todayLocal: String): Boolean =
+        hasUserData(todayLocal) || modeName != "DURATION"
+}
+
+/** Bản nháp trước khi bấm Bắt đầu ở tab Đồng hồ. */
+data class TimerInputDraft(
+    val title: String = "",
+    val categoryKey: String = "work",
+    val tagId: String? = null
+) {
+    fun hasUserData(): Boolean =
+        title.isNotBlank() || tagId != null || categoryKey != "work"
+}
 
 /**
  * AES-GCM 256-bit (thẻ xác thực 128-bit) bằng AndroidKeyStore.
@@ -407,6 +451,96 @@ class TimerAndSettingsStore(
         return true
     }
 
+    fun saveManualEntryDraft(draft: ManualEntryDraft?, immediate: Boolean = false) {
+        val edit = prefs.edit()
+        if (draft == null) {
+            edit.remove(KEY_MANUAL_DRAFT_JSON)
+        } else {
+            val json = JSONObject().apply {
+                put("sessionId", draft.sessionId)
+                put("categoryKey", draft.categoryKey ?: JSONObject.NULL)
+                put("hoursText", draft.hoursText)
+                put("minutesText", draft.minutesText)
+                put("dateLocal", draft.dateLocal)
+                put("note", draft.note)
+                put("modeName", draft.modeName)
+                put("tagId", draft.tagId ?: JSONObject.NULL)
+                put("tagQuery", draft.tagQuery)
+                put("startText", draft.startText)
+                put("endText", draft.endText)
+                put("endIsNow", draft.endIsNow)
+                put("saveAsPlanned", draft.saveAsPlanned)
+                put("updatedAtEpochMs", draft.updatedAtEpochMs)
+            }.toString()
+            edit.putString(KEY_MANUAL_DRAFT_JSON, json)
+        }
+        if (immediate) edit.commit() else edit.apply()
+    }
+
+    fun loadManualEntryDraft(): ManualEntryDraft? {
+        val raw = prefs.getString(KEY_MANUAL_DRAFT_JSON, null)?.trim() ?: return null
+        if (raw.isEmpty()) return null
+        return try {
+            val obj = JSONObject(raw)
+            val sessionId = obj.optString("sessionId", "").trim()
+            val dateLocal = obj.optString("dateLocal", "").trim()
+            if (sessionId.isEmpty() || dateLocal.isEmpty()) return null
+            val catRaw = if (obj.isNull("categoryKey")) null else obj.optString("categoryKey", "").takeIf { it.isNotBlank() }
+            val tagRaw = if (obj.isNull("tagId")) null else obj.optString("tagId", "").takeIf { it.isNotBlank() }
+            ManualEntryDraft(
+                sessionId = sessionId,
+                categoryKey = catRaw,
+                hoursText = obj.optString("hoursText", ""),
+                minutesText = obj.optString("minutesText", ""),
+                dateLocal = dateLocal,
+                note = obj.optString("note", ""),
+                modeName = obj.optString("modeName", "DURATION").let { if (it == "RANGE") "RANGE" else "DURATION" },
+                tagId = tagRaw,
+                tagQuery = obj.optString("tagQuery", ""),
+                startText = obj.optString("startText", ""),
+                endText = obj.optString("endText", ""),
+                endIsNow = obj.optBoolean("endIsNow", false),
+                saveAsPlanned = obj.optBoolean("saveAsPlanned", false),
+                updatedAtEpochMs = obj.optLong("updatedAtEpochMs", 0L)
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun clearManualEntryDraft(immediate: Boolean = true) {
+        saveManualEntryDraft(null, immediate = immediate)
+    }
+
+    fun saveTimerInputDraft(draft: TimerInputDraft?, immediate: Boolean = false) {
+        val edit = prefs.edit()
+        if (draft == null || !draft.hasUserData()) {
+            edit.remove(KEY_TIMER_DRAFT_TITLE)
+                .remove(KEY_TIMER_DRAFT_CATEGORY)
+                .remove(KEY_TIMER_DRAFT_TAG_ID)
+        } else {
+            edit.putString(KEY_TIMER_DRAFT_TITLE, draft.title)
+                .putString(KEY_TIMER_DRAFT_CATEGORY, draft.categoryKey)
+            if (draft.tagId != null) edit.putString(KEY_TIMER_DRAFT_TAG_ID, draft.tagId) else edit.remove(KEY_TIMER_DRAFT_TAG_ID)
+        }
+        if (immediate) edit.commit() else edit.apply()
+    }
+
+    fun loadTimerInputDraft(): TimerInputDraft {
+        val title = prefs.getString(KEY_TIMER_DRAFT_TITLE, "") ?: ""
+        val cat = prefs.getString(KEY_TIMER_DRAFT_CATEGORY, "work")?.takeIf { it.isNotBlank() } ?: "work"
+        val tagId = prefs.getString(KEY_TIMER_DRAFT_TAG_ID, null)?.takeIf { it.isNotBlank() }
+        return TimerInputDraft(title = title, categoryKey = cat, tagId = tagId)
+    }
+
+    fun saveChatInputDraft(text: String, immediate: Boolean = false) {
+        val edit = prefs.edit()
+        if (text.isBlank()) edit.remove(KEY_CHAT_INPUT_DRAFT) else edit.putString(KEY_CHAT_INPUT_DRAFT, text)
+        if (immediate) edit.commit() else edit.apply()
+    }
+
+    fun loadChatInputDraft(): String = prefs.getString(KEY_CHAT_INPUT_DRAFT, "") ?: ""
+
     companion object {
         const val PREFS_NAME = "time_wallet_prefs_v1"
         private const val KEY_TIMER_ACTIVE = "timer_active"
@@ -425,6 +559,11 @@ class TimerAndSettingsStore(
         const val KEY_AI_API_KEY_ENCRYPTED = "ai_api_key_aes_gcm_v1"
         const val KEY_AI_TRUSTED_HOST = "ai_trusted_host"
         private const val KEY_AI_MODEL = "ai_gemini_model"
+        private const val KEY_MANUAL_DRAFT_JSON = "manual_entry_draft_v1"
+        private const val KEY_TIMER_DRAFT_TITLE = "timer_draft_title_v1"
+        private const val KEY_TIMER_DRAFT_CATEGORY = "timer_draft_category_v1"
+        private const val KEY_TIMER_DRAFT_TAG_ID = "timer_draft_tag_id_v1"
+        private const val KEY_CHAT_INPUT_DRAFT = "chat_input_draft_v1"
 
         private val defaultVault: ApiKeyVault = AesGcmKeystoreVault()
 
@@ -498,12 +637,24 @@ object LedgerJsonExporter {
             sb.append("      \"endedAt\": ").append(r.endedAt?.toString() ?: "null").append(",\n")
             sb.append("      \"timezone\": ").append(serializeJsonString(r.timezone)).append(",\n")
             sb.append("      \"status\": ").append(serializeJsonString(r.status)).append(",\n")
+            sb.append("      \"idempotencyKey\": ").append(serializeJsonString(r.idempotencyKey)).append(",\n")
             if (r.tagId != null) sb.append("      \"tagId\": ").append(serializeJsonString(r.tagId)).append(",\n")
+            if (r.confirmationStateRaw != null) sb.append("      \"confirmationState\": ").append(serializeJsonString(r.confirmationStateRaw)).append(",\n")
+            if (r.plannedStartedAt != null) sb.append("      \"plannedStartedAt\": ").append(r.plannedStartedAt).append(",\n")
+            if (r.plannedEndedAt != null) sb.append("      \"plannedEndedAt\": ").append(r.plannedEndedAt).append(",\n")
+            if (r.plannedDurationSeconds != null) sb.append("      \"plannedDurationSeconds\": ").append(r.plannedDurationSeconds).append(",\n")
+            if (r.overlapResolutionRaw != null) sb.append("      \"overlapResolution\": ").append(serializeJsonString(r.overlapResolutionRaw)).append(",\n")
+            if (r.relationGroupId != null) sb.append("      \"relationGroupId\": ").append(serializeJsonString(r.relationGroupId)).append(",\n")
+            if (r.overlapWithTitle != null) sb.append("      \"overlapWithTitle\": ").append(serializeJsonString(r.overlapWithTitle)).append(",\n")
             sb.append("      \"outcomeNote\": ").append(note?.outcomeNote?.let { serializeJsonString(it) } ?: "null").append(",\n")
             sb.append("      \"feynmanPrompt\": ").append(
                 if (r.category.key == "learn") serializeJsonString("Bạn sẽ giải thích điều vừa học cho người chưa biết như thế nào?") else "null"
             ).append(",\n")
-            sb.append("      \"feynmanExplanation\": ").append(note?.feynmanExplanation?.let { serializeJsonString(it) } ?: "null").append("\n")
+            sb.append("      \"feynmanExplanation\": ").append(note?.feynmanExplanation?.let { serializeJsonString(it) } ?: "null")
+            if (note != null) {
+                sb.append(",\n      \"activityNoteUpdatedAt\": ").append(note.updatedAt)
+            }
+            sb.append("\n")
             sb.append("    }").append(if (index < records.lastIndex) "," else "").append("\n")
         }
         sb.append("  ],\n")
@@ -516,6 +667,7 @@ object LedgerJsonExporter {
             sb.append("      \"period\": ").append(serializeJsonString(b.period.storageKey)).append(",\n")
             sb.append("      \"targetSeconds\": ").append(b.targetSeconds).append(",\n")
             sb.append("      \"isPriority\": ").append(b.isPriority).append(",\n")
+            sb.append("      \"priorityOrder\": ").append(b.priorityOrder).append(",\n")
             sb.append("      \"updatedAt\": ").append(b.updatedAt).append("\n")
             sb.append("    }").append(if (index < budgets.lastIndex) "," else "").append("\n")
         }
@@ -540,9 +692,12 @@ object LedgerJsonExporter {
             sb.append(",\n  \"tags\": [\n")
             tags.forEachIndexed { index, t ->
                 sb.append("    {\"id\": ").append(serializeJsonString(t.id)).append(", \"name\": ").append(serializeJsonString(t.name))
+                    .append(", \"nameKey\": ").append(serializeJsonString(t.nameKey))
                     .append(", \"category\": ").append(serializeJsonString(t.category.key))
                     .append(", \"archivedAt\": ").append(t.archivedAt?.toString() ?: "null")
-                    .append(", \"createdAt\": ").append(t.createdAt).append("}").append(if (index < tags.lastIndex) "," else "").append("\n")
+                    .append(", \"createdAt\": ").append(t.createdAt)
+                    .append(", \"updatedAt\": ").append(t.updatedAt)
+                    .append("}").append(if (index < tags.lastIndex) "," else "").append("\n")
             }
             sb.append("  ]")
         }
@@ -557,7 +712,10 @@ object LedgerJsonExporter {
                     .append(", \"targetSeconds\": ").append(g.targetSeconds)
                     .append(", \"status\": ").append(serializeJsonString(g.status.storageKey))
                     .append(", \"validFrom\": ").append(serializeJsonString(g.validFrom))
-                    .append(", \"validTo\": ").append(g.validTo?.let { serializeJsonString(it) } ?: "null").append("}")
+                    .append(", \"validTo\": ").append(g.validTo?.let { serializeJsonString(it) } ?: "null")
+                    .append(", \"createdAt\": ").append(g.createdAt)
+                    .append(", \"updatedAt\": ").append(g.updatedAt)
+                    .append("}")
                     .append(if (index < goals.lastIndex) "," else "").append("\n")
             }
             sb.append("  ]")

@@ -16,11 +16,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -34,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
@@ -77,32 +80,61 @@ fun ManualEntrySheet(
     onSelectTag: (String?) -> Unit,
     onCreateTag: () -> Unit,
     onSave: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onClean: () -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var showDatePicker by remember { mutableStateOf(false) }
-    var showNote by remember { mutableStateOf(state.note.isNotBlank()) }
-    var showCategories by remember { mutableStateOf(false) }
+    var showDatePicker by remember(state.sessionId) { mutableStateOf(false) }
+    var showNote by remember(state.sessionId) { mutableStateOf(state.note.isNotBlank()) }
+    var showCategories by remember(state.sessionId) { mutableStateOf(false) }
+    var showCleanConfirm by remember(state.sessionId) { mutableStateOf(false) }
     val today = LocalDate.now()
+    val hasDraftData = state.hasUserData(today.toString())
     val selectedDate = runCatching { LocalDate.parse(state.dateLocal) }.getOrDefault(today)
     val isToday = selectedDate == today
+    val isYesterday = selectedDate == today.minusDays(1)
     val totalMinutes = (state.hoursText.trim().toIntOrNull() ?: 0) * 60 + (state.minutesText.trim().toIntOrNull() ?: 0)
     val nowHm = LocalTime.now().let { TimeRange.formatHm(it.hour * 60 + it.minute) }
     val rangePreview = if (state.mode == ManualMode.RANGE && state.startText.isNotBlank() && (state.endIsNow || state.endText.isNotBlank())) {
-        TimeRange.compute(state.startText, if (state.endIsNow) TimeRange.End.Now else TimeRange.End.At(state.endText), nowHm, isToday)
+        TimeRange.compute(
+            state.startText,
+            if (state.endIsNow) TimeRange.End.Now else TimeRange.End.At(state.endText),
+            nowHm,
+            isToday,
+            allowEndNowFromYesterday = isYesterday
+        )
     } else null
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = Color.White) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
                 .imePadding()
                 .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(horizontal = 16.dp, vertical = 4.dp)
         ) {
-            Text("Bạn đã làm gì?", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Bạn đã làm gì?", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk)
+                if (hasDraftData) {
+                    Text(
+                        "Tự động lưu nháp",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = WalletMint
+                    )
+                }
+            }
 
             TagPicker(
                 suggestions = suggestions,
@@ -173,17 +205,39 @@ fun ManualEntrySheet(
                         modifier = Modifier.weight(1f)
                     )
                 }
-                if (isToday) {
+                if (isToday || isYesterday) {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         ChoiceChip("Kết thúc: Bây giờ", state.endIsNow, "Giờ kết thúc là bây giờ") { onChange { it.copy(endIsNow = !it.endIsNow, endText = "") } }
                     }
                 }
                 when (rangePreview) {
-                    is TimeRange.Result.Ok -> Text(
-                        "= ${TimeRange.formatDuration(rangePreview.minutes)} (${rangePreview.startHm}–${rangePreview.endHm}${if (rangePreview.crossesMidnight) ", qua nửa đêm" else ""})",
-                        fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = WalletMint,
-                        modifier = Modifier.semantics { contentDescription = "Thời lượng tự tính ${TimeRange.formatDuration(rangePreview.minutes)}" }
-                    )
+                    is TimeRange.Result.Ok -> {
+                        val nowMs = System.currentTimeMillis()
+                        val epochPair = com.timewallet.mvp.domain.usecase.LedgerValidator.parseTimeRangeToEpochMillis(
+                            selectedDate.toString(), rangePreview.startHm, rangePreview.endHm
+                        )
+                        val isFutureRange = state.saveAsPlanned || selectedDate.isAfter(today) ||
+                            (epochPair != null && epochPair.first > nowMs)
+                        val isOngoingRange = !isFutureRange && epochPair != null &&
+                            epochPair.first <= nowMs && epochPair.second > nowMs
+                        Text(
+                            "= ${TimeRange.formatDuration(rangePreview.minutes)} (${rangePreview.startHm}–${rangePreview.endHm}${if (rangePreview.crossesMidnight) ", qua nửa đêm" else ""})",
+                            fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = WalletMint,
+                            modifier = Modifier.semantics { contentDescription = "Thời lượng tự tính ${TimeRange.formatDuration(rangePreview.minutes)}" }
+                        )
+                        if (isFutureRange) {
+                            Text(
+                                "Dự kiến · chưa tính vào thời gian thực tế; sẽ nhắc xác nhận lúc ${rangePreview.endHm}.",
+                                fontSize = 11.5.sp, color = Color(0xFF9C5D16)
+                            )
+                        } else if (isOngoingRange) {
+                            val elapsedMins = ((nowMs - epochPair!!.first).coerceAtLeast(0L) / 60_000L).toInt()
+                            Text(
+                                "Đang diễn ra · hiện đã qua ${TimeRange.formatDuration(elapsedMins)}; sẽ nhắc xác nhận lúc ${rangePreview.endHm}.",
+                                fontSize = 11.5.sp, color = Color(0xFF185FA5)
+                            )
+                        }
+                    }
                     is TimeRange.Result.Invalid -> Text(rangePreview.message, fontSize = 12.sp, color = Color(0xFFB3261E))
                     null -> Text("Nhập hai mốc giờ, Wally tự tính số phút.", fontSize = 12.sp, color = WalletMuted)
                 }
@@ -214,13 +268,21 @@ fun ManualEntrySheet(
 
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 ChoiceChip("Hôm nay", selectedDate == today, "Ngày hôm nay") { onChange { it.copy(dateLocal = today.toString(), endIsNow = it.endIsNow) } }
-                ChoiceChip("Hôm qua", selectedDate == today.minusDays(1), "Ngày hôm qua") { onChange { it.copy(dateLocal = today.minusDays(1).toString(), endIsNow = false) } }
+                ChoiceChip("Hôm qua", selectedDate == today.minusDays(1), "Ngày hôm qua") { onChange { it.copy(dateLocal = today.minusDays(1).toString(), endIsNow = it.endIsNow) } }
+                ChoiceChip("Ngày mai", selectedDate == today.plusDays(1), "Ngày mai (Dự kiến)") { onChange { it.copy(dateLocal = today.plusDays(1).toString(), endIsNow = false) } }
                 ChoiceChip(
                     text = "Ngày khác: " + selectedDate.format(DateTimeFormatter.ofPattern("dd/MM")),
-                    selected = selectedDate != today && selectedDate != today.minusDays(1),
+                    selected = selectedDate != today && selectedDate != today.minusDays(1) && selectedDate != today.plusDays(1),
                     description = "Chọn ngày khác",
                     onClick = { showDatePicker = true }
                 )
+            }
+            if (!selectedDate.isAfter(today)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ChoiceChip("Lưu làm Dự kiến", state.saveAsPlanned, "Lưu ở trạng thái Dự kiến, chưa tính vào thực tế") {
+                        onChange { it.copy(saveAsPlanned = !it.saveAsPlanned) }
+                    }
+                }
             }
 
             if (showNote) {
@@ -234,8 +296,12 @@ fun ManualEntrySheet(
             } else {
                 TextButton(onClick = { showNote = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("＋ Ghi chú", fontSize = 12.5.sp) }
             }
+                Spacer(modifier = Modifier.height(6.dp))
+            }
 
+            HorizontalDivider(color = Color(0xFFEFF2EE))
             if (state.error != null) {
+                Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = state.error,
                     color = Color(0xFFB3261E),
@@ -245,13 +311,38 @@ fun ManualEntrySheet(
                 )
             }
 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (hasDraftData) "Thoát sẽ giữ nháp · Clean để làm mới" else "Nháp tự lưu khi bạn nhập",
+                    fontSize = 11.5.sp,
+                    color = WalletMuted,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(
+                    onClick = { if (hasDraftData) showCleanConfirm = true else onClean() },
+                    enabled = !state.saving,
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .semantics { contentDescription = "Clean · Xóa nhập liệu" }
+                ) {
+                    Text("Clean · Xóa nhập liệu", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB3261E))
+                }
+            }
+
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 OutlinedButton(
                     onClick = onDismiss,
                     enabled = !state.saving,
                     shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.weight(1f).heightIn(min = 52.dp)
-                ) { Text("Hủy") }
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 52.dp)
+                        .semantics { contentDescription = "Thoát và giữ bản nháp" }
+                ) { Text("Thoát") }
                 Button(
                     onClick = onSave,
                     enabled = !state.saving,
@@ -260,17 +351,44 @@ fun ManualEntrySheet(
                     modifier = Modifier.weight(1f).heightIn(min = 52.dp)
                 ) { Text(if (state.saving) "Đang lưu…" else "Lưu", fontWeight = FontWeight.Bold) }
             }
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
         }
     }
 
-    if (showDatePicker) {
-        val todayUtcMillis = today.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
-        val pickerState = rememberDatePickerState(
-            initialSelectedDateMillis = selectedDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
-            selectableDates = object : SelectableDates {
-                override fun isSelectableDate(utcTimeMillis: Long): Boolean = utcTimeMillis <= todayUtcMillis
+    if (showCleanConfirm) {
+        AlertDialog(
+            onDismissRequest = { showCleanConfirm = false },
+            containerColor = Color.White,
+            title = { Text("Xóa nhập liệu đang có?", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
+            text = {
+                Text(
+                    "Toàn bộ nội dung nháp đang nhập (tag, nhóm, ngày, giờ, ghi chú và tùy chọn) sẽ bị xóa sạch để bắt đầu mới. Hoạt động đã lưu không bị ảnh hưởng.",
+                    fontSize = 12.5.sp,
+                    color = WalletMuted
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showCleanConfirm = false
+                        onClean()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB3261E))
+                ) {
+                    Text("Xóa nhập liệu", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCleanConfirm = false }) {
+                    Text("Giữ lại", color = WalletMuted)
+                }
             }
+        )
+    }
+
+    if (showDatePicker) {
+        val pickerState = rememberDatePickerState(
+            initialSelectedDateMillis = selectedDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
         )
         DatePickerDialog(
             onDismissRequest = { showDatePicker = false },
@@ -278,7 +396,8 @@ fun ManualEntrySheet(
                 TextButton(onClick = {
                     pickerState.selectedDateMillis?.let { ms ->
                         val d = Instant.ofEpochMilli(ms).atZone(ZoneOffset.UTC).toLocalDate()
-                        onChange { it.copy(dateLocal = d.toString(), endIsNow = if (d == today) it.endIsNow else false) }
+                        val allowNow = d == today || d == today.minusDays(1)
+                        onChange { it.copy(dateLocal = d.toString(), endIsNow = if (allowNow) it.endIsNow else false) }
                     }
                     showDatePicker = false
                 }) { Text("Chọn") }

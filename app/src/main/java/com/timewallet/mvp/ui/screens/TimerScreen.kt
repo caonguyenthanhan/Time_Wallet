@@ -23,11 +23,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -89,7 +91,8 @@ fun TimerScreen(
     // v1.1.0: Tag cá nhân cho phiên đo (gợi ý gần đây/thường dùng; bấm lại để bỏ chọn).
     tagSuggestions: List<com.timewallet.mvp.domain.model.Tag> = emptyList(),
     selectedTagId: String? = null,
-    onSelectTag: (String?) -> Unit = {}
+    onSelectTag: (String?) -> Unit = {},
+    onCleanDraft: () -> Unit = {}
 ) {
     val isRunning = activeTimer != null
     val hours = elapsedSeconds / 3600L
@@ -111,6 +114,8 @@ fun TimerScreen(
     } else {
         ((elapsedSeconds % 3600L) / 3600f) * 360f
     }
+
+    var showCleanTimerConfirm by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -244,6 +249,16 @@ fun TimerScreen(
             ) {
                 Text(text = "▶ Bắt đầu đo", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
             }
+            if (inputTitle.isNotBlank() || selectedTagId != null || inputCategoryKey != "work") {
+                TextButton(
+                    onClick = { showCleanTimerConfirm = true },
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .semantics { contentDescription = "Clean · Xóa nhập liệu đồng hồ" }
+                ) {
+                    Text("Clean · Xóa nhập liệu", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB3261E))
+                }
+            }
         } else {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -280,6 +295,35 @@ fun TimerScreen(
             isTimerRunning = isRunning,
             onRollDice = onRollDice,
             onApplyAndStart = onApplyDiceAndStartTimer
+        )
+    }
+
+    if (showCleanTimerConfirm) {
+        AlertDialog(
+            onDismissRequest = { showCleanTimerConfirm = false },
+            containerColor = Color.White,
+            title = { Text("Xóa nhập liệu đồng hồ?", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
+            text = {
+                Text(
+                    "Tên hoạt động, danh mục và tag đang chọn cho đồng hồ sẽ được đặt lại từ đầu.",
+                    fontSize = 12.5.sp,
+                    color = WalletMuted
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showCleanTimerConfirm = false
+                        onCleanDraft()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB3261E))
+                ) { Text("Xóa nhập liệu", fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCleanTimerConfirm = false }) {
+                    Text("Giữ lại", color = WalletMuted)
+                }
+            }
         )
     }
 }

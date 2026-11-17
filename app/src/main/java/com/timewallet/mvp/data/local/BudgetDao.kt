@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -17,6 +18,11 @@ interface BudgetDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertBudget(entity: CategoryBudgetEntity)
+
+    @Transaction
+    suspend fun upsertBudgetsTransactionally(entities: List<CategoryBudgetEntity>) {
+        entities.forEach { upsertBudget(it) }
+    }
 
     @Query("DELETE FROM category_budgets WHERE categoryKey = :categoryKey")
     suspend fun deleteBudgetByCategory(categoryKey: String)

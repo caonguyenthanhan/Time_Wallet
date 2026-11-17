@@ -130,7 +130,7 @@ object GoalRules {
         GoalTargetType.CATEGORY -> r.category.key == goal.targetKey
     }
 
-    /** Giây đã diễn ra của các bản ghi đạt điều kiện trong khoảng từ ngày `from` đến ngày `to` (ngày địa phương của bản ghi). */
+    /** Giây đã diễn ra của các bản ghi đạt điều kiện trong khoảng từ ngày `from` đến ngày `to` (cắt theo ngày lịch cho hoạt động qua nửa đêm). */
     fun usedSeconds(
         goalTargetType: GoalTargetType,
         goalTargetKey: String,
@@ -140,14 +140,44 @@ object GoalRules {
         nowEpochMs: Long,
         zone: ZoneId
     ): Long {
-        val today = Instant.ofEpochMilli(nowEpochMs).atZone(zone).toLocalDate().toString()
         var sum = 0L
         for (r in records) {
-            val d = runCatching { LocalDate.parse(r.date) }.getOrNull() ?: continue
-            if (d.isBefore(from) || d.isAfter(to)) continue
             val ok = if (goalTargetType == GoalTargetType.TAG) r.tagId != null && r.tagId == goalTargetKey else r.category.key == goalTargetKey
             if (!ok) continue
-            sum += r.actualElapsedSecondsAt(nowEpochMs, today)
+            sum += LedgerAnalyticsCalculator.recordActualSecondsInDateRange(
+                record = r,
+                from = from,
+                to = to,
+                nowEpochMs = nowEpochMs,
+                zoneId = zone,
+                confirmedFinalOnly = false
+            )
+        }
+        return sum
+    }
+
+    /** Chỉ đếm phần thời gian thực tế ĐÃ XÁC NHẬN HOÀN THÀNH / ĐIỀU CHỈNH / GIÁN ĐOẠN (không tính PENDING / PLANNED / CANCELLED / DOING chưa chốt). */
+    fun confirmedUsedSeconds(
+        goalTargetType: GoalTargetType,
+        goalTargetKey: String,
+        records: List<LedgerRecord>,
+        from: LocalDate,
+        to: LocalDate,
+        nowEpochMs: Long,
+        zone: ZoneId
+    ): Long {
+        var sum = 0L
+        for (r in records) {
+            val ok = if (goalTargetType == GoalTargetType.TAG) r.tagId != null && r.tagId == goalTargetKey else r.category.key == goalTargetKey
+            if (!ok) continue
+            sum += LedgerAnalyticsCalculator.recordActualSecondsInDateRange(
+                record = r,
+                from = from,
+                to = to,
+                nowEpochMs = nowEpochMs,
+                zoneId = zone,
+                confirmedFinalOnly = true
+            )
         }
         return sum
     }

@@ -3,7 +3,10 @@ package com.timewallet.mvp
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.Role
 import androidx.compose.material3.minimumInteractiveComponentSize
+import android.Manifest
+import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -11,13 +14,20 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
@@ -25,12 +35,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -39,12 +54,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -56,9 +74,12 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.timewallet.mvp.notifications.CompletionNotificationHelper
 import com.timewallet.mvp.ui.AppTab
 import com.timewallet.mvp.ui.TimeWalletViewModel
+import com.timewallet.mvp.ui.screens.ActivityConfirmationDialog
 import com.timewallet.mvp.ui.screens.AiSettingsDialog
+import com.timewallet.mvp.ui.screens.OverlapResolutionDialog
 import com.timewallet.mvp.ui.screens.BudgetDeleteConfirmDialog
 import com.timewallet.mvp.ui.screens.BudgetEditorDraft
 import com.timewallet.mvp.ui.screens.ChatScreen
@@ -67,6 +88,7 @@ import com.timewallet.mvp.ui.screens.DataManagementDialog
 import com.timewallet.mvp.ui.screens.EditRecordDialog
 import com.timewallet.mvp.ui.screens.ExportJsonDialog
 import com.timewallet.mvp.ui.screens.HistoryScreen
+import com.timewallet.mvp.ui.screens.ImportJsonDialog
 import com.timewallet.mvp.ui.screens.InsightsScreen
 import com.timewallet.mvp.ui.screens.ManualEntrySheet
 import com.timewallet.mvp.ui.screens.OverviewScreen
@@ -79,22 +101,42 @@ import com.timewallet.mvp.domain.usecase.TagRules
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import com.timewallet.mvp.ui.screens.GlyphIcon
 import com.timewallet.mvp.ui.screens.ProductInfoDialog
 import com.timewallet.mvp.ui.screens.TimeBudgetEditorDialog
 import com.timewallet.mvp.ui.screens.TimeWalletBottomBar
 import com.timewallet.mvp.ui.screens.TimeWalletTopBar
 import com.timewallet.mvp.ui.screens.TimerScreen
+import com.timewallet.mvp.ui.screens.WalletGlyph
+import com.timewallet.mvp.ui.screens.walletClickable
 import com.timewallet.mvp.ui.theme.TimeWalletTheme
 import com.timewallet.mvp.ui.theme.WalletBg
+import com.timewallet.mvp.ui.theme.WalletInk
+import com.timewallet.mvp.ui.theme.WalletMint
+import com.timewallet.mvp.ui.theme.WalletMintTint
+import com.timewallet.mvp.ui.theme.WalletMuted
+import com.timewallet.mvp.ui.theme.WalletStroke
 
 class MainActivity : ComponentActivity() {
+    private val pendingNotificationRecordId = mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pendingNotificationRecordId.value = intent?.getStringExtra(CompletionNotificationHelper.EXTRA_CONFIRM_RECORD_ID)
         setContent {
             TimeWalletTheme {
-                TimeWalletAppRoot()
+                TimeWalletAppRoot(
+                    pendingNotificationRecordId = pendingNotificationRecordId.value,
+                    onNotificationHandled = { pendingNotificationRecordId.value = null }
+                )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        pendingNotificationRecordId.value = intent.getStringExtra(CompletionNotificationHelper.EXTRA_CONFIRM_RECORD_ID)
     }
 }
 
@@ -105,9 +147,16 @@ class MainActivity : ComponentActivity() {
 internal fun shouldShowBottomBar(currentTab: AppTab, imeBottomPx: Int): Boolean =
     !(imeBottomPx > 0 && currentTab == AppTab.CHAT)
 
+/** Nút Lên đầu trang chỉ hiện khi cuộn vượt quá 400 px. */
+internal fun shouldShowBackToTop(scrollPx: Int): Boolean = scrollPx > 400
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
+fun TimeWalletAppRoot(
+    viewModel: TimeWalletViewModel = viewModel(),
+    pendingNotificationRecordId: String? = null,
+    onNotificationHandled: () -> Unit = {}
+) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -164,6 +213,44 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
         pendingJsonToWrite = null
     }
 
+    val openDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val content = context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use {
+                    it.readText()
+                }
+                if (content != null) {
+                    viewModel.updateImportJsonText(content)
+                } else {
+                    viewModel.showToast("Không đọc được nội dung tệp JSON.")
+                }
+            } catch (_: Exception) {
+                viewModel.showToast("Không thể mở tệp JSON từ bộ nhớ thiết bị.")
+            }
+        }
+    }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { }
+
+    LaunchedEffect(state.requestNotificationPermissionNonce) {
+        if (state.requestNotificationPermissionNonce > 0 &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            !CompletionNotificationHelper.hasNotificationPermission(context)
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    LaunchedEffect(pendingNotificationRecordId) {
+        val targetId = pendingNotificationRecordId ?: return@LaunchedEffect
+        viewModel.openActivityConfirmationFromNotification(targetId)
+        onNotificationHandled()
+    }
+
     LaunchedEffect(state.currentTab, state.isShowingDailyReview, state.selectedReviewDateLocal) {
         scrollState.scrollTo(0)
     }
@@ -182,8 +269,20 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
         TagRules.suggestions(state.tags, state.records, System.currentTimeMillis(), ZoneId.systemDefault())
     }
 
-    // v1.0.11: nút ＋ nổi chỉ ở Nhật ký; Tổng quan đã có ô "Thêm giờ" ở màn hình đầu nên không để nút nổi che nội dung.
-    val showFab = state.currentTab == AppTab.HISTORY
+    val coroutineScope = rememberCoroutineScope()
+    var speedDialExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(state.currentTab, state.isShowingDailyReview) {
+        speedDialExpanded = false
+    }
+
+    BackHandler(enabled = speedDialExpanded) {
+        speedDialExpanded = false
+    }
+
+    // Nhóm nút nổi góc dưới phải: ẩn ở Wally (đã có ô nhập ghim đáy) và màn Nhìn lại toàn trang; nội dung cuộn có khoảng đệm đáy tránh bị che.
+    val showFloatingControls = state.currentTab != AppTab.CHAT && !state.isShowingDailyReview
+    val showBackTop = showFloatingControls && shouldShowBackToTop(scrollState.value)
 
     Box(
         modifier = Modifier
@@ -208,15 +307,32 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
                 )
             },
             floatingActionButton = {
-                if (showFab) {
-                    FloatingActionButton(
-                        onClick = { viewModel.openManualEntry() },
-                        containerColor = com.timewallet.mvp.ui.theme.WalletMint,
-                        contentColor = Color.White,
-                        modifier = Modifier.semantics { contentDescription = "Thêm giờ thủ công" }
-                    ) {
-                        Text("+", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                    }
+                if (showFloatingControls) {
+                    FloatingActionGroup(
+                        showBackTop = showBackTop,
+                        speedDialExpanded = speedDialExpanded,
+                        onBackToTop = {
+                            speedDialExpanded = false
+                            coroutineScope.launch { scrollState.animateScrollTo(0) }
+                        },
+                        onOpenWallyChat = {
+                            speedDialExpanded = false
+                            viewModel.selectTab(AppTab.CHAT)
+                        },
+                        onToggleSpeedDial = { speedDialExpanded = !speedDialExpanded },
+                        onManualEntry = {
+                            speedDialExpanded = false
+                            viewModel.openManualEntry()
+                        },
+                        onOpenTimer = {
+                            speedDialExpanded = false
+                            viewModel.selectTab(AppTab.TIMER)
+                        },
+                        onOpenDailyReview = {
+                            speedDialExpanded = false
+                            viewModel.openDailyReview(state.todayDateLocal)
+                        }
+                    )
                 }
             },
             bottomBar = {
@@ -265,6 +381,10 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
                                 onOpenDailyReview = { viewModel.openDailyReview(state.todayDateLocal) },
                                 onOpenBudgetEditor = viewModel::openBudgetEditor,
                                 onAddManual = { viewModel.openManualEntry() },
+                                onConfirmOrResolveRecord = viewModel::confirmPlannedOrActiveRecord,
+                                pendingManualDraft = state.pendingManualDraft,
+                                onResumeManualDraft = { viewModel.openManualEntry() },
+                                onCleanManualDraft = viewModel::discardPendingManualDraft,
                                 onNavigateToTab = { viewModel.selectTab(it) }
                             )
                             PersonalHubCard(
@@ -301,7 +421,8 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
                         onCancelTimer = viewModel::cancelRunningTimer,
                         tagSuggestions = tagSuggestions,
                         selectedTagId = state.timerInputTagId,
-                        onSelectTag = viewModel::selectTimerTag
+                        onSelectTag = viewModel::selectTimerTag,
+                        onCleanDraft = viewModel::cleanTimerDraft
                     )
 
                     AppTab.CHAT -> ChatScreen(
@@ -328,7 +449,8 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
                         onConfirmSingleProposal = viewModel::confirmSingleProposal,
                         onConfirmAllProposals = viewModel::confirmAllProposals,
                         lastUserMessage = lastChatUserMessage,
-                        onLastUserMessageChange = { lastChatUserMessage = it }
+                        onLastUserMessageChange = { lastChatUserMessage = it },
+                        onCleanChatInput = viewModel::cleanChatInput
                     )
 
                     AppTab.HISTORY -> HistoryScreen(
@@ -339,16 +461,18 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
                         onConfirmPlannedOrActiveRecord = viewModel::confirmPlannedOrActiveRecord,
                         onEditRecord = viewModel::openEditRecord,
                         onDeleteRecord = viewModel::deleteRecord,
-                        onAddManual = { viewModel.openManualEntry() }
+                        onAddManual = { viewModel.openManualEntry() },
+                        onResizePlannedRecord = viewModel::resizePlannedRecord
                     )
 
                     AppTab.INSIGHTS -> InsightsScreen(
                         weeklyInsights = state.weeklyInsights,
                         onOpenBudgetEditor = viewModel::openBudgetEditor,
-                        onDeleteBudget = { pendingBudgetDelete = it }
+                        onDeleteBudget = { pendingBudgetDelete = it },
+                        onReorderBudgetPriority = viewModel::reorderBudgetPriority
                     )
                 }
-                if (!isChatTab) Spacer(modifier = Modifier.height(if (showFab) 88.dp else 16.dp))
+                if (!isChatTab) Spacer(modifier = Modifier.height(if (showFloatingControls) 176.dp else 16.dp))
             }
         }
 
@@ -382,6 +506,27 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
                 }
             }
         }
+    }
+
+    state.confirmingRecord?.let { record ->
+        ActivityConfirmationDialog(
+            record = record,
+            onDismiss = viewModel::closeConfirmationDialog,
+            onStartDoing = viewModel::confirmStartDoing,
+            onConfirmCompleted = viewModel::confirmCompleted,
+            onAdjust = viewModel::confirmAdjusted,
+            onInterrupt = viewModel::confirmInterrupted,
+            onContinue = viewModel::confirmContinued,
+            onCancelActivity = viewModel::confirmCancelled
+        )
+    }
+
+    state.pendingOverlapConflict?.let { conflict ->
+        OverlapResolutionDialog(
+            conflict = conflict,
+            onDismissDiscard = viewModel::dismissOverlapConflict,
+            onResolve = viewModel::resolveOverlapConflict
+        )
     }
 
     // Dialogs
@@ -419,6 +564,18 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
         )
     }
 
+    state.importBackup?.let { importState ->
+        ImportJsonDialog(
+            state = importState,
+            onJsonChange = viewModel::updateImportJsonText,
+            onPickFileClick = {
+                openDocumentLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+            },
+            onConfirm = viewModel::confirmImportJson,
+            onDismiss = viewModel::closeImportJsonDialog
+        )
+    }
+
     if (state.showAiSettingsDialog) {
         AiSettingsDialog(
             initialPreferences = state.aiPreferences,
@@ -440,7 +597,8 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
             onSelectTag = viewModel::selectManualTag,
             onCreateTag = viewModel::createTagFromManualEntry,
             onSave = viewModel::saveManualEntry,
-            onDismiss = viewModel::closeManualEntry
+            onDismiss = viewModel::closeManualEntry,
+            onClean = viewModel::cleanManualEntry
         )
     }
 
@@ -483,6 +641,7 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
         DataManagementDialog(
             onDismiss = { showDataDialog = false },
             onExportJson = { viewModel.prepareExportJson() },
+            onImportJson = { viewModel.openImportJsonDialog() },
             onLoadSampleData = viewModel::loadSampleData,
             onClearAllData = viewModel::clearAllData
         )
@@ -531,5 +690,150 @@ fun TimeWalletAppRoot(viewModel: TimeWalletViewModel = viewModel()) {
                 pendingBudgetDelete = draft.categoryKey
             }
         )
+    }
+}
+
+/**
+ * Nhóm nút nổi cố định ở góc dưới phải trên phần inset đáy:
+ * Back-to-Top (chỉ hiện khi cuộn > 400 px), nút mở nhanh Wally Chat, và FAB tròn mở Speed Dial 3 hành động.
+ */
+@Composable
+private fun FloatingActionGroup(
+    showBackTop: Boolean,
+    speedDialExpanded: Boolean,
+    onBackToTop: () -> Unit,
+    onOpenWallyChat: () -> Unit,
+    onToggleSpeedDial: () -> Unit,
+    onManualEntry: () -> Unit,
+    onOpenTimer: () -> Unit,
+    onOpenDailyReview: () -> Unit
+) {
+    val plusRotation by animateFloatAsState(
+        targetValue = if (speedDialExpanded) 45f else 0f,
+        animationSpec = tween(durationMillis = 180),
+        label = "fabPlusRotation"
+    )
+
+    Column(
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        AnimatedVisibility(
+            visible = showBackTop && !speedDialExpanded,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            SmallFloatingActionButton(
+                onClick = onBackToTop,
+                shape = CircleShape,
+                containerColor = Color.White,
+                contentColor = WalletInk,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 3.dp),
+                modifier = Modifier.semantics { contentDescription = "Lên đầu trang" }
+            ) {
+                GlyphIcon(WalletGlyph.ARROW_UP, color = WalletInk, size = 18.dp)
+            }
+        }
+
+        AnimatedVisibility(
+            visible = !speedDialExpanded,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            SmallFloatingActionButton(
+                onClick = onOpenWallyChat,
+                shape = CircleShape,
+                containerColor = WalletMintTint,
+                contentColor = WalletMint,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 3.dp),
+                modifier = Modifier.semantics { contentDescription = "Hỏi nhanh Wally" }
+            ) {
+                GlyphIcon(WalletGlyph.SPARK, color = WalletMint, size = 19.dp, filled = true)
+            }
+        }
+
+        AnimatedVisibility(
+            visible = speedDialExpanded,
+            enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
+            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom)
+        ) {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SpeedDialActionItem(
+                    label = "Nhìn lại ngày hôm nay",
+                    glyph = WalletGlyph.BOOK,
+                    onClick = onOpenDailyReview
+                )
+                SpeedDialActionItem(
+                    label = "Bắt đầu đồng hồ",
+                    glyph = WalletGlyph.CLOCK,
+                    onClick = onOpenTimer
+                )
+                SpeedDialActionItem(
+                    label = "Ghi giờ thủ công",
+                    glyph = WalletGlyph.EDIT,
+                    iconModifier = Modifier.semantics { contentDescription = "Thêm giờ thủ công" },
+                    onClick = onManualEntry
+                )
+            }
+        }
+
+        FloatingActionButton(
+            onClick = onToggleSpeedDial,
+            shape = CircleShape,
+            containerColor = WalletMint,
+            contentColor = Color.White,
+            modifier = Modifier.semantics {
+                contentDescription = if (speedDialExpanded) "Đóng bảng thao tác nhanh" else "Mở thao tác nhanh"
+            }
+        ) {
+            GlyphIcon(
+                glyph = WalletGlyph.PLUS,
+                color = Color.White,
+                size = 24.dp,
+                modifier = Modifier.rotate(plusRotation)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SpeedDialActionItem(
+    label: String,
+    glyph: WalletGlyph,
+    onClick: () -> Unit,
+    iconModifier: Modifier = Modifier.semantics { contentDescription = label }
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = Color.White,
+            shadowElevation = 3.dp,
+            border = BorderStroke(1.dp, WalletStroke),
+            modifier = Modifier.walletClickable(onClickLabel = label, onClick = onClick)
+        ) {
+            Text(
+                text = label,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Bold,
+                color = WalletInk,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+            )
+        }
+        SmallFloatingActionButton(
+            onClick = onClick,
+            shape = CircleShape,
+            containerColor = Color.White,
+            contentColor = WalletMint,
+            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 3.dp),
+            modifier = iconModifier
+        ) {
+            GlyphIcon(glyph = glyph, color = WalletMint, size = 18.dp)
+        }
     }
 }

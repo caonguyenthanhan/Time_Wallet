@@ -403,9 +403,9 @@ class V1013GuardsAndRulesTest {
     }
 
     @Test
-    fun `G3 manual entry rejects a future date and chat or edit turn a future record into PLANNED, never into actual time (characterization)`() {
+    fun `G3 manual entry, chat, and edit accept future entries as PLANNED without ever counting them into actual time (characterization)`() {
         val m = ManualEntry.validate("work", "1", "0", today.plusDays(1).toString(), "x", today)
-        assertTrue(m is ManualEntryValidation.Invalid)
+        assertTrue(m is ManualEntryValidation.Valid && m.saveAsPlanned)
         val future = LedgerValidator.validateAndBuildRecord(
             source = "manual", rawTitle = "x", rawCategory = "work", dateLocal = today.plusDays(3).toString(), inputDurationMinutes = 60,
             startedAt = null, endedAt = null, existingRecords = emptyList(), nowEpochMs = ms(today, 10), zoneId = zone, convertFutureToPlanned = false

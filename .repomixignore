@@ -20,6 +20,12 @@ gradlew.bat
 local.properties
 *.apk
 *.tar
+*.jks
+*.keystore
+*.p12
+*.pkcs12
+keystore.properties
+signing/**
 *.lnk
 *.bak
 *.old

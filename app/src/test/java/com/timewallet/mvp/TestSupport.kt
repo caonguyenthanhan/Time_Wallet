@@ -63,7 +63,11 @@ class InMemoryLedgerDao : LedgerDao {
     override suspend fun findOverlappingEntity(startMs: Long, endMs: Long, excludeId: String): LedgerRecordEntity? =
         rows.firstOrNull { r ->
             (r.layer == "MEASURED" || r.layer == "REPORTED_TIMED" || r.layer == "ACTIVE") &&
-                r.status != "PLANNED" && r.startedAt != null && r.endedAt != null &&
+                r.status != "PLANNED" &&
+                r.status != "CANCELLED" &&
+                r.confirmationState != "CANCELLED" &&
+                r.overlapResolution !in setOf("PENDING", "BREAK_REJECTED") &&
+                r.startedAt != null && r.endedAt != null &&
                 r.id != excludeId && startMs < r.endedAt && endMs > r.startedAt
         }
     override suspend fun upsertInternal(entity: LedgerRecordEntity) {

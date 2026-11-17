@@ -6,10 +6,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -30,12 +28,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.timewallet.mvp.domain.model.ConfirmationState
 import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.model.TimeLayer
 import com.timewallet.mvp.domain.usecase.JournalDayTotal
@@ -44,11 +47,24 @@ import com.timewallet.mvp.ui.HistoryFilter
 import com.timewallet.mvp.ui.theme.WalletDangerText
 import com.timewallet.mvp.ui.theme.WalletInk
 import com.timewallet.mvp.ui.theme.WalletMint
+import com.timewallet.mvp.ui.theme.WalletMintTint
 import com.timewallet.mvp.ui.theme.WalletMuted
 import com.timewallet.mvp.ui.theme.WalletStroke
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+
+/** Sắp xếp các mục trong một ngày theo thứ tự thời gian tăng dần (từ sáng đến tối); mục chưa gắn giờ xếp sau theo thời điểm tạo. */
+internal fun sortTimelineDayRecordsChronological(records: List<LedgerRecord>): List<LedgerRecord> =
+    records.sortedWith(
+        compareBy<LedgerRecord>(
+            { it.startedAt == null },
+            { it.startedAt ?: Long.MAX_VALUE },
+            { it.createdAt }
+        )
+    )
 
 /** Nhãn bộ lọc ngắn để không xuống dòng; nhãn đầy đủ vẫn nằm trong HistoryFilter.label (đọc cho trình đọc màn hình). */
 private fun HistoryFilter.shortLabel(): String = when (this) {
@@ -67,9 +83,12 @@ fun HistoryScreen(
     onConfirmPlannedOrActiveRecord: (LedgerRecord) -> Unit,
     onEditRecord: (LedgerRecord) -> Unit,
     onDeleteRecord: (String) -> Unit,
-    onAddManual: () -> Unit = {}
+    onAddManual: () -> Unit = {},
+    onResizePlannedRecord: (String, Int) -> Unit = { _, _ -> }
 ) {
     var recordPendingDelete by remember { mutableStateOf<LedgerRecord?>(null) }
+    var selectedPlannedId by remember { mutableStateOf<String?>(null) }
+    var liveStatusAnnouncement by remember { mutableStateOf("") }
     val nowMs = System.currentTimeMillis()
 
     val filteredRecords = remember(records, selectedFilter, nowMs, todayDateLocal) {
@@ -78,19 +97,33 @@ fun HistoryScreen(
             when (selectedFilter) {
                 HistoryFilter.ALL -> true
                 HistoryFilter.ACTUAL_TIMED ->
-                    resolved == TimeLayer.MEASURED || resolved == TimeLayer.REPORTED_TIMED
+                    !record.isCancelled && !record.isNeedsReconciliation &&
+                        (resolved == TimeLayer.MEASURED || resolved == TimeLayer.REPORTED_TIMED)
                 HistoryFilter.UNTIMED ->
-                    resolved == TimeLayer.REPORTED_UNTIMED
+                    !record.isCancelled && resolved == TimeLayer.REPORTED_UNTIMED
                 HistoryFilter.ACTIVE_OR_PLANNED ->
-                    resolved == TimeLayer.ACTIVE || resolved == TimeLayer.PLANNED
+                    resolved == TimeLayer.ACTIVE || resolved == TimeLayer.PLANNED ||
+                        record.isCancelled || record.isNeedsReconciliation
             }
         }
     }
 
-    val groupedByDate = remember(filteredRecords) {
-        filteredRecords
+    val zone = remember { ZoneId.systemDefault() }
+    val carryoverTodaySeconds = remember(records, todayDateLocal, nowMs, selectedFilter) {
+        if (selectedFilter == HistoryFilter.ALL || selectedFilter == HistoryFilter.ACTUAL_TIMED) {
+            JournalDayTotal.overnightCarryoverSeconds(todayDateLocal, records, zone, nowMs)
+        } else {
+            0L
+        }
+    }
+    val groupedByDate = remember(filteredRecords, carryoverTodaySeconds, todayDateLocal) {
+        val map = filteredRecords
             .groupBy { it.date }
-            .toSortedMap(compareByDescending { it })
+            .toMutableMap()
+        if (carryoverTodaySeconds > 0L && todayDateLocal !in map) {
+            map[todayDateLocal] = emptyList()
+        }
+        map.toSortedMap(compareByDescending { it })
     }
 
     Column(
@@ -146,7 +179,11 @@ fun HistoryScreen(
             }
         } else {
             groupedByDate.entries.forEach { (dateStr, dayRecords) ->
-                val dayTotalSeconds = JournalDayTotal.seconds(dayRecords, nowMs)
+                val dayTotalSeconds = if (selectedFilter == HistoryFilter.ALL) {
+                    JournalDayTotal.secondsForDate(dateStr, records, zone, nowMs)
+                } else {
+                    JournalDayTotal.seconds(dayRecords, nowMs)
+                }
                 Column {
                     Row(
                         modifier = Modifier
@@ -173,24 +210,105 @@ fun HistoryScreen(
                             )
                         }
                     }
-                    // Timeline: trục dọc + chấm màu danh mục, mỗi bản ghi là một thẻ.
-                    dayRecords.forEachIndexed { itemIdx, record ->
+                    if (dateStr == todayDateLocal && carryoverTodaySeconds > 0L) {
+                        Text(
+                            text = "Gồm +${LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(carryoverTodaySeconds)} chuyển tiếp từ hoạt động qua đêm.",
+                            fontSize = 11.5.sp,
+                            color = WalletMuted,
+                            modifier = Modifier.padding(bottom = 6.dp)
+                        )
+                    }
+                    // Timeline: cột giờ đối diện bên trái, trục dọc (dừng ở chấm cuối) + thẻ nội dung sắp theo trình tự thời gian trong ngày.
+                    val hmFormatter = remember { DateTimeFormatter.ofPattern("HH:mm") }
+                    val sortedDayRecords = remember(dayRecords) { sortTimelineDayRecordsChronological(dayRecords) }
+                    if (liveStatusAnnouncement.isNotBlank()) {
+                        Text(
+                            text = liveStatusAnnouncement,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = WalletMint,
+                            modifier = Modifier
+                                .padding(bottom = 4.dp)
+                                .semantics { liveRegion = LiveRegionMode.Polite }
+                        )
+                    }
+                    sortedDayRecords.forEachIndexed { itemIdx, record ->
+                        val resolvedLayer = remember(record, nowMs, todayDateLocal) {
+                            record.resolveLayerAt(nowMs, todayDateLocal)
+                        }
+                        val confState = remember(record, nowMs, todayDateLocal) {
+                            record.resolveConfirmationStateAt(nowMs, todayDateLocal)
+                        }
+                        val isInProgress = !record.isCancelled &&
+                            resolvedLayer == TimeLayer.ACTIVE &&
+                            confState != ConfirmationState.PENDING_CONFIRMATION
+                        val isPlanned = !record.isCancelled && resolvedLayer == TimeLayer.PLANNED
+                        val isSelectedPlanned = isPlanned && selectedPlannedId == record.id
+                        val oppositeSlot: Pair<String, String> = remember(record, zone) {
+                            val recordZone = try { ZoneId.of(record.timezone) } catch (_: Exception) { zone }
+                            if (record.startedAt != null && record.endedAt != null) {
+                                val startStr = Instant.ofEpochMilli(record.startedAt).atZone(recordZone).format(hmFormatter)
+                                val endStr = Instant.ofEpochMilli(record.endedAt).atZone(recordZone).format(hmFormatter)
+                                startStr to "→ $endStr"
+                            } else {
+                                "Chưa" to "gắn giờ"
+                            }
+                        }
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .timelineRail(
                                     color = Color(record.category.colorHex),
                                     isFirst = itemIdx == 0,
-                                    isLast = itemIdx == dayRecords.lastIndex
-                                )
+                                    isLast = itemIdx == sortedDayRecords.lastIndex,
+                                    isInProgress = isInProgress,
+                                    isPlanned = isPlanned,
+                                    railCenterX = 70.dp
+                                ),
+                            verticalAlignment = Alignment.Top
                         ) {
-                            Spacer(modifier = Modifier.width(28.dp))
-                            Box(
+                            Column(
+                                modifier = Modifier
+                                    .width(58.dp)
+                                    .padding(top = 12.dp, end = 2.dp)
+                                    .semantics {
+                                        contentDescription = "Khung giờ ${oppositeSlot.first} ${oppositeSlot.second}"
+                                    },
+                                horizontalAlignment = Alignment.End
+                            ) {
+                                Text(
+                                    text = oppositeSlot.first,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (isInProgress) WalletMint else WalletInk,
+                                    textAlign = TextAlign.End,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                                Text(
+                                    text = oppositeSlot.second,
+                                    fontSize = 10.5.sp,
+                                    color = WalletMuted,
+                                    textAlign = TextAlign.End,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(24.dp))
+                            Column(
                                 modifier = Modifier
                                     .weight(1f)
                                     .padding(vertical = 4.dp)
                                     .clip(RoundedCornerShape(20.dp))
                                     .background(Color.White)
+                                    .then(
+                                        if (isSelectedPlanned) {
+                                            Modifier.border(1.5.dp, WalletMint, RoundedCornerShape(20.dp))
+                                        } else {
+                                            Modifier
+                                        }
+                                    )
                                     .padding(horizontal = 12.dp, vertical = 2.dp)
                             ) {
                                 ActivityRecordRow(
@@ -202,6 +320,89 @@ fun HistoryScreen(
                                     onEditClick = onEditRecord,
                                     onDeleteClick = { recordPendingDelete = it }
                                 )
+                                if (isPlanned) {
+                                    if (isSelectedPlanned) {
+                                        val minsNow = ((record.durationSeconds + 30L) / 60L).toInt()
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(bottom = 8.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(WalletMintTint)
+                                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "−15p",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = if (minsNow >= 20) WalletInk else WalletMuted,
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(Color.White)
+                                                    .walletClickable(
+                                                        onClickLabel = "Giảm 15 phút cho ${record.title}",
+                                                        enabled = minsNow >= 20
+                                                    ) {
+                                                        onResizePlannedRecord(record.id, -15)
+                                                        liveStatusAnnouncement = "Đã rút ngắn \"${record.title}\" 15 phút."
+                                                    }
+                                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                            )
+                                            Text(
+                                                text = LedgerAnalyticsCalculator.formatCompactDurationSeconds(record.durationSeconds),
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = WalletMint,
+                                                modifier = Modifier.weight(1f),
+                                                textAlign = TextAlign.Center,
+                                                maxLines = 1,
+                                                softWrap = false
+                                            )
+                                            Text(
+                                                text = "+15p",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = WalletInk,
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(Color.White)
+                                                    .walletClickable(onClickLabel = "Tăng 15 phút cho ${record.title}") {
+                                                        onResizePlannedRecord(record.id, 15)
+                                                        liveStatusAnnouncement = "Đã tăng thêm \"${record.title}\" 15 phút."
+                                                    }
+                                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                            )
+                                            Text(
+                                                text = "Xong",
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = WalletMuted,
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .walletClickable(onClickLabel = "Đóng chỉnh nhanh ${record.title}") {
+                                                        selectedPlannedId = null
+                                                    }
+                                                    .padding(horizontal = 6.dp, vertical = 6.dp)
+                                            )
+                                        }
+                                    } else {
+                                        Text(
+                                            text = "↔ Kéo giãn nhanh ±15p",
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = WalletMint,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .walletClickable(onClickLabel = "Chọn để chỉnh nhanh thời lượng ${record.title}") {
+                                                    selectedPlannedId = record.id
+                                                    liveStatusAnnouncement = "Đang chọn chỉnh thời lượng dự kiến \"${record.title}\"."
+                                                }
+                                                .padding(horizontal = 6.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

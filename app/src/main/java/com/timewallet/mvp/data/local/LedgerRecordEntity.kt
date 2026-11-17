@@ -31,7 +31,14 @@ data class LedgerRecordEntity(
     val timezone: String,
     val status: String,
     val idempotencyKey: String,
-    val tagId: String? = null
+    val tagId: String? = null,
+    val confirmationState: String? = null,
+    val plannedStartedAt: Long? = null,
+    val plannedEndedAt: Long? = null,
+    val plannedDurationSeconds: Long? = null,
+    val overlapResolution: String? = null,
+    val relationGroupId: String? = null,
+    val overlapWithTitle: String? = null
 ) {
     fun toDomain(): LedgerRecord {
         val parsedLayer = TimeLayer.fromStorageString(layer, startedAt, endedAt)
@@ -50,7 +57,14 @@ data class LedgerRecordEntity(
             timezone = timezone,
             status = status,
             idempotencyKey = idempotencyKey,
-            tagId = tagId
+            tagId = tagId,
+            confirmationStateRaw = confirmationState,
+            plannedStartedAt = plannedStartedAt,
+            plannedEndedAt = plannedEndedAt,
+            plannedDurationSeconds = plannedDurationSeconds,
+            overlapResolutionRaw = overlapResolution,
+            relationGroupId = relationGroupId,
+            overlapWithTitle = overlapWithTitle
         )
     }
 
@@ -71,7 +85,14 @@ data class LedgerRecordEntity(
                 timezone = record.timezone,
                 status = record.status,
                 idempotencyKey = record.idempotencyKey,
-                tagId = record.tagId
+                tagId = record.tagId,
+                confirmationState = record.confirmationStateRaw,
+                plannedStartedAt = record.plannedStartedAt,
+                plannedEndedAt = record.plannedEndedAt,
+                plannedDurationSeconds = record.plannedDurationSeconds,
+                overlapResolution = record.overlapResolutionRaw,
+                relationGroupId = record.relationGroupId,
+                overlapWithTitle = record.overlapWithTitle
             )
         }
     }

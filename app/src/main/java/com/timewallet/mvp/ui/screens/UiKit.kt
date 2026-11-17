@@ -1,8 +1,17 @@
 package com.timewallet.mvp.ui.screens
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +23,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -40,11 +50,13 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -61,6 +73,10 @@ import com.timewallet.mvp.ui.theme.WalletMint
 import com.timewallet.mvp.ui.theme.WalletMintTint
 import com.timewallet.mvp.ui.theme.WalletMuted
 import com.timewallet.mvp.ui.theme.WalletRing
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.hypot
+import kotlin.math.sin
 
 /*
  * v1.0.11 UI POLISH — bộ thành phần dùng chung. Chỉ là lớp trình bày: không chứa nghiệp vụ, dữ liệu hay phép tính.
@@ -77,7 +93,7 @@ fun Modifier.walletClickable(
     .semantics { this.role = role }
     .clickable(enabled = enabled, onClickLabel = onClickLabel, onClick = onClick)
 
-enum class WalletGlyph { HOME, CLOCK, SPARK, LIST, BARS, PLUS, CHEVRON, SEND, STOP, MORE, DICE, BOOK, EDIT, CLOSE }
+enum class WalletGlyph { HOME, CLOCK, SPARK, LIST, BARS, PLUS, CHEVRON, SEND, STOP, MORE, DICE, BOOK, EDIT, CLOSE, ARROW_UP, DRAG }
 
 fun AppTab.glyph(): WalletGlyph = when (this) {
     AppTab.OVERVIEW -> WalletGlyph.HOME
@@ -172,6 +188,18 @@ fun GlyphIcon(
                 drawRoundRect(color, topLeft = p(0.2f, 0.14f), size = Size(s * 0.6f, s * 0.72f), cornerRadius = CornerRadius(s * 0.08f), style = line)
                 drawLine(color, p(0.34f, 0.36f), p(0.66f, 0.36f), strokeWidth = sw, cap = StrokeCap.Round)
                 drawLine(color, p(0.34f, 0.54f), p(0.58f, 0.54f), strokeWidth = sw, cap = StrokeCap.Round)
+            }
+            WalletGlyph.ARROW_UP -> {
+                drawLine(color, p(0.5f, 0.80f), p(0.5f, 0.20f), strokeWidth = sw * 1.15f, cap = StrokeCap.Round)
+                val head = Path().apply { moveTo(0.25f * s, 0.45f * s); lineTo(0.5f * s, 0.20f * s); lineTo(0.75f * s, 0.45f * s) }
+                drawPath(head, color, style = Stroke(width = sw * 1.15f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            }
+            WalletGlyph.DRAG -> {
+                listOf(0.37f, 0.63f).forEach { x ->
+                    listOf(0.25f, 0.50f, 0.75f).forEach { y ->
+                        drawCircle(color, radius = s * 0.075f, center = p(x, y))
+                    }
+                }
             }
         }
     }
@@ -312,48 +340,194 @@ fun EmptyState(
     }
 }
 
-/** Donut vẽ bằng Canvas; không có lát nào thì chỉ vẽ vòng nền (không biểu đồ giả). */
+/**
+ * Giới hạn tối đa [maxSlices] lát cắt (mặc định 6) để donut và chú giải luôn gọn, đồng màu và không tràn bảng.
+ * Phần vượt ngưỡng được gộp thành một lát `Khác` giữ nguyên tổng 100%.
+ */
+internal fun capDonutSlices(slices: List<DonutSlice>, maxSlices: Int = 6): List<DonutSlice> {
+    if (maxSlices <= 0) return emptyList()
+    val positive = slices.filter { it.seconds > 0L }
+    if (positive.isEmpty()) return emptyList()
+    val totalSeconds = positive.sumOf { it.seconds }.coerceAtLeast(1L)
+    if (positive.size <= maxSlices) {
+        return positive.map { slice ->
+            if (slice.fraction > 0f) slice else slice.copy(fraction = slice.seconds.toFloat() / totalSeconds.toFloat())
+        }
+    }
+    if (maxSlices == 1) {
+        return listOf(DonutSlice(TimeCategory.OTHER, totalSeconds, 1f))
+    }
+    val head = positive.filter { it.category != TimeCategory.OTHER }.take(maxSlices - 1)
+    val headCategories = head.map { it.category }.toSet()
+    val otherSeconds = positive.filterNot { it.category in headCategories }.sumOf { it.seconds }
+    val combined = if (otherSeconds > 0L) {
+        head + DonutSlice(
+            category = TimeCategory.OTHER,
+            seconds = otherSeconds,
+            fraction = otherSeconds.toFloat() / totalSeconds.toFloat()
+        )
+    } else {
+        head
+    }
+    return combined.map { it.copy(fraction = it.seconds.toFloat() / totalSeconds.toFloat()) }
+}
+
+/** Hit-test thuần theo góc/bán kính vòng donut (-90° = 12 giờ, chiều kim đồng hồ). Trả null nếu chạm vào lỗ giữa hoặc ngoài vòng. */
+internal fun hitTestDonutSliceIndex(
+    slices: List<DonutSlice>,
+    touchX: Float,
+    touchY: Float,
+    width: Float,
+    height: Float,
+    ringWidthPx: Float
+): Int? {
+    if (slices.isEmpty() || width <= 0f || height <= 0f) return null
+    val cx = width / 2f
+    val cy = height / 2f
+    val dx = touchX - cx
+    val dy = touchY - cy
+    val dist = hypot(dx, dy)
+    val maxR = minOf(width, height) / 2f
+    val outerHitR = maxR + ringWidthPx * 0.45f
+    val innerHitR = (maxR - ringWidthPx * 1.6f).coerceAtLeast(0f)
+    if (dist !in innerHitR..outerHitR) return null
+    val rawDeg = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat()
+    val angleFromTop = ((rawDeg + 90f) % 360f + 360f) % 360f
+    var accum = 0f
+    slices.forEachIndexed { idx, slice ->
+        val sweep = (360f * slice.fraction).coerceAtLeast(0f)
+        if (angleFromTop >= accum && (angleFromTop < accum + sweep || idx == slices.lastIndex)) {
+            return idx
+        }
+        accum += sweep
+    }
+    return null
+}
+
+/** Donut 2D phẳng vẽ bằng Canvas: tối đa 6 lát, khe hở đều giữa các lát, chạm lát/chú giải đẩy lát ra nhẹ & hiện chi tiết ở giữa. */
 @Composable
 fun DonutChart(
     slices: List<DonutSlice>,
     centerTop: String,
     modifier: Modifier = Modifier,
     centerBottom: String? = null,
-    ringWidth: Dp = 16.dp
+    ringWidth: Dp = 16.dp,
+    selectedIndex: Int? = null,
+    onSelectSlice: ((Int?) -> Unit)? = null
 ) {
+    val displaySlices = remember(slices) { capDonutSlices(slices, maxSlices = 6) }
+    val density = LocalDensity.current
+    val popOutDp = 6.dp
+    val ringPx = with(density) { ringWidth.toPx() }
+    val activeSelection = selectedIndex?.takeIf { it in displaySlices.indices }
+
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
+        val interactiveModifier = if (onSelectSlice != null && displaySlices.isNotEmpty()) {
+            Modifier
+                .fillMaxSize()
+                .pointerInput(displaySlices, activeSelection) {
+                    detectTapGestures { offset ->
+                        val hit = hitTestDonutSliceIndex(
+                            slices = displaySlices,
+                            touchX = offset.x,
+                            touchY = offset.y,
+                            width = size.width.toFloat(),
+                            height = size.height.toFloat(),
+                            ringWidthPx = ringPx
+                        )
+                        val next = when {
+                            hit == null -> null
+                            hit == activeSelection -> null
+                            else -> hit
+                        }
+                        onSelectSlice(next)
+                    }
+                }
+        } else {
+            Modifier.fillMaxSize()
+        }
+
+        val animatedPopFractions = displaySlices.indices.map { idx ->
+            val target = if (activeSelection == idx) 1f else 0f
+            val anim by animateFloatAsState(
+                targetValue = target,
+                animationSpec = tween(durationMillis = 180),
+                label = "donutPop_$idx"
+            )
+            anim
+        }
+
+        Canvas(modifier = interactiveModifier) {
             val strokePx = ringWidth.toPx()
-            val inset = strokePx / 2f
-            val arcSize = Size(size.width - strokePx, size.height - strokePx)
-            val topLeft = Offset(inset, inset)
+            val maxPopPx = popOutDp.toPx()
+            val inset = strokePx / 2f + maxPopPx
+            val arcDiameter = (minOf(size.width, size.height) - inset * 2f).coerceAtLeast(strokePx)
+            val topLeftBase = Offset(
+                (size.width - arcDiameter) / 2f,
+                (size.height - arcDiameter) / 2f
+            )
+            val arcSize = Size(arcDiameter, arcDiameter)
+
             drawArc(
                 color = WalletRing, startAngle = 0f, sweepAngle = 360f, useCenter = false,
-                topLeft = topLeft, size = arcSize, style = Stroke(width = strokePx)
+                topLeft = topLeftBase, size = arcSize, style = Stroke(width = strokePx)
             )
+            val gapDeg = if (displaySlices.size >= 2) 2.6f else 0f
             var start = -90f
-            slices.forEach { slice ->
-                val sweep = 360f * slice.fraction
+            displaySlices.forEachIndexed { idx, slice ->
+                val rawSweep = 360f * slice.fraction
+                val drawStart = start + gapDeg / 2f
+                val drawSweep = (rawSweep - gapDeg).coerceAtLeast(if (displaySlices.size == 1) 360f else 1.2f)
+                val midRad = Math.toRadians((start + rawSweep / 2f).toDouble())
+                val shiftPx = animatedPopFractions.getOrElse(idx) { 0f } * maxPopPx
+                val dx = (cos(midRad) * shiftPx).toFloat()
+                val dy = (sin(midRad) * shiftPx).toFloat()
+                val isSelected = activeSelection == idx
+                val baseColor = Color(slice.category.colorHex)
+                val sliceColor = when {
+                    activeSelection == null -> baseColor
+                    isSelected -> baseColor
+                    else -> baseColor.copy(alpha = 0.45f)
+                }
                 drawArc(
-                    color = Color(slice.category.colorHex), startAngle = start,
-                    sweepAngle = (sweep - 2f).coerceAtLeast(0.5f), useCenter = false,
-                    topLeft = topLeft, size = arcSize, style = Stroke(width = strokePx, cap = StrokeCap.Butt)
+                    color = sliceColor,
+                    startAngle = drawStart,
+                    sweepAngle = drawSweep,
+                    useCenter = false,
+                    topLeft = Offset(topLeftBase.x + dx, topLeftBase.y + dy),
+                    size = arcSize,
+                    style = Stroke(
+                        width = if (isSelected) strokePx + 2.dp.toPx() else strokePx,
+                        cap = StrokeCap.Butt
+                    )
                 )
-                start += sweep
+                start += rawSweep
             }
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            modifier = Modifier.widthIn(max = 88.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
             Text(
                 text = centerTop,
-                fontSize = 17.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = WalletInk,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
-                softWrap = false
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
             )
             if (centerBottom != null) {
-                Text(text = centerBottom, fontSize = 11.sp, color = WalletMuted, maxLines = 1, softWrap = false)
+                Text(
+                    text = centerBottom,
+                    fontSize = 11.sp,
+                    color = WalletMuted,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
@@ -361,7 +535,7 @@ fun DonutChart(
 
 /**
  * Donut + chú giải. Khi màn hẹp hoặc chữ hệ thống lớn, chú giải xuống dưới donut để tên danh mục không bị cắt.
- * Nội dung chú giải do nơi gọi cung cấp (giữ emoji + tên + giờ + % trong cùng một dòng, không chỉ dựa vào màu).
+ * Hỗ trợ chọn lát cắt đồng bộ giữa biểu đồ và các dòng chú giải.
  */
 @Composable
 fun DonutWithLegend(
@@ -370,6 +544,8 @@ fun DonutWithLegend(
     description: String,
     modifier: Modifier = Modifier,
     centerBottom: String? = null,
+    selectedIndex: Int? = null,
+    onSelectSlice: ((Int?) -> Unit)? = null,
     legend: @Composable () -> Unit
 ) {
     val stacked = LocalDensity.current.fontScale > 1.15f || LocalConfiguration.current.screenWidthDp < 360
@@ -383,40 +559,75 @@ fun DonutWithLegend(
                 slices = slices,
                 centerTop = centerTop,
                 centerBottom = centerBottom,
-                modifier = Modifier.size(148.dp).describe(description)
+                selectedIndex = selectedIndex,
+                onSelectSlice = onSelectSlice,
+                modifier = Modifier.size(156.dp).describe(description)
             )
-            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(9.dp)) { legend() }
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) { legend() }
         }
     } else {
         Row(
             modifier = modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             DonutChart(
                 slices = slices,
                 centerTop = centerTop,
                 centerBottom = centerBottom,
-                modifier = Modifier.size(132.dp).describe(description)
+                selectedIndex = selectedIndex,
+                onSelectSlice = onSelectSlice,
+                modifier = Modifier.size(142.dp).describe(description)
             )
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(9.dp)) { legend() }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) { legend() }
         }
     }
 }
 
-/** Một dòng chú giải: chấm màu + (emoji) tên + giá trị; phần trăm tuỳ chọn. Không chỉ dựa vào màu. */
+/** Một dòng chú giải: chấm màu + (emoji) tên + giá trị; phần trăm và chọn tương tác tuỳ chọn. */
 @Composable
-fun LegendRow(label: String, value: String, dot: Color, modifier: Modifier = Modifier, percentText: String? = null) {
+fun LegendRow(
+    label: String,
+    value: String,
+    dot: Color,
+    modifier: Modifier = Modifier,
+    percentText: String? = null,
+    isSelected: Boolean = false,
+    onClick: (() -> Unit)? = null
+) {
+    val rowModifier = modifier
+        .fillMaxWidth()
+        .clip(RoundedCornerShape(12.dp))
+        .then(
+            if (isSelected) {
+                Modifier
+                    .background(WalletMintTint)
+                    .border(1.dp, WalletMint.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+            } else {
+                Modifier
+            }
+        )
+        .then(
+            if (onClick != null) {
+                Modifier
+                    .semantics { selected = isSelected }
+                    .walletClickable(onClickLabel = "Xem chi tiết $label", onClick = onClick)
+            } else {
+                Modifier
+            }
+        )
+        .padding(horizontal = if (onClick != null) 8.dp else 0.dp, vertical = if (onClick != null) 6.dp else 0.dp)
+
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier = rowModifier,
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(dot))
+        Box(modifier = Modifier.size(if (isSelected) 12.dp else 10.dp).clip(CircleShape).background(dot))
         Text(
             text = label,
             fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
             color = WalletInk,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -427,11 +638,12 @@ fun LegendRow(label: String, value: String, dot: Color, modifier: Modifier = Mod
             Text(
                 text = percentText,
                 fontSize = 12.sp,
-                color = WalletMuted,
+                color = if (isSelected) WalletMint else WalletMuted,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                 maxLines = 1,
                 softWrap = false,
                 textAlign = TextAlign.End,
-                modifier = Modifier.width(40.dp)
+                modifier = Modifier.width(38.dp)
             )
         }
     }
@@ -485,16 +697,74 @@ fun SlimProgress(fraction: Float, color: Color, modifier: Modifier = Modifier, h
 
 /**
  * Trục dọc + chấm của timeline, vẽ phía sau hàng (không dùng IntrinsicSize nên không bao giờ làm hụt chiều cao khi chữ xuống dòng).
- * Chừa sẵn 28dp bên trái cho trục.
+ * Hỗ trợ trạng thái hoàn thành (chấm đặc), đang diễn ra (vòng xoay động) và đường nối dừng gọn ở chấm cuối.
  */
-fun Modifier.timelineRail(color: Color, isFirst: Boolean, isLast: Boolean): Modifier = this.drawBehind {
-    val cx = 11.dp.toPx()
-    val dotY = 26.dp.toPx()
-    val w = 2.dp.toPx()
-    if (!isFirst) drawLine(Color(0xFFCADDD0), Offset(cx, 0f), Offset(cx, dotY), strokeWidth = w)
-    if (!isLast) drawLine(Color(0xFFCADDD0), Offset(cx, dotY), Offset(cx, size.height), strokeWidth = w)
-    drawCircle(Color.White, radius = 7.dp.toPx(), center = Offset(cx, dotY))
-    drawCircle(color, radius = 5.dp.toPx(), center = Offset(cx, dotY))
+@Composable
+fun Modifier.timelineRail(
+    color: Color,
+    isFirst: Boolean,
+    isLast: Boolean,
+    isInProgress: Boolean = false,
+    isPlanned: Boolean = false,
+    railCenterX: Dp = 11.dp
+): Modifier {
+    val spinDeg = if (isInProgress) {
+        val transition = rememberInfiniteTransition(label = "timelineSpinner")
+        val angle by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1200, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "timelineSpinnerDeg"
+        )
+        angle
+    } else {
+        0f
+    }
+
+    return this.drawBehind {
+        val cx = railCenterX.toPx()
+        val dotY = 26.dp.toPx()
+        val lineW = 2.dp.toPx()
+        val haloR = 8.dp.toPx()
+        val dotR = 5.5.dp.toPx()
+        val connectorColor = Color(0xFFCADDD0)
+
+        if (!isFirst) {
+            drawLine(connectorColor, Offset(cx, 0f), Offset(cx, (dotY - haloR).coerceAtLeast(0f)), strokeWidth = lineW)
+        }
+        if (!isLast) {
+            drawLine(connectorColor, Offset(cx, (dotY + haloR).coerceAtMost(size.height)), Offset(cx, size.height), strokeWidth = lineW)
+        }
+
+        drawCircle(Color.White, radius = haloR, center = Offset(cx, dotY))
+        when {
+            isInProgress -> {
+                val ringR = 7.dp.toPx()
+                val ringStroke = 2.5.dp.toPx()
+                drawCircle(color = color.copy(alpha = 0.22f), radius = ringR, center = Offset(cx, dotY), style = Stroke(width = ringStroke))
+                drawArc(
+                    color = color,
+                    startAngle = spinDeg,
+                    sweepAngle = 220f,
+                    useCenter = false,
+                    topLeft = Offset(cx - ringR, dotY - ringR),
+                    size = Size(ringR * 2f, ringR * 2f),
+                    style = Stroke(width = ringStroke, cap = StrokeCap.Round)
+                )
+                drawCircle(color, radius = 3.2.dp.toPx(), center = Offset(cx, dotY))
+            }
+            isPlanned -> {
+                drawCircle(color = color.copy(alpha = 0.16f), radius = dotR, center = Offset(cx, dotY))
+                drawCircle(color = color, radius = dotR, center = Offset(cx, dotY), style = Stroke(width = 2.dp.toPx()))
+            }
+            else -> {
+                drawCircle(color, radius = dotR, center = Offset(cx, dotY))
+            }
+        }
+    }
 }
 
 /**

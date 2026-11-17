@@ -16,8 +16,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TagEntity::class,
         GoalEntity::class
     ],
-    version = 4,
-    exportSchema = true   // v1.1.0: schema JSON trong app/schemas để test migration đối chiếu DDL với Room thật
+    version = 5,
+    exportSchema = true   // v1.1.0+: schema JSON trong app/schemas để test migration đối chiếu DDL với Room thật
 )
 abstract class TimeWalletDatabase : RoomDatabase() {
 
@@ -149,6 +149,30 @@ abstract class TimeWalletDatabase : RoomDatabase() {
             }
         }
 
+        // v1.2.0 (4 -> 5): trạng thái xác nhận, giữ kế hoạch gốc và phân giải chồng lấn/khoảng nghỉ (chỉ THÊM, không phá hủy).
+        const val SQL_ADD_CONFIRMATION_STATE = "ALTER TABLE `ledger_records` ADD COLUMN `confirmationState` TEXT"
+        const val SQL_ADD_PLANNED_STARTED_AT = "ALTER TABLE `ledger_records` ADD COLUMN `plannedStartedAt` INTEGER"
+        const val SQL_ADD_PLANNED_ENDED_AT = "ALTER TABLE `ledger_records` ADD COLUMN `plannedEndedAt` INTEGER"
+        const val SQL_ADD_PLANNED_DURATION_SECONDS = "ALTER TABLE `ledger_records` ADD COLUMN `plannedDurationSeconds` INTEGER"
+        const val SQL_ADD_OVERLAP_RESOLUTION = "ALTER TABLE `ledger_records` ADD COLUMN `overlapResolution` TEXT"
+        const val SQL_ADD_RELATION_GROUP_ID = "ALTER TABLE `ledger_records` ADD COLUMN `relationGroupId` TEXT"
+        const val SQL_ADD_OVERLAP_WITH_TITLE = "ALTER TABLE `ledger_records` ADD COLUMN `overlapWithTitle` TEXT"
+
+        /**
+         * Nâng cấp CSDL từ phiên bản 4 lên 5: thêm metadata xác nhận & chồng lấn (nullable, giữ nguyên 100% dữ liệu cũ).
+         */
+        val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(SQL_ADD_CONFIRMATION_STATE)
+                db.execSQL(SQL_ADD_PLANNED_STARTED_AT)
+                db.execSQL(SQL_ADD_PLANNED_ENDED_AT)
+                db.execSQL(SQL_ADD_PLANNED_DURATION_SECONDS)
+                db.execSQL(SQL_ADD_OVERLAP_RESOLUTION)
+                db.execSQL(SQL_ADD_RELATION_GROUP_ID)
+                db.execSQL(SQL_ADD_OVERLAP_WITH_TITLE)
+            }
+        }
+
         @Volatile
         private var INSTANCE: TimeWalletDatabase? = null
 
@@ -159,7 +183,7 @@ abstract class TimeWalletDatabase : RoomDatabase() {
                     TimeWalletDatabase::class.java,
                     "time_wallet_ledger.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { INSTANCE = it }
             }

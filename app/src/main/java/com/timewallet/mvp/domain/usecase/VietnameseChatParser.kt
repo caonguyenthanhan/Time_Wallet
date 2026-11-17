@@ -44,8 +44,14 @@ object VietnameseChatParser {
         "work" to Rx.ascii("""làm việc|dự án|họp|báo cáo|\bcode\b|coding|đi làm|kiểm thử|debug|khách hàng""", RegexOption.IGNORE_CASE)
     )
 
-    private val timeRangeRegex = Rx.ascii(
-        """(?:từ\s*)?(\d{1,2})\s*(?:h|:)\s*(\d{0,2})(?:\s*(?:sáng|trưa|chiều|tối|đêm))?\s*(?:đến|tới|-|–)\s*(\d{1,2})\s*(?:h|:)\s*(\d{0,2})""",
+    private val timeRangeRegex = Rx.uni(
+        """(?:từ\s*)?(\d{1,2})\s*(?:h|:)\s*(\d{0,2})(?:\s*(?:giờ\s*)?(sáng|trưa|chiều|tối|đêm|khuya))?\s*(?:đến|tới|-|–)\s*(?:lúc\s*)?(\d{1,2})\s*(?:h|:)\s*(\d{0,2})(?:\s*(?:giờ\s*)?(sáng|trưa|chiều|tối|đêm|khuya))?""",
+        RegexOption.IGNORE_CASE
+    )
+
+    // UC-15: khoảng giờ vắt qua ngày ("từ 20h tối hôm qua đến 7h sáng hôm nay", "từ 8h ngày hôm qua đến 7h sáng hôm nay", "20:00 hôm qua - 07:00 hôm nay").
+    private val crossDayRangeRegex = Rx.uni(
+        """(?:từ\s*)?(?:lúc\s*)?(\d{1,2})\s*(?:h|:|giờ)\s*(\d{0,2})\s*(phút|p)?\s*(?:(sáng|trưa|chiều|tối|đêm|khuya|am|pm)\s*)?(?:ngày\s*)?(hôm\s+kia|hôm\s+qua|đêm\s+qua|hôm\s+nay|nay)?\s*(?:đến|tới|-|–)\s*(?:lúc\s*)?(\d{1,2})\s*(?:h|:|giờ)\s*(\d{0,2})\s*(phút|p)?\s*(?:(sáng|trưa|chiều|tối|đêm|khuya|am|pm)\s*)?(?:ngày\s*)?(hôm\s+nay|sáng\s+nay|trưa\s+nay|chiều\s+nay|tối\s+nay|đêm\s+nay|nay|hôm\s+qua|ngày\s+mai|mai)?""",
         RegexOption.IGNORE_CASE
     )
 
@@ -386,7 +392,11 @@ object VietnameseChatParser {
         if (t.isEmpty()) return emptySet()
         val out = mutableSetOf<Int>()
         for (seg in splitSegments(t)) {
+            extractCrossDayRange(seg)?.range?.let { r ->
+                out += r.durationMinutes; out += hmMinutes(r.startLocal); out += hmMinutes(r.endLocal)
+            }
             extractTimeRangeDirect(seg)?.let { r -> out += r.durationMinutes; out += hmMinutes(r.startLocal); out += hmMinutes(r.endLocal) }
+            out += extractCrossDayClockCandidateMinutes(seg)
         }
         for (m in clockWithPeriodRegex.findAll(t)) {
             val h = m.groupValues[1].toInt()
@@ -516,7 +526,12 @@ object VietnameseChatParser {
         if (trimmed.isEmpty()) return emptyList()
         return splitSegments(trimmed).flatMap { expandContrastSegment(it) }
             .flatMap { contrastClauseRegex.split(it) }
-            .mapNotNull { extractTimeRangeDirect(it)?.durationMinutes ?: extractDurationMinutesDirect(it) }
+            .mapNotNull { clause ->
+                if (findAmbiguousCrossDayClock(clause) != null) return@mapNotNull null
+                extractCrossDayRange(clause)?.range?.durationMinutes
+                    ?: extractTimeRangeDirect(clause)?.durationMinutes
+                    ?: extractDurationMinutesDirect(clause)
+            }
     }
 
     /** Dùng cho đường cloud: câu có phủ định/sửa lại kèm thời lượng thì không tin đề xuất của AI. */
@@ -586,14 +601,15 @@ object VietnameseChatParser {
         dayPeriodRegex.find(segment)?.groupValues?.get(1)?.lowercase(Locale("vi", "VN"))
 
     /** Quy đổi giờ 12h theo buổi sang 24h. Chỉ đổi khi giờ nằm trong khoảng mơ hồ hợp lý; còn lại giữ nguyên. */
-    internal fun shiftHourForPeriod(hour: Int, period: String?): Int = when (period) {
-        "chiều", "tối" -> if (hour in 1..11) hour + 12 else hour
+    internal fun shiftHourForPeriod(hour: Int, period: String?): Int = when (period?.lowercase(Locale("vi", "VN"))) {
+        "chiều", "tối", "pm" -> if (hour in 1..11) hour + 12 else hour
         "trưa" -> if (hour in 1..4) hour + 12 else hour
-        "đêm" -> when (hour) {
+        "đêm", "khuya" -> when (hour) {
             in 6..11 -> hour + 12
             12 -> 0
             else -> hour
         }
+        "sáng", "am" -> if (hour == 12) 0 else hour
         else -> hour
     }
 
@@ -613,25 +629,170 @@ object VietnameseChatParser {
         val durationMinutes: Int
     )
 
+    internal data class CrossDayRangeMatch(
+        val range: ExtractedRange,
+        val startDayOffset: Int,
+        val exceeds24Hours: Boolean
+    )
+
+    private data class CrossDayInspect(
+        val matchResult: MatchResult,
+        val resolved: CrossDayRangeMatch?,
+        val ambiguousToken: String?,
+        val candidateMinutes: Set<Int>
+    )
+
+    private fun dayOffsetOf(raw: String?): Int? {
+        val t = raw?.trim()?.lowercase(Locale("vi", "VN"))?.replace(Rx.ascii("""\s+"""), " ") ?: return null
+        if (t.isEmpty()) return null
+        return when {
+            t.contains("hôm kia") -> -2
+            t.contains("hôm qua") || t.contains("đêm qua") -> -1
+            t.contains("ngày mai") || t == "mai" -> 1
+            t.contains("nay") -> 0
+            else -> null
+        }
+    }
+
+    private fun hasLeadingZeroClock(text: String, groupRange: IntRange): Boolean {
+        val rawHour = text.substring(groupRange.first, groupRange.last + 1)
+        return rawHour.length == 2 && rawHour.startsWith("0")
+    }
+
+    private fun inspectCrossDayRange(segment: String): CrossDayInspect? {
+        val norm = normalizeSpelledDurations(restoreUnaccented(segment))
+        val match = crossDayRangeRegex.find(norm) ?: return null
+        val h1 = match.groupValues[1].toIntOrNull() ?: return null
+        val m1 = match.groupValues[2].ifBlank { "0" }.toIntOrNull() ?: return null
+        val h2 = match.groupValues[6].toIntOrNull() ?: return null
+        val m2 = match.groupValues[7].ifBlank { "0" }.toIntOrNull() ?: return null
+        if (h1 !in 0..23 || h2 !in 0..23 || m1 !in 0..59 || m2 !in 0..59) return null
+
+        val period1 = match.groupValues[4].lowercase(Locale("vi", "VN")).ifBlank { null }
+        val dayCue1 = match.groupValues[5].ifBlank { null }
+        val period2 = match.groupValues[9].lowercase(Locale("vi", "VN")).ifBlank { null }
+        val dayCue2 = match.groupValues[10].ifBlank { null }
+
+        val offset1 = dayOffsetOf(dayCue1)
+        val offset2 = dayOffsetOf(dayCue2)
+        val nightPeriods = setOf("tối", "đêm", "khuya")
+
+        val isCrossDay = when {
+            offset1 != null && offset2 != null -> offset2 > offset1
+            offset1 != null && offset1 < 0 && offset2 == null ->
+                (period1 in nightPeriods) || (h1 >= 13) || (period2 == "sáng") || (h2 < h1)
+            offset1 == null && offset2 == null ->
+                (period1 in nightPeriods) && (period2 == "sáng")
+            else -> false
+        }
+        if (!isCrossDay) return null
+
+        val effectiveStartOffset = offset1 ?: -1
+        val effectiveEndOffset = offset2 ?: if (offset1 != null) offset1 + 1 else 0
+        val dayDiff = (effectiveEndOffset - effectiveStartOffset).coerceAtLeast(1)
+
+        val g1 = match.groups[1]?.range
+        val g6 = match.groups[6]?.range
+        val explicit24Start = h1 == 0 || h1 >= 13 || (g1 != null && hasLeadingZeroClock(norm, g1))
+        val explicit24End = h2 == 0 || h2 >= 13 || (g6 != null && hasLeadingZeroClock(norm, g6))
+
+        val startAmbiguous = period1 == null && !explicit24Start && h1 in 1..12
+        val endAmbiguous = period2 == null && !explicit24End && h2 in 1..12
+
+        val candidates = mutableSetOf<Int>()
+        fun addClockCandidates(h: Int, m: Int, p: String?) {
+            if (p != null) {
+                candidates += shiftHourForPeriod(h, p) * 60 + m
+            } else if (h in 1..12) {
+                candidates += (h % 12) * 60 + m
+                candidates += ((h % 12) + 12) * 60 + m
+            } else {
+                candidates += h * 60 + m
+            }
+        }
+        addClockCandidates(h1, m1, period1)
+        addClockCandidates(h2, m2, period2)
+
+        if (startAmbiguous || endAmbiguous) {
+            val rawHourText = if (startAmbiguous) {
+                "${h1}h" + if (m1 > 0) m1.toString().padStart(2, '0') else ""
+            } else {
+                "${h2}h" + if (m2 > 0) m2.toString().padStart(2, '0') else ""
+            }
+            return CrossDayInspect(match, resolved = null, ambiguousToken = rawHourText, candidateMinutes = candidates)
+        }
+
+        val startHour = shiftHourForPeriod(h1, period1)
+        val endHour = shiftHourForPeriod(h2, period2)
+        val totalMinutes = dayDiff * 1440 + (endHour * 60 + m2) - (startHour * 60 + m1)
+        if (totalMinutes <= 0) return null
+
+        val exceeds24 = totalMinutes > 1440
+        val startHm = "%02d:%02d".format(startHour, m1)
+        val endHm = "%02d:%02d".format(endHour, m2)
+        return CrossDayInspect(
+            matchResult = match,
+            resolved = CrossDayRangeMatch(
+                range = ExtractedRange(startHm, endHm, totalMinutes.coerceAtMost(1440)),
+                startDayOffset = effectiveStartOffset,
+                exceeds24Hours = exceeds24
+            ),
+            ambiguousToken = null,
+            candidateMinutes = candidates + totalMinutes
+        )
+    }
+
+    internal fun extractCrossDayRange(segment: String): CrossDayRangeMatch? =
+        inspectCrossDayRange(segment)?.resolved
+
+    internal fun findAmbiguousCrossDayClock(text: String): String? {
+        for (seg in splitSegments(normalizeSpelledDurations(restoreUnaccented(text)))) {
+            inspectCrossDayRange(seg)?.ambiguousToken?.let { return it }
+        }
+        return null
+    }
+
+    internal fun extractCrossDayClockCandidateMinutes(segment: String): Set<Int> =
+        inspectCrossDayRange(segment)?.candidateMinutes ?: emptySet()
+
     fun extractTimeRange(segment: String): ExtractedRange? =
-        extractTimeRangeDirect(normalizeSpelledDurations(segment))
+        extractCrossDayRange(segment)?.takeUnless { it.exceeds24Hours }?.range
+            ?: extractTimeRangeDirect(normalizeSpelledDurations(segment))
 
     private fun extractTimeRangeDirect(segment: String): ExtractedRange? {
         val match = timeRangeRegex.find(segment) ?: return null
         val h1 = match.groupValues[1].toIntOrNull() ?: return null
         val m1 = match.groupValues[2].ifBlank { "0" }.toIntOrNull() ?: return null
-        val h2 = match.groupValues[3].toIntOrNull() ?: return null
-        val m2 = match.groupValues[4].ifBlank { "0" }.toIntOrNull() ?: return null
+        val period1 = match.groupValues[3].lowercase(Locale("vi", "VN")).ifBlank { null }
+        val h2 = match.groupValues[4].toIntOrNull() ?: return null
+        val m2 = match.groupValues[5].ifBlank { "0" }.toIntOrNull() ?: return null
+        val period2 = match.groupValues[6].lowercase(Locale("vi", "VN")).ifBlank { null }
 
         if (h1 !in 0..23 || h2 !in 0..23 || m1 !in 0..59 || m2 !in 0..59) return null
-        val period = detectDayPeriod(segment)
-        val shiftedEnd = shiftHourForPeriod(h2, period)
-        val startHour = run {
-            val shiftedStart = shiftHourForPeriod(h1, period)
+        val fallbackPeriod = if (period1 == null && period2 == null) detectDayPeriod(segment) else null
+        val effPeriod2 = period2 ?: fallbackPeriod
+        val effPeriod1 = period1 ?: effPeriod2
+
+        val endHour: Int
+        val startHour: Int
+        if (period1 != null && period2 != null) {
+            startHour = shiftHourForPeriod(h1, period1)
+            endHour = shiftHourForPeriod(h2, period2)
+        } else if (period1 != null) {
+            startHour = shiftHourForPeriod(h1, period1)
+            endHour = if (h2 in 1..11 && period1 in setOf("chiều", "tối") && h2 + 12 > startHour) {
+                h2 + 12
+            } else {
+                h2
+            }
+        } else {
+            val shiftedEnd = shiftHourForPeriod(h2, effPeriod2)
+            val shiftedStart = shiftHourForPeriod(h1, effPeriod1)
             // Chỉ đổi giờ bắt đầu khi giờ kết thúc đã đổi và khoảng vẫn tăng dần ("2h-4h chiều" => 14-16, "10h-2h chiều" => 10-14)
-            if (shiftedEnd != h2 && shiftedStart < shiftedEnd) shiftedStart else h1
+            startHour = if (shiftedEnd != h2 && shiftedStart < shiftedEnd) shiftedStart else h1
+            endHour = shiftedEnd
         }
-        val endHour = shiftedEnd
+
         val startTotal = startHour * 60 + m1
         val endTotal = endHour * 60 + m2
         var diff = endTotal - startTotal
@@ -745,7 +906,17 @@ object VietnameseChatParser {
                 warnings.add("Đã bỏ qua mệnh đề tổng hợp (không ghi như một hoạt động): \"${raw.take(35)}\"")
                 continue
             }
-            val explicitRange = extractTimeRange(raw)
+            val ambiguousClock = findAmbiguousCrossDayClock(raw)
+            if (ambiguousClock != null) {
+                warnings.add("Thời điểm \"$ambiguousClock\" chưa rõ sáng hay tối nên chưa tự suy đoán. Hãy nói rõ buổi (ví dụ 20h tối hoặc 8h sáng).")
+                continue
+            }
+            val crossDay = extractCrossDayRange(raw)
+            if (crossDay != null && crossDay.exceeds24Hours) {
+                warnings.add("Bỏ qua đoạn có khoảng giờ vượt 24 giờ: \"${raw.take(35)}\"")
+                continue
+            }
+            val explicitRange = crossDay?.range ?: extractTimeRange(raw)
             val explicitMinutes = extractDurationMinutes(raw)
             val durationMinutes = explicitRange?.durationMinutes ?: explicitMinutes
 
@@ -754,11 +925,12 @@ object VietnameseChatParser {
                 continue
             }
 
-            val isTomorrow = globalTomorrow || Rx.uni("""(?:^|\s)(?:ngày mai|mai)(?=\s|$)""", RegexOption.IGNORE_CASE).containsMatchIn(raw)
-            val isYesterday = globalYesterday || Rx.uni("""(?:^|\s)(?:hôm qua|đêm qua|yesterday)(?=\s|$)""", RegexOption.IGNORE_CASE).containsMatchIn(raw)
-            val isDayBeforeYesterday = Rx.uni("""(?:^|\s)hôm kia(?=\s|$)""", RegexOption.IGNORE_CASE).containsMatchIn(raw)
+            val isTomorrow = globalTomorrow || (crossDay == null && Rx.uni("""(?:^|\s)(?:ngày mai|mai)(?=\s|$)""", RegexOption.IGNORE_CASE).containsMatchIn(raw))
+            val isYesterday = crossDay?.startDayOffset == -1 || globalYesterday || (crossDay == null && Rx.uni("""(?:^|\s)(?:hôm qua|đêm qua|yesterday)(?=\s|$)""", RegexOption.IGNORE_CASE).containsMatchIn(raw))
+            val isDayBeforeYesterday = crossDay?.startDayOffset == -2 || Rx.uni("""(?:^|\s)hôm kia(?=\s|$)""", RegexOption.IGNORE_CASE).containsMatchIn(raw)
 
             val targetDate = when {
+                crossDay != null -> today.plusDays(crossDay.startDayOffset.toLong())
                 isTomorrow -> today.plusDays(1)
                 isYesterday -> today.minusDays(1)
                 isDayBeforeYesterday -> today.minusDays(2)
@@ -803,6 +975,7 @@ object VietnameseChatParser {
 
     private fun cleanTitle(raw: String): String {
         var text = normalizeSpelledDurations(raw)
+        text = crossDayRangeRegex.replace(text, " ")
         text = timeRangeRegex.replace(text, " ")
         text = explicitStartAtHourRegex.replace(text, " ")
         text = Rx.ascii("""\d+(?:[.,]\d+)?\s*(?:h\s*tiếng|giờ|tiếng|h\d{0,2}\b)""", RegexOption.IGNORE_CASE).replace(text, " ")

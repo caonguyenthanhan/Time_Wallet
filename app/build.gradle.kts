@@ -1,9 +1,42 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
 }
+
+val releaseSigningProps = Properties().apply {
+    val candidateFiles = listOfNotNull(
+        System.getenv("TIMEWALLET_KEYSTORE_PROPERTIES")?.takeIf { it.isNotBlank() }?.let(::file),
+        rootProject.file("keystore.properties"),
+        file("${System.getProperty("user.home")}/.timewallet/keystore.properties")
+    )
+    val propsFile = candidateFiles.firstOrNull { it.isFile }
+    if (propsFile != null) {
+        propsFile.inputStream().use(::load)
+    }
+}
+
+fun resolveReleaseProp(envKey: String, propKey: String): String? =
+    System.getenv(envKey)?.takeIf { it.isNotBlank() }
+        ?: releaseSigningProps.getProperty(propKey)?.trim()?.takeIf { it.isNotEmpty() }
+
+val resolvedStoreFilePath = resolveReleaseProp("TIMEWALLET_KEYSTORE_PATH", "storeFile")
+val resolvedStorePassword = resolveReleaseProp("TIMEWALLET_KEYSTORE_PASSWORD", "storePassword")
+val resolvedKeyAlias = resolveReleaseProp("TIMEWALLET_KEY_ALIAS", "keyAlias")
+val resolvedKeyPassword = resolveReleaseProp("TIMEWALLET_KEY_PASSWORD", "keyPassword")
+val resolvedStoreFile = resolvedStoreFilePath?.let { path ->
+    val direct = file(path)
+    if (direct.isAbsolute) direct else rootProject.file(path)
+}?.takeIf { it.isFile }
+
+val hasCompleteReleaseSigning =
+    resolvedStoreFile != null &&
+        resolvedStorePassword != null &&
+        resolvedKeyAlias != null &&
+        resolvedKeyPassword != null
 
 android {
     namespace = "com.timewallet.mvp"
@@ -13,14 +46,30 @@ android {
         applicationId = "com.timewallet.mvp"
         minSdk = 26
         targetSdk = 35
-        versionCode = 15
-        versionName = "1.1.0"
+        versionCode = 16
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (hasCompleteReleaseSigning) {
+            create("release") {
+                storeFile = resolvedStoreFile
+                storePassword = resolvedStorePassword
+                keyAlias = resolvedKeyAlias
+                keyPassword = resolvedKeyPassword
+                enableV1Signing = true
+                enableV2Signing = true
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (hasCompleteReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -46,6 +95,17 @@ android {
 // v1.1.0: Room xuất schema JSON để test L3 đối chiếu DDL migration với lược đồ Room thật.
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+// Fail closed: không bao giờ xuất bản Release không ký số khi chạy đóng gói release.
+tasks.matching {
+    it.name in setOf("assembleRelease", "packageRelease", "bundleRelease", "signReleaseBundle")
+}.configureEach {
+    doFirst {
+        check(hasCompleteReleaseSigning) {
+            "Thieu cau hinh ky so Release. Hay tao ~/.timewallet/keystore.properties hoac dat TIMEWALLET_KEYSTORE_*."
+        }
+    }
 }
 
 dependencies {

@@ -18,7 +18,9 @@ sealed class ManualEntryValidation {
         val tagId: String? = null,
         /** v1.1.0 (A2/A3): có giờ bắt đầu/kết thúc "HH:mm" khi nhập theo khoảng giờ; null khi chỉ có thời lượng. */
         val startHm: String? = null,
-        val endHm: String? = null
+        val endHm: String? = null,
+        /** Lưu dạng Dự kiến (PLANNED) khi người dùng chọn trước/ngày tương lai. */
+        val saveAsPlanned: Boolean = false
     ) : ManualEntryValidation()
 
     data class Invalid(val message: String) : ManualEntryValidation()
@@ -59,15 +61,15 @@ object ManualEntry {
             startHm = valid.startHm,
             endHm = valid.endHm,
             idempotencyKey = key,
+            convertFutureToPlanned = valid.saveAsPlanned,
             tagId = valid.tagId
         )
     }
 
     /**
-     * v1.1.0 (A2/A3): nhập theo KHOẢNG GIỜ — ứng dụng tự tính số phút (14:00–15:12 = 72p); kết thúc có thể là "Bây giờ".
-     * Chỉ ghi giờ đã dùng: ngày tương lai bị từ chối; hôm nay thì giờ kết thúc không được ở tương lai (dùng "Bây giờ"/Đồng hồ).
-     * Ghi vẫn đi qua `LedgerValidator.validateBatchAtomic` (chống chồng lấn, bất biến TimeLayer: có giờ ⇒ REPORTED_TIMED).
-     * @param nowHm đồng hồ hiện tại "HH:mm" (ứng dụng truyền tại lúc bấm Lưu).
+     * Nhập theo KHOẢNG GIỜ: cho phép khoảng đã qua, đang diễn ra (DOING / ACTIVE) và tương lai (PLANNED).
+     * "Kết thúc: Bây giờ" dùng được cho hôm nay hoặc hoạt động bắt đầu từ hôm qua kéo sang bây giờ.
+     * Ghi vẫn đi qua `LedgerValidator.validateBatchAtomic` (tương lai ⇒ PLANNED, vắt qua hiện tại ⇒ ACTIVE).
      */
     fun validateRange(
         categoryKey: String?,
@@ -79,7 +81,8 @@ object ManualEntry {
         dateLocal: String,
         note: String,
         today: LocalDate,
-        nowHm: String
+        nowHm: String,
+        saveAsPlanned: Boolean = false
     ): ManualEntryValidation {
         val category = TimeCategory.fromKeyOrNull(categoryKey)
             ?: return ManualEntryValidation.Invalid("Hãy chọn hoạt động hoặc một danh mục.")
@@ -88,25 +91,31 @@ object ManualEntry {
         } catch (_: DateTimeParseException) {
             return ManualEntryValidation.Invalid("Ngày không hợp lệ.")
         }
-        if (date.isAfter(today)) {
-            return ManualEntryValidation.Invalid("Chỉ ghi giờ đã dùng, không chọn ngày trong tương lai. Hãy dùng Đồng hồ hoặc Chat để lên kế hoạch.")
-        }
         val isToday = date == today
-        val range = TimeRange.compute(startText, if (endIsNow) TimeRange.End.Now else TimeRange.End.At(endText), nowHm, isToday)
+        val isYesterday = date == today.minusDays(1)
+        val range = TimeRange.compute(
+            startText,
+            if (endIsNow) TimeRange.End.Now else TimeRange.End.At(endText),
+            nowHm,
+            isToday,
+            allowEndNowFromYesterday = isYesterday
+        )
         val ok = when (range) {
             is TimeRange.Result.Invalid -> return ManualEntryValidation.Invalid(range.message)
             is TimeRange.Result.Ok -> range
         }
-        if (isToday && !endIsNow) {
-            val nowMin = TimeRange.parseMinuteOfDay(nowHm)
-            val endMin = TimeRange.parseMinuteOfDay(ok.endHm)
-            if (nowMin != null && endMin != null && !ok.crossesMidnight && endMin > nowMin) {
-                return ManualEntryValidation.Invalid("Giờ kết thúc chưa tới. Chọn \"Bây giờ\", hoặc dùng Đồng hồ nếu đang làm.")
-            }
-        }
         if (ok.minutes > MAX_MINUTES) return ManualEntryValidation.Invalid("Một bản ghi không vượt quá 24 giờ.")
         val title = note.trim().take(MAX_NOTE_LENGTH).ifBlank { tagName?.trim().orEmpty().ifBlank { category.displayName } }
-        return ManualEntryValidation.Valid(category, ok.minutes, date.toString(), title, tagId, ok.startHm, ok.endHm)
+        return ManualEntryValidation.Valid(
+            category = category,
+            durationMinutes = ok.minutes,
+            dateLocal = date.toString(),
+            title = title,
+            tagId = tagId,
+            startHm = ok.startHm,
+            endHm = ok.endHm,
+            saveAsPlanned = saveAsPlanned || date.isAfter(today)
+        )
     }
 
     fun validate(
@@ -117,7 +126,8 @@ object ManualEntry {
         note: String,
         today: LocalDate,
         tagId: String? = null,
-        tagName: String? = null
+        tagName: String? = null,
+        saveAsPlanned: Boolean = false
     ): ManualEntryValidation {
         val category = TimeCategory.fromKeyOrNull(categoryKey)
             ?: return ManualEntryValidation.Invalid("Hãy chọn một danh mục.")
@@ -137,11 +147,15 @@ object ManualEntry {
         } catch (_: DateTimeParseException) {
             return ManualEntryValidation.Invalid("Ngày không hợp lệ.")
         }
-        if (date.isAfter(today)) {
-            return ManualEntryValidation.Invalid("Chỉ ghi giờ đã dùng, không chọn ngày trong tương lai. Hãy dùng Đồng hồ hoặc Chat để lên kế hoạch.")
-        }
 
         val title = note.trim().take(MAX_NOTE_LENGTH).ifBlank { tagName?.trim().orEmpty().ifBlank { category.displayName } }
-        return ManualEntryValidation.Valid(category, total, date.toString(), title, tagId)
+        return ManualEntryValidation.Valid(
+            category = category,
+            durationMinutes = total,
+            dateLocal = date.toString(),
+            title = title,
+            tagId = tagId,
+            saveAsPlanned = saveAsPlanned || date.isAfter(today)
+        )
     }
 }

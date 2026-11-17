@@ -23,7 +23,7 @@ object ApiKeyHygiene {
     private val QUOTES = setOf('"', '\'', '`', '“', '”', '‘', '’', '«', '»')
 
     private fun isInvisible(c: Char): Boolean =
-        c in '​'..'‏' || c in '‪'..'‮' || c in '⁠'..'⁤' || c == '﻿' || c == '­'
+        c in '\u200B'..'\u200F' || c in '\u202A'..'\u202E' || c in '\u2060'..'\u2064' || c == '\uFEFF' || c == '\u00AD'
 
     private fun isBlankLike(c: Char): Boolean = c.isWhitespace() || Character.isSpaceChar(c) || isInvisible(c)
 

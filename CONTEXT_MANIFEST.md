@@ -1,15 +1,15 @@
 # CONTEXT_MANIFEST.md
-Cập nhật lần cuối: 2026-11-17T10:10:00+07:00
+Cập nhật lần cuối: 2026-11-17T19:28:00+07:00
 
 ## Core (luôn nạp vào context)
 - `.agents/` — Quy tắc dự án (`AGENTS.md`, `rules/link-ecosystem.md`)
 - `.gitignore`, `.repomixignore` — Bộ lọc tệp build, output QA, archive & tệp tạm
-- `README.md` — Tổng quan kiến trúc API-First, cấu trúc `v1.0.13` / `v1.1.0` & hướng dẫn build/test
+- `README.md` — Trang giới thiệu tổng quan GitHub `v1.2.0`, điểm nổi bật kỹ thuật, cấu trúc & hướng dẫn build/test
 - `Time_Wallet_MVP/` — Đặc tả MVP & HTML Prototype gốc
 - `ai_test/` — Script kiểm thử gateway (`test_foza_ai.ts`, đọc `FOZA_API_KEY` từ biến môi trường)
 - `app/` — Mã nguồn Kotlin/Compose, bộ test JVM (`app/src/test/`) & Room schemas (`app/schemas/`)
 - `build.gradle.kts`, `settings.gradle.kts`, `gradle/`, `gradle.properties`
-- Đặc tả & hồ sơ hiện hành tại root: `SPEC_TIME_WALLET_WALLY.md`, `WALLY_TECHNICAL_SPEC.md`, `WALLY_V110_PLAN.md`, `WALLY_V110_CLOSURE_DIGEST.md`, `WALLY_OWNER_CHECKLIST_V110.md`
+- Đặc tả & hồ sơ hiện hành tại root: `SPEC_TIME_WALLET_WALLY.md`, `WALLY_TECHNICAL_SPEC.md`, `WALLY_V110_PLAN.md`, `WALLY_V110_CLOSURE_DIGEST.md`, `WALLY_OWNER_CHECKLIST_V110.md`, `WALLY_V120_PRODUCTION_CANDIDATE.md`
 
 ## Vendored / operational (KHÔNG nạp vào context, KHÔNG di chuyển)
 - `.git/`, `.gradle/`, `.kotlin/`, `.idea/`, `.vscode/`

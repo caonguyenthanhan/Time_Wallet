@@ -35,6 +35,7 @@ import com.timewallet.mvp.ui.theme.WalletMuted
 fun DataManagementDialog(
     onDismiss: () -> Unit,
     onExportJson: () -> Unit,
+    onImportJson: () -> Unit = {},
     onLoadSampleData: () -> Unit,
     onClearAllData: () -> Unit
 ) {
@@ -80,6 +81,10 @@ fun DataManagementDialog(
                 DataActionRow(title = "Xuất JSON", subtitle = "Lưu bản sao dữ liệu ra tệp") {
                     onDismiss()
                     onExportJson()
+                }
+                DataActionRow(title = "Nhập / khôi phục JSON", subtitle = "Gộp an toàn hoặc khôi phục từ tệp sao lưu") {
+                    onDismiss()
+                    onImportJson()
                 }
                 DataActionRow(title = "Nạp dữ liệu mẫu", subtitle = "Thêm dữ liệu thử để xem giao diện") {
                     onDismiss()

@@ -32,7 +32,13 @@ class WallySecurityStaticTest {
         val extraction = File("src/main/res/xml/data_extraction_rules.xml").readText()
         assertTrue(extraction.contains("sharedpref") && extraction.contains("database"))
         assertFalse("không cho phép lưu lưu lượng không mã hóa", manifest.contains("usesCleartextTraffic=\"true\""))
-        assertTrue("chỉ xin quyền INTERNET", Regex("uses-permission").findAll(manifest).count() == 1)
+        val perms = Regex("""<uses-permission[^>]*android:name="([^"]+)"""").findAll(manifest).map { it.groupValues[1] }.toSet()
+        val allowedPerms = setOf(
+            "android.permission.INTERNET",
+            "android.permission.POST_NOTIFICATIONS",
+            "android.permission.RECEIVE_BOOT_COMPLETED"
+        )
+        assertTrue("chỉ xin quyền INTERNET, POST_NOTIFICATIONS và RECEIVE_BOOT_COMPLETED, phát hiện: $perms", perms.isNotEmpty() && perms.all { it in allowedPerms })
     }
 
     @Test
@@ -55,5 +61,24 @@ class WallySecurityStaticTest {
                 Regex("""sk-[A-Za-z0-9]{24,}""").containsMatchIn(file.readText())
         }.map { it.name }
         assertTrue("không có khóa thật trong nguồn: $offenders", offenders.isEmpty())
+    }
+
+    @Test
+    fun `no release keystore or signing secret file resides inside repository tree`() {
+        val repoRoot = File(".").canonicalFile.let { if (it.name == "app") it.parentFile else it }
+        val forbidden = repoRoot.walkTopDown()
+            .onEnter { dir -> dir.name !in setOf(".git", ".gradle", "build", "out") }
+            .filter { file ->
+                file.isFile && (
+                    file.name.equals("keystore.properties", ignoreCase = true) ||
+                        file.extension.lowercase() in setOf("jks", "keystore", "p12", "pkcs12")
+                    )
+            }
+            .map { it.relativeTo(repoRoot).path }
+            .toList()
+        assertTrue("không đặt keystore/signing secret trong repo: $forbidden", forbidden.isEmpty())
+        val gradle = File("build.gradle.kts").readText()
+        assertFalse(gradle.contains("storePassword = \""))
+        assertFalse(gradle.contains("keyPassword = \""))
     }
 }
