@@ -171,7 +171,10 @@ fun ManualEntrySheet(
                 CategoryChoiceRow(state.categoryKey) { k -> onChange { it.copy(categoryKey = k) } }
             } else {
                 TextButton(onClick = { showCategories = true }, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text("Nhóm: ${cat.emoji} ${cat.displayName} · đổi", fontSize = 12.5.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        CategoryIcon(category = cat, size = 15.dp, tint = WalletMint)
+                        Text("Nhóm: ${cat.displayName} · đổi", fontSize = 12.5.sp)
+                    }
                 }
             }
 
@@ -226,16 +229,28 @@ fun ManualEntrySheet(
                             modifier = Modifier.semantics { contentDescription = "Thời lượng tự tính ${TimeRange.formatDuration(rangePreview.minutes)}" }
                         )
                         if (isFutureRange) {
-                            Text(
-                                "Dự kiến · chưa tính vào thời gian thực tế; sẽ nhắc xác nhận lúc ${rangePreview.endHm}.",
-                                fontSize = 11.5.sp, color = Color(0xFF9C5D16)
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                GlyphIcon(WalletGlyph.NOTIFY, color = Color(0xFFA24C18), size = 14.dp)
+                                Text(
+                                    "Dự kiến · chưa tính vào thời gian thực tế; sẽ nhắc xác nhận lúc ${rangePreview.endHm}.",
+                                    fontSize = 11.5.sp, color = Color(0xFFA24C18)
+                                )
+                            }
                         } else if (isOngoingRange) {
                             val elapsedMins = ((nowMs - epochPair!!.first).coerceAtLeast(0L) / 60_000L).toInt()
-                            Text(
-                                "Đang diễn ra · hiện đã qua ${TimeRange.formatDuration(elapsedMins)}; sẽ nhắc xác nhận lúc ${rangePreview.endHm}.",
-                                fontSize = 11.5.sp, color = Color(0xFF185FA5)
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                GlyphIcon(WalletGlyph.NOTIFY, color = Color(0xFF185FA5), size = 14.dp)
+                                Text(
+                                    "Đang diễn ra · hiện đã qua ${TimeRange.formatDuration(elapsedMins)}; sẽ nhắc xác nhận lúc ${rangePreview.endHm}.",
+                                    fontSize = 11.5.sp, color = Color(0xFF185FA5)
+                                )
+                            }
                         }
                     }
                     is TimeRange.Result.Invalid -> Text(rangePreview.message, fontSize = 12.sp, color = Color(0xFFB3261E))
@@ -294,7 +309,12 @@ fun ManualEntrySheet(
                     modifier = Modifier.fillMaxWidth()
                 )
             } else {
-                TextButton(onClick = { showNote = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("＋ Ghi chú", fontSize = 12.5.sp) }
+                TextButton(onClick = { showNote = true }, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        GlyphIcon(WalletGlyph.PLUS, color = WalletMint, size = 15.dp)
+                        Text("Ghi chú", fontSize = 12.5.sp)
+                    }
+                }
             }
                 Spacer(modifier = Modifier.height(6.dp))
             }
@@ -302,13 +322,19 @@ fun ManualEntrySheet(
             HorizontalDivider(color = Color(0xFFEFF2EE))
             if (state.error != null) {
                 Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = state.error,
-                    color = Color(0xFFB3261E),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.semantics { contentDescription = "Lỗi: ${state.error}" }
-                )
+                Row(
+                    modifier = Modifier.semantics { contentDescription = "Lỗi: ${state.error}" },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    GlyphIcon(WalletGlyph.ERROR, color = Color(0xFFB63F37), size = 15.dp)
+                    Text(
+                        text = state.error,
+                        color = Color(0xFFB63F37),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
 
             Row(
@@ -329,7 +355,10 @@ fun ManualEntrySheet(
                         .heightIn(min = 48.dp)
                         .semantics { contentDescription = "Clean · Xóa nhập liệu" }
                 ) {
-                    Text("Clean · Xóa nhập liệu", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB3261E))
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        GlyphIcon(WalletGlyph.ERASER, color = Color(0xFFB63F37), size = 15.dp)
+                        Text("Clean · Xóa nhập liệu", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB63F37))
+                    }
                 }
             }
 

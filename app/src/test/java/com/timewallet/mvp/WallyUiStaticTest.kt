@@ -88,6 +88,9 @@ class WallyUiStaticTest {
         val s = src("OverviewScreen.kt")
         assertTrue(s.contains("summary.isEmpty"))
         assertTrue(s.contains("Chưa có giờ nào được ghi hôm nay."))
-        assertTrue("legend không chỉ dựa vào màu: có emoji, tên, giờ và %", s.contains("slice.category.emoji") && s.contains("slice.percent"))
+        assertTrue(
+            "legend không chỉ dựa vào màu: có biểu tượng danh mục 24dp, tên, giờ và %",
+            s.contains("category = slice.category") && s.contains("slice.percent") && src("UiKit.kt").contains("CategoryIcon(")
+        )
     }
 }

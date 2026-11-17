@@ -753,7 +753,7 @@ private fun FloatingActionGroup(
                 elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 3.dp),
                 modifier = Modifier.semantics { contentDescription = "Hỏi nhanh Wally" }
             ) {
-                GlyphIcon(WalletGlyph.SPARK, color = WalletMint, size = 19.dp, filled = true)
+                GlyphIcon(WalletGlyph.WALLY_BOT, color = WalletMint, size = 20.dp, filled = true)
             }
         }
 

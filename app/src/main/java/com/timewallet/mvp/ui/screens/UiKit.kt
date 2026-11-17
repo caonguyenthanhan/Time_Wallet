@@ -8,6 +8,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,6 +31,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
@@ -51,8 +53,10 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -65,6 +69,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.timewallet.mvp.R
 import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.usecase.DonutSlice
 import com.timewallet.mvp.ui.AppTab
@@ -93,17 +98,72 @@ fun Modifier.walletClickable(
     .semantics { this.role = role }
     .clickable(enabled = enabled, onClickLabel = onClickLabel, onClick = onClick)
 
-enum class WalletGlyph { HOME, CLOCK, SPARK, LIST, BARS, PLUS, CHEVRON, SEND, STOP, MORE, DICE, BOOK, EDIT, CLOSE, ARROW_UP, DRAG }
+enum class WalletGlyph {
+    HOME, CLOCK, WALLY_BOT, SPARK, LIST, BARS,
+    PLUS, CHEVRON, SEND, STOP, MORE, DICE, BOOK,
+    EDIT, DELETE, CONFIRM, CLOSE, ERASER, NOTIFY, SETTINGS, GOAL, BACK, PAUSE, WARNING, ERROR,
+    ARROW_UP, DRAG
+}
 
 fun AppTab.glyph(): WalletGlyph = when (this) {
     AppTab.OVERVIEW -> WalletGlyph.HOME
     AppTab.TIMER -> WalletGlyph.CLOCK
-    AppTab.CHAT -> WalletGlyph.SPARK
+    AppTab.CHAT -> WalletGlyph.WALLY_BOT
     AppTab.HISTORY -> WalletGlyph.LIST
     AppTab.INSIGHTS -> WalletGlyph.BARS
 }
 
-/** Biểu tượng vẽ bằng Canvas để mọi tab/nút cùng một kiểu nét và kích thước (không phụ thuộc phông ký hiệu). */
+private fun vectorResForGlyph(glyph: WalletGlyph, filled: Boolean): Int? = when (glyph) {
+    WalletGlyph.HOME -> if (filled) R.drawable.ic_nav_overview_selected else R.drawable.ic_nav_overview_default
+    WalletGlyph.CLOCK -> if (filled) R.drawable.ic_nav_timer_selected else R.drawable.ic_nav_timer_default
+    WalletGlyph.WALLY_BOT -> if (filled) R.drawable.ic_nav_wally_selected else R.drawable.ic_nav_wally_default
+    WalletGlyph.LIST -> if (filled) R.drawable.ic_nav_journal_selected else R.drawable.ic_nav_journal_default
+    WalletGlyph.BARS -> if (filled) R.drawable.ic_nav_analytics_selected else R.drawable.ic_nav_analytics_default
+    WalletGlyph.PLUS -> R.drawable.ic_action_add_default
+    WalletGlyph.EDIT -> R.drawable.ic_action_edit_default
+    WalletGlyph.DELETE -> R.drawable.ic_action_delete_error
+    WalletGlyph.CONFIRM -> R.drawable.ic_action_confirm_default
+    WalletGlyph.CLOSE -> R.drawable.ic_action_cancel_default
+    WalletGlyph.ERASER -> R.drawable.ic_action_eraser_default
+    WalletGlyph.NOTIFY -> R.drawable.ic_action_notify_default
+    WalletGlyph.SETTINGS -> R.drawable.ic_action_settings_default
+    WalletGlyph.GOAL -> R.drawable.ic_action_goal_default
+    WalletGlyph.BACK -> R.drawable.ic_action_back_default
+    WalletGlyph.PAUSE -> R.drawable.ic_action_pause_default
+    WalletGlyph.WARNING -> R.drawable.ic_warning_default
+    WalletGlyph.ERROR -> R.drawable.ic_error_default
+    else -> null
+}
+
+private fun vectorResForCategory(category: TimeCategory): Int = when (category) {
+    TimeCategory.WORK -> R.drawable.ic_cat_work_default
+    TimeCategory.LEARN -> R.drawable.ic_cat_learn_default
+    TimeCategory.HEALTH -> R.drawable.ic_cat_move_default
+    TimeCategory.LIFE -> R.drawable.ic_cat_home_default
+    TimeCategory.REST -> R.drawable.ic_cat_rest_default
+    TimeCategory.SOCIAL -> R.drawable.ic_cat_connect_default
+    TimeCategory.FUN -> R.drawable.ic_cat_fun_default
+    TimeCategory.SLEEP -> R.drawable.ic_cat_sleep_default
+    TimeCategory.OTHER -> R.drawable.ic_cat_other_default
+}
+
+/** Icon vector 24dp chuẩn Style Guide v2 cho 9 danh mục hoạt động. */
+@Composable
+fun CategoryIcon(
+    category: TimeCategory,
+    modifier: Modifier = Modifier,
+    size: Dp = 18.dp,
+    tint: Color = WalletMint
+) {
+    Icon(
+        painter = painterResource(id = vectorResForCategory(category)),
+        contentDescription = null,
+        tint = tint,
+        modifier = modifier.size(size)
+    )
+}
+
+/** Biểu tượng đồng bộ từ VectorDrawable Style Guide v2 hoặc Canvas cùng tỉ lệ nét 2dp. */
 @Composable
 fun GlyphIcon(
     glyph: WalletGlyph,
@@ -112,6 +172,25 @@ fun GlyphIcon(
     size: Dp = 22.dp,
     filled: Boolean = false
 ) {
+    if (glyph == WalletGlyph.CLOCK && filled && color == WalletMint) {
+        Icon(
+            painter = painterResource(id = R.drawable.ic_nav_timer_pressed),
+            contentDescription = null,
+            tint = Color.Unspecified,
+            modifier = modifier.size(size)
+        )
+        return
+    }
+    val vectorRes = vectorResForGlyph(glyph, filled)
+    if (vectorRes != null) {
+        Icon(
+            painter = painterResource(id = vectorRes),
+            contentDescription = null,
+            tint = color,
+            modifier = modifier.size(size)
+        )
+        return
+    }
     Canvas(modifier = modifier.size(size)) {
         val s = this.size.minDimension
         val sw = s * 0.09f
@@ -119,19 +198,6 @@ fun GlyphIcon(
         val style = if (filled) Fill else line
         fun p(x: Float, y: Float) = Offset(x * s, y * s)
         when (glyph) {
-            WalletGlyph.HOME -> {
-                val cell = s * 0.32f
-                val r = CornerRadius(s * 0.09f)
-                listOf(0.14f to 0.14f, 0.54f to 0.14f, 0.14f to 0.54f, 0.54f to 0.54f).forEach { (x, y) ->
-                    drawRoundRect(color, topLeft = p(x, y), size = Size(cell, cell), cornerRadius = r, style = style)
-                }
-            }
-            WalletGlyph.CLOCK -> {
-                drawCircle(color, radius = s * 0.37f, center = p(0.5f, 0.5f), style = style)
-                val hand = if (filled) Color.White else color
-                drawLine(hand, p(0.5f, 0.5f), p(0.5f, 0.28f), strokeWidth = sw, cap = StrokeCap.Round)
-                drawLine(hand, p(0.5f, 0.5f), p(0.66f, 0.58f), strokeWidth = sw, cap = StrokeCap.Round)
-            }
             WalletGlyph.SPARK -> {
                 val path = Path().apply {
                     moveTo(0.5f * s, 0.10f * s); lineTo(0.59f * s, 0.41f * s); lineTo(0.90f * s, 0.5f * s)
@@ -139,23 +205,6 @@ fun GlyphIcon(
                     lineTo(0.10f * s, 0.5f * s); lineTo(0.41f * s, 0.41f * s); close()
                 }
                 drawPath(path, color, style = style)
-            }
-            WalletGlyph.LIST -> {
-                listOf(0.25f, 0.5f, 0.75f).forEach { y ->
-                    drawCircle(color, radius = s * 0.065f, center = p(0.2f, y))
-                    drawLine(color, p(0.36f, y), p(0.86f, y), strokeWidth = sw, cap = StrokeCap.Round)
-                }
-            }
-            WalletGlyph.BARS -> {
-                val r = CornerRadius(s * 0.05f)
-                val bw = s * 0.17f
-                listOf(0.16f to 0.40f, 0.415f to 0.70f, 0.67f to 0.54f).forEach { (x, hFrac) ->
-                    drawRoundRect(color, topLeft = p(x, 0.86f - hFrac), size = Size(bw, hFrac * s), cornerRadius = r)
-                }
-            }
-            WalletGlyph.PLUS -> {
-                drawLine(color, p(0.5f, 0.2f), p(0.5f, 0.8f), strokeWidth = sw, cap = StrokeCap.Round)
-                drawLine(color, p(0.2f, 0.5f), p(0.8f, 0.5f), strokeWidth = sw, cap = StrokeCap.Round)
             }
             WalletGlyph.CHEVRON -> {
                 val path = Path().apply { moveTo(0.38f * s, 0.22f * s); lineTo(0.64f * s, 0.5f * s); lineTo(0.38f * s, 0.78f * s) }
@@ -176,14 +225,6 @@ fun GlyphIcon(
                 drawRoundRect(color, topLeft = p(0.14f, 0.14f), size = Size(s * 0.72f, s * 0.72f), cornerRadius = CornerRadius(s * 0.16f), style = line)
                 listOf(0.33f to 0.33f, 0.5f to 0.5f, 0.67f to 0.67f).forEach { (x, y) -> drawCircle(color, radius = s * 0.06f, center = p(x, y)) }
             }
-            WalletGlyph.EDIT -> {
-                drawLine(color, p(0.26f, 0.74f), p(0.70f, 0.30f), strokeWidth = sw * 1.7f, cap = StrokeCap.Round)
-                drawLine(color, p(0.2f, 0.86f), p(0.52f, 0.86f), strokeWidth = sw, cap = StrokeCap.Round)
-            }
-            WalletGlyph.CLOSE -> {
-                drawLine(color, p(0.26f, 0.26f), p(0.74f, 0.74f), strokeWidth = sw, cap = StrokeCap.Round)
-                drawLine(color, p(0.74f, 0.26f), p(0.26f, 0.74f), strokeWidth = sw, cap = StrokeCap.Round)
-            }
             WalletGlyph.BOOK -> {
                 drawRoundRect(color, topLeft = p(0.2f, 0.14f), size = Size(s * 0.6f, s * 0.72f), cornerRadius = CornerRadius(s * 0.08f), style = line)
                 drawLine(color, p(0.34f, 0.36f), p(0.66f, 0.36f), strokeWidth = sw, cap = StrokeCap.Round)
@@ -201,6 +242,7 @@ fun GlyphIcon(
                     }
                 }
             }
+            else -> Unit
         }
     }
 }
@@ -281,7 +323,7 @@ fun SectionTitle(
     }
 }
 
-/** Biểu tượng danh mục: emoji trong ô bo góc có màu của danh mục. */
+/** Biểu tượng danh mục chuẩn Style Guide v2 (VectorDrawable 24dp trong ô màu danh mục). */
 @Composable
 fun CategoryBadge(category: TimeCategory, size: Dp = 40.dp) {
     Box(
@@ -291,7 +333,11 @@ fun CategoryBadge(category: TimeCategory, size: Dp = 40.dp) {
             .background(Color(category.colorHex).copy(alpha = 0.16f)),
         contentAlignment = Alignment.Center
     ) {
-        Text(text = category.emoji, fontSize = (size.value * 0.46f).sp)
+        CategoryIcon(
+            category = category,
+            size = (size.value * 0.56f).dp,
+            tint = WalletInk
+        )
     }
 }
 
@@ -585,13 +631,14 @@ fun DonutWithLegend(
     }
 }
 
-/** Một dòng chú giải: chấm màu + (emoji) tên + giá trị; phần trăm và chọn tương tác tuỳ chọn. */
+/** Một dòng chú giải: chấm màu + icon vector danh mục + tên + giá trị; phần trăm và chọn tương tác tuỳ chọn. */
 @Composable
 fun LegendRow(
     label: String,
     value: String,
     dot: Color,
     modifier: Modifier = Modifier,
+    category: TimeCategory? = null,
     percentText: String? = null,
     isSelected: Boolean = false,
     onClick: (() -> Unit)? = null
@@ -625,6 +672,13 @@ fun LegendRow(
         horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         Box(modifier = Modifier.size(if (isSelected) 11.dp else 9.dp).clip(CircleShape).background(dot))
+        if (category != null) {
+            CategoryIcon(
+                category = category,
+                size = 15.dp,
+                tint = if (isSelected) WalletMint else WalletInk
+            )
+        }
         Text(
             text = label,
             fontSize = 12.5.sp,
@@ -779,3 +833,27 @@ fun cappedSp(base: Float, cap: Float = 1.15f): TextUnit = cappedSpValue(base, Lo
 
 /** Nội dung mô tả trợ năng cho vùng đồ họa (donut, thanh...). */
 fun Modifier.describe(text: String): Modifier = this.semantics { contentDescription = text }
+
+/**
+ * Avatar linh vật Wally theo Style Guide v3:
+ * - >= 80dp (empty/onboarding >= 96dp): dùng mascot toàn thân WebP chi tiết cao xuất từ Wally_Vector_Detailed ([R.drawable.ic_wally]).
+ * - 32–79dp (Tổng quan, AI Coach, Chat bubble): dùng avatar mặt robot 2D ([R.drawable.ic_wally_avatar_2d]).
+ */
+@Composable
+fun WallyMascotAvatar(
+    size: Dp,
+    contentDescription: String?,
+    modifier: Modifier = Modifier
+) {
+    val isFullBody = size >= 80.dp
+    Image(
+        painter = painterResource(id = if (isFullBody) R.drawable.ic_wally else R.drawable.ic_wally_avatar_2d),
+        contentDescription = contentDescription,
+        contentScale = ContentScale.Fit,
+        modifier = if (isFullBody) {
+            modifier.size(size)
+        } else {
+            modifier.size(size).clip(CircleShape)
+        }
+    )
+}

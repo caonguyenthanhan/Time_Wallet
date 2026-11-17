@@ -29,6 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -123,7 +124,13 @@ fun ActivityConfirmationDialog(
                         .padding(10.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text("${record.category.emoji} ${record.title}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = WalletInk)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CategoryBadge(category = record.category, size = 28.dp)
+                        Text(record.title, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = WalletInk)
+                    }
                     Text("Khung giờ: $rangeText · ${confState.labelVi}", fontSize = 12.sp, color = WalletMuted)
                     Text(
                         "Đã tính thực tế hiện tại: ${LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(actualElapsed)}",

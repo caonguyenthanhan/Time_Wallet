@@ -70,7 +70,6 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.rememberScrollState
@@ -86,10 +85,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
-import com.timewallet.mvp.R
 import com.timewallet.mvp.ui.theme.WalletMintDark
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -177,10 +174,9 @@ fun ChatScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Image(
-                    painter = painterResource(id = R.drawable.ic_wally),
-                    contentDescription = "Wally",
-                    modifier = Modifier.size(42.dp)
+                WallyMascotAvatar(
+                    size = 44.dp,
+                    contentDescription = "Wally"
                 )
                 Column {
                     Text(text = "Wally", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk, maxLines = 1, softWrap = false)
@@ -188,9 +184,9 @@ fun ChatScreen(
                 }
             }
             val modeText = if (aiPreferences.optInEnabled && aiPreferences.apiKey.isNotBlank()) {
-                "✦ AI đã bật · ⚙"
+                "✦ AI đã bật"
             } else {
-                "✦ Chưa cấu hình AI · ⚙"
+                "✦ Chưa cấu hình AI"
             }
             Box(
                 modifier = Modifier
@@ -200,14 +196,20 @@ fun ChatScreen(
                     .walletClickable(onClickLabel = "Mở cấu hình AI", onClick = onOpenAiSettings)
                     .padding(horizontal = 11.dp, vertical = 6.dp)
             ) {
-                Text(
-                    text = modeText,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF5D7064),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Text(
+                        text = modeText,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF5D7064),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    GlyphIcon(WalletGlyph.SETTINGS, color = Color(0xFF5D7064), size = 13.dp)
+                }
             }
         }
         }
@@ -230,10 +232,9 @@ fun ChatScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.ic_wally),
-                        contentDescription = null,
-                        modifier = Modifier.size(76.dp)
+                    WallyMascotAvatar(
+                        size = 104.dp,
+                        contentDescription = null
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
@@ -294,10 +295,21 @@ fun ChatScreen(
                         chatFault == AiFault.KEY_INVALID ||
                         chatFault == AiFault.NOT_FOUND ||
                         chatFault == AiFault.SERVER
-                    Text(
-                        text = if (lastAnalysisSource == OutcomeSource.NOT_CONFIGURED) "Wally chưa được cấu hình AI" else "Wally chưa trả lời được",
-                        fontSize = 12.sp, fontWeight = FontWeight.Bold, color = WalletMuted
-                    )
+                    val isSetupWarn = chatFault == AiFault.NOT_CONFIGURED
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        GlyphIcon(
+                            glyph = if (isSetupWarn) WalletGlyph.WARNING else WalletGlyph.ERROR,
+                            color = if (isSetupWarn) Color(0xFFA24C18) else Color(0xFFB63F37),
+                            size = 16.dp
+                        )
+                        Text(
+                            text = if (lastAnalysisSource == OutcomeSource.NOT_CONFIGURED) "Wally chưa được cấu hình AI" else "Wally chưa trả lời được",
+                            fontSize = 12.sp, fontWeight = FontWeight.Bold, color = WalletMuted
+                        )
+                    }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(text = chatFault.messageVi, fontSize = 13.5.sp, color = WalletInk, lineHeight = 19.sp)
                     Spacer(modifier = Modifier.height(4.dp))
@@ -307,7 +319,17 @@ fun ChatScreen(
                     )
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (needsSetup) {
-                            TextButton(onClick = onOpenAiSettings, modifier = Modifier.heightIn(min = 48.dp)) { Text("Mở cấu hình ⚙", fontSize = 13.sp) }
+                            TextButton(
+                                onClick = onOpenAiSettings,
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .semantics { contentDescription = "Mở cấu hình ⚙" }
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    GlyphIcon(WalletGlyph.SETTINGS, color = WalletMint, size = 14.dp)
+                                    Text("Mở cấu hình", fontSize = 13.sp)
+                                }
+                            }
                         }
                         if (chatFault.retryable) {
                             TextButton(
@@ -411,7 +433,7 @@ fun ChatScreen(
                             onClick = { showCleanChatConfirm = true },
                             modifier = Modifier.semantics { contentDescription = "Clean · Xóa nhập liệu" }
                         ) {
-                            Text("✕", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = WalletMuted)
+                            GlyphIcon(WalletGlyph.ERASER, color = WalletMuted, size = 18.dp)
                         }
                     }
                 } else null,
@@ -500,10 +522,9 @@ private fun WallyBubble(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.Bottom
     ) {
-        Image(
-            painter = painterResource(id = R.drawable.ic_wally),
-            contentDescription = null,
-            modifier = Modifier.size(30.dp)
+        WallyMascotAvatar(
+            size = 32.dp,
+            contentDescription = null
         )
         Column(
             modifier = Modifier
@@ -758,15 +779,7 @@ private fun CompactProposalBatchCard(
                             verticalAlignment = Alignment.Top,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(catColor.copy(alpha = 0.15f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(text = cat.emoji, fontSize = 16.sp)
-                            }
+                            CategoryBadge(category = cat, size = 34.dp)
                             Text(
                                 text = item.title,
                                 fontSize = 14.sp,
@@ -970,11 +983,14 @@ private fun CompactProposalBatchCard(
                 colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
                 contentPadding = PaddingValues(vertical = 14.dp)
             ) {
-                Text(
-                    text = "✓ Xác nhận toàn bộ (${proposals.size} hoạt động)",
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    GlyphIcon(WalletGlyph.CONFIRM, color = Color.White, size = 16.dp)
+                    Text(
+                        text = "Xác nhận toàn bộ (${proposals.size} hoạt động)",
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
     }

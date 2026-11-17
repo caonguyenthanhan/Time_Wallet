@@ -357,7 +357,6 @@ fun DailyReviewScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     snapshot.completedActivities.forEachIndexed { index, rec ->
                         val isLearn = rec.category == TimeCategory.LEARN
-                        val catColor = Color(rec.category.colorHex)
                         val zone = try { ZoneId.of(rec.timezone) } catch (_: Exception) { ZoneId.systemDefault() }
                         val slotLabel = if (rec.startedAt != null && rec.endedAt != null) {
                             val s = Instant.ofEpochMilli(rec.startedAt).atZone(zone).format(hmFmt)
@@ -383,15 +382,7 @@ fun DailyReviewScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(30.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(catColor.copy(alpha = 0.16f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(text = rec.category.emoji, fontSize = 14.sp)
-                                }
+                                CategoryBadge(category = rec.category, size = 30.dp)
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = rec.title,

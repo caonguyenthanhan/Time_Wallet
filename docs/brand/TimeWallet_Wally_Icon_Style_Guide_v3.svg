@@ -1,0 +1,487 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1600" height="3870" viewBox="0 0 1600 3870" role="img" aria-labelledby="title desc">
+<title id="title">Time Wallet · Wally — Icon Design System v3</title><desc id="desc">Bộ quy chuẩn một trang SVG vector: lưới, icon, trạng thái, màu light/dark, tương phản, vùng chạm, ẩn dụ, adaptive icon và checklist.</desc>
+<defs>
+<linearGradient id="hero" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#103F35" offset="0"/><stop stop-color="#176B57" offset="0.64"/><stop stop-color="#258F76" offset="1"/></linearGradient>
+<linearGradient id="app" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#114B3D" offset="0"/><stop stop-color="#20866D" offset="1"/></linearGradient>
+<symbol id="ic-overview" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+<symbol id="ic-timer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 8v5l3.2 2M9 2h6"/></symbol>
+<symbol id="ic-timer-filled" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="9" fill="currentColor" stroke="none"/><path d="M12 8v5l3 2" stroke="#176B57" stroke-width="2.6"/><path d="M9 1.75h6"/></symbol>
+<symbol id="ic-wally" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="16" rx="7"/><circle cx="8" cy="12" r="2.3"/><circle cx="16" cy="12" r="2.3"/><path d="M10 17q2 1.4 4 0"/></symbol>
+<symbol id="ic-journal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h12M9 12h12M9 19h12"/><circle cx="4" cy="5" r="1" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="4" cy="19" r="1" fill="currentColor" stroke="none"/></symbol>
+<symbol id="ic-analytics" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="12" width="4" height="9" rx="1"/><rect x="10" y="7" width="4" height="14" rx="1"/><rect x="17" y="3" width="4" height="18" rx="1"/></symbol>
+<symbol id="ic-work" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M3 12c5 4 13 4 18 0"/></symbol>
+<symbol id="ic-learn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V5c-3-1-6-1-9 1ZM12 6v14"/></symbol>
+<symbol id="ic-move" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="15" cy="4" r="2"/><path d="m12 9 3 3 4 1M12 9 8 13l-4 1M13 12l-2 5-4 4M14 13l4 4 3 3"/></symbol>
+<symbol id="ic-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 9-7 9 7v10H3V11Z"/><path d="M9 21v-7h6v7"/></symbol>
+<symbol id="ic-rest" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 7h12v7a6 6 0 0 1-12 0V7ZM18 8h1a3 3 0 0 1 0 6h-1M4 21h16M8 3l1 2m5-2 1 2"/></symbol>
+<symbol id="ic-connect" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M2 21v-2a6 6 0 0 1 12 0v2M15 16a5 5 0 0 1 7 5"/></symbol>
+<symbol id="ic-fun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14v-3a8 8 0 0 1 16 0v3M4 14v5h4v-7H4Zm16 0v5h-4v-7h4Z"/></symbol>
+<symbol id="ic-sleep" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14A8 8 0 0 1 10 4a8 8 0 1 0 9 10Z"/></symbol>
+<symbol id="ic-other" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none"/></symbol>
+<symbol id="ic-add" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16M4 12h16"/></symbol>
+<symbol id="ic-edit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 17-.7 3.7L7 20l12-12-3-3L4 17ZM14 7l3 3"/></symbol>
+<symbol id="ic-delete" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6"/></symbol>
+<symbol id="ic-confirm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 12 5 5L20 6"/></symbol>
+<symbol id="ic-cancel" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5l14 14M19 5 5 19"/></symbol>
+<symbol id="ic-eraser" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 14 9-9a3 3 0 0 1 4 0l3 3a3 3 0 0 1 0 4l-7 7H8l-4-4a2 2 0 0 1 0-1Z"/><path d="m10 9 7 7M13 21h8"/></symbol>
+<symbol id="ic-notify" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 8-3 9h18c0-1-3-2-3-9ZM10 21h4"/></symbol>
+<symbol id="ic-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M10 2h4l1 3 2.4 1 3-1 2 3-2 2v3l2 2-2 3-3-1-2.4 1-1 3h-4l-1-3-2.4-1-3 1-2-3 2-2v-3l-2-2 2-3 3 1L9 5Z"/></symbol>
+<symbol id="ic-goal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></symbol>
+<symbol id="ic-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4 2 10l6 6M2 10h11a7 7 0 0 1 0 14"/></symbol>
+<symbol id="ic-pause" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4v16M16 4v16"/></symbol>
+<symbol id="ic-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 3a1.5 1.5 0 0 1 2 0l9 16a1.5 1.5 0 0 1-1.3 2H3.3A1.5 1.5 0 0 1 2 19Z"/><path d="M12 9v5M12 18v.1"/></symbol>
+<symbol id="ic-badge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="18.5" cy="5.5" r="3.5" fill="currentColor" stroke="none"/></symbol>
+<symbol id="ic-error" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v6M12 17.5v.15"/></symbol>
+<g id="wally-shell-geometry"><circle cx="54" cy="56" r="32" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="26" y="34" width="56" height="44" rx="20" fill="currentColor"/></g>
+<g id="wally-inset-geometry"><rect x="29" y="37" width="50" height="38" rx="17" fill="none" stroke="currentColor" stroke-width="1.5"/></g>
+<g id="wally-eye-geometry"><circle cx="43" cy="55" r="9" fill="currentColor"/><circle cx="65" cy="55" r="9" fill="currentColor"/><path d="M48 67 Q54 72 60 67" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></g>
+<g id="wally-glint-geometry"><circle cx="45" cy="52" r="3.3" fill="currentColor"/><circle cx="67" cy="52" r="3.3" fill="currentColor"/></g>
+<symbol id="ic-timer-filled-pressed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="9" fill="currentColor" stroke="none"/><path d="M12 8v5l3 2" stroke="#FFFFFF" stroke-width="2.6"/><path d="M9 1.75h6"/></symbol>
+</defs>
+<rect x="0" y="0" width="1600" height="3870" rx="0" fill="#F5F7F3"/>
+<rect x="32" y="26" width="1536" height="220" rx="34" fill="url(#hero)"/>
+<circle cx="1475" cy="105" r="148" fill="#FFFFFF" opacity="0.04"/>
+<text x="74" y="83" fill="#B8F0D7" font-family="DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="750" text-anchor="start" letter-spacing="3">TIME WALLET   ×   WALLY</text>
+<text x="74" y="142" fill="#FFFFFF" font-family="DejaVu Sans, Arial, sans-serif" font-size="43" font-weight="800" text-anchor="start" letter-spacing="0">ICON DESIGN SYSTEM</text>
+<text x="76" y="181" fill="#D9F2E4" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="500">01 Lưới  ·  02 Điều hướng  ·  03 Danh mục  ·  04 Thao tác  ·  05 Trạng thái  ·  06 Màu</text>
+<text x="76" y="209" fill="#D9F2E4" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="500">07 Nền  ·  08 Launcher  ·  09 Ẩn dụ  ·  10 Đúng/Sai  ·  11 Checklist  ·  12 Bàn giao</text>
+<rect x="1022" y="65" width="234" height="52" rx="24" fill="#FFFFFF" opacity="0.1"/>
+<text x="1139" y="98" fill="#FFFFFF" font-family="DejaVu Sans, Arial, sans-serif" font-size="17" font-weight="700" text-anchor="middle" letter-spacing="0">v3.0  •  24 dp</text>
+<circle cx="1433" cy="126" r="69" fill="#D3F4E5"/>
+<g transform="translate(1379,72) scale(1.000000)">
+<rect x="26" y="34" width="56" height="44" rx="20" fill="#F6F2E7"/>
+<rect x="29" y="37" width="50" height="38" rx="17" fill="none" stroke="#D4E0D4" stroke-width="1.5"/>
+<circle cx="43" cy="55" r="9" fill="#103F35"/>
+<circle cx="65" cy="55" r="9" fill="#103F35"/>
+<circle cx="45" cy="52" r="3.3" fill="#91D7B8"/>
+<circle cx="67" cy="52" r="3.3" fill="#91D7B8"/>
+<path d="M48 67 Q54 72 60 67" fill="none" stroke="#176B57" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<text x="44" y="293" fill="#207E68" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" text-anchor="start" letter-spacing="2">01</text>
+<text x="104" y="293" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="25" font-weight="750" text-anchor="start" letter-spacing="0">LƯỚI, NÉT &amp; KÍCH THƯỚC</text>
+<text x="1553" y="293" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="450" text-anchor="end" letter-spacing="0">Toàn bộ đơn vị UI dùng dp; px chỉ ở bước xuất raster</text>
+<rect x="40" y="320" width="365" height="235" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<rect x="425" y="320" width="365" height="235" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<rect x="810" y="320" width="365" height="235" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<rect x="1195" y="320" width="365" height="235" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<text x="62" y="351" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="760" text-anchor="start" letter-spacing="1.3">LƯỚI / KEYLINE</text>
+<rect x="69" y="374" width="109" height="109" rx="14" fill="#EDF6F0"/>
+<path d="M87.16666666666667 374 L87.16666666666667 483" fill="none" stroke="#DDE8E0" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M69 392.1666666666667 L178 392.1666666666667" fill="none" stroke="#DDE8E0" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M105.33333333333334 374 L105.33333333333334 483" fill="none" stroke="#DDE8E0" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M69 410.3333333333333 L178 410.3333333333333" fill="none" stroke="#DDE8E0" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M123.5 374 L123.5 483" fill="none" stroke="#DDE8E0" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M69 428.5 L178 428.5" fill="none" stroke="#DDE8E0" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M141.66666666666669 374 L141.66666666666669 483" fill="none" stroke="#DDE8E0" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M69 446.6666666666667 L178 446.6666666666667" fill="none" stroke="#DDE8E0" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M159.83333333333331 374 L159.83333333333331 483" fill="none" stroke="#DDE8E0" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M69 464.8333333333333 L178 464.8333333333333" fill="none" stroke="#DDE8E0" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="80" y="385" width="87" height="87" rx="18" fill="none" stroke="#176B57" stroke-width="2"/>
+<circle cx="123" cy="429" r="29" fill="none" stroke="#207E68" stroke-width="2"/>
+<text x="193" y="401" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="21" font-weight="730" text-anchor="start" letter-spacing="0">24 × 24 dp</text>
+<text x="193" y="431" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="start" letter-spacing="0">Lề quang học: ~2 dp</text>
+<text x="193" y="456" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="start" letter-spacing="0">Keyline: tròn / vuông</text>
+<text x="63" y="526" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start" letter-spacing="0">Ưu tiên hình rõ ở kích thước thực</text>
+<text x="447" y="351" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="760" text-anchor="start" letter-spacing="1.3">HÌNH THỨC</text>
+<use href="#ic-timer" x="452" y="382" width="68" height="68" color="#176B57" style="--stroke:2"/>
+<use href="#ic-journal" x="560" y="382" width="68" height="68" color="#176B57" style="--stroke:2"/>
+<text x="651" y="403" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="24" font-weight="750" text-anchor="start" letter-spacing="0">2 dp</text>
+<text x="651" y="429" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="start" letter-spacing="0">Round cap</text>
+<text x="651" y="453" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="start" letter-spacing="0">Round join</text>
+<text x="448" y="494" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="start" letter-spacing="0">16 dp → nét 1.5 dp, giản lược</text>
+<text x="448" y="522" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="start" letter-spacing="0">20–48 dp → nét cơ sở 2 dp</text>
+<text x="832" y="351" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="760" text-anchor="start" letter-spacing="1.1">KÍCH THƯỚC / OPTICAL SCALE</text>
+<g transform="translate(847.0,403.0)" fill="none" stroke="#176B57" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="3" width="13" height="10" rx="4"/><circle cx="5.5" cy="8" r="1.2" fill="#176B57" stroke="none"/><circle cx="10.5" cy="8" r="1.2" fill="#176B57" stroke="none"/></g>
+<text x="855" y="457" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="600" text-anchor="middle" letter-spacing="0">16</text>
+<use href="#ic-wally" x="908.0" y="401.0" width="20" height="20" color="#176B57" style="--stroke:2"/>
+<text x="918" y="457" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="600" text-anchor="middle" letter-spacing="0">20</text>
+<use href="#ic-wally" x="973.0" y="399.0" width="24" height="24" color="#176B57" style="--stroke:2"/>
+<text x="985" y="457" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="600" text-anchor="middle" letter-spacing="0">24</text>
+<use href="#ic-wally" x="1039.0" y="395.0" width="32" height="32" color="#176B57" style="--stroke:2"/>
+<text x="1055" y="457" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="600" text-anchor="middle" letter-spacing="0">32</text>
+<use href="#ic-wally" x="1120.0" y="387.0" width="48" height="48" color="#176B57" style="--stroke:2"/>
+<text x="1144" y="457" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="600" text-anchor="middle" letter-spacing="0">48</text>
+<rect x="831" y="478" width="323" height="43" rx="12" fill="#EDF6F0"/>
+<text x="845" y="505" fill="#176B57" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="650" text-anchor="start" letter-spacing="0">16 / 20 / 24 / 32 / 48 dp</text>
+<text x="1217" y="351" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="760" text-anchor="start" letter-spacing="1.1">SNAPPING &amp; HIT AREA</text>
+<rect x="1228" y="382" width="76" height="76" rx="13" fill="#EDF6F0" stroke="#176B57" stroke-width="1.5"/>
+<rect x="1242" y="396" width="48" height="48" rx="10" fill="none" stroke="#176B57" stroke-width="1.8"/>
+<use href="#ic-settings" x="1254" y="408" width="24" height="24" color="#176B57" style="--stroke:2"/>
+<text x="1320" y="397" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="600" text-anchor="start" letter-spacing="0">Vùng chạm ≥ 48 × 48 dp</text>
+<text x="1320" y="424" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="600" text-anchor="start" letter-spacing="0">Glyph không nhất thiết lớn</text>
+<text x="1218" y="494" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start" letter-spacing="0">Căn nét theo pixel vật lý khi rasterize;</text>
+<text x="1218" y="516" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start" letter-spacing="0">không nhầm dp với px.</text>
+<text x="44" y="607" fill="#207E68" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" text-anchor="start" letter-spacing="2">02</text>
+<text x="104" y="607" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="25" font-weight="750" text-anchor="start" letter-spacing="0">ICON ĐIỀU HƯỚNG</text>
+<text x="1553" y="607" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="450" text-anchor="end" letter-spacing="0">Outline mặc định · Filled khi được chọn</text>
+<rect x="40" y="634" width="282" height="171" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="181" cy="694" r="43" fill="#DCF3E8"/>
+<use href="#ic-overview" x="157" y="670" width="48" height="48" color="#176B57" style="--stroke:2"/>
+<text x="181" y="766" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="19" font-weight="700" text-anchor="middle" letter-spacing="0">Tổng quan</text>
+<rect x="347" y="634" width="282" height="171" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="488" cy="694" r="43" fill="#DCF3E8"/>
+<use href="#ic-timer" x="464" y="670" width="48" height="48" color="#176B57" style="--stroke:2"/>
+<text x="488" y="766" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="19" font-weight="700" text-anchor="middle" letter-spacing="0">Đồng hồ</text>
+<rect x="654" y="634" width="282" height="171" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="795" cy="694" r="43" fill="#DCF3E8"/>
+<use href="#ic-wally" x="771" y="670" width="48" height="48" color="#176B57" style="--stroke:2"/>
+<text x="795" y="766" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="19" font-weight="700" text-anchor="middle" letter-spacing="0">Wally AI</text>
+<rect x="961" y="634" width="282" height="171" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="1102" cy="694" r="43" fill="#DCF3E8"/>
+<use href="#ic-journal" x="1078" y="670" width="48" height="48" color="#176B57" style="--stroke:2"/>
+<text x="1102" y="766" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="19" font-weight="700" text-anchor="middle" letter-spacing="0">Nhật ký</text>
+<rect x="1268" y="634" width="282" height="171" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="1409" cy="694" r="43" fill="#DCF3E8"/>
+<use href="#ic-analytics" x="1385" y="670" width="48" height="48" color="#176B57" style="--stroke:2"/>
+<text x="1409" y="766" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="19" font-weight="700" text-anchor="middle" letter-spacing="0">Phân tích</text>
+<text x="44" y="856" fill="#207E68" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" text-anchor="start" letter-spacing="2">03</text>
+<text x="104" y="856" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="25" font-weight="750" text-anchor="start" letter-spacing="0">DANH MỤC HOẠT ĐỘNG</text>
+<text x="1553" y="856" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="450" text-anchor="end" letter-spacing="0">9 ẩn dụ nhận diện · không lấy biểu tượng cảnh báo làm “Khác”</text>
+<rect x="40.0" y="883" width="159" height="153" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="119.5" cy="938" r="28" fill="#EDF6F0"/>
+<use href="#ic-work" x="100.5" y="919" width="38" height="38" color="#176B57" style="--stroke:2"/>
+<text x="119.5" y="997" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="680" text-anchor="middle" letter-spacing="0">Công việc</text>
+<rect x="210.5" y="883" width="159" height="153" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="290.0" cy="938" r="28" fill="#EDF6F0"/>
+<use href="#ic-learn" x="271.0" y="919" width="38" height="38" color="#176B57" style="--stroke:2"/>
+<text x="290.0" y="997" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="680" text-anchor="middle" letter-spacing="0">Học tập</text>
+<rect x="381.0" y="883" width="159" height="153" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="460.5" cy="938" r="28" fill="#EDF6F0"/>
+<use href="#ic-move" x="441.5" y="919" width="38" height="38" color="#176B57" style="--stroke:2"/>
+<text x="460.5" y="997" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="680" text-anchor="middle" letter-spacing="0">Vận động</text>
+<rect x="551.5" y="883" width="159" height="153" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="631.0" cy="938" r="28" fill="#EDF6F0"/>
+<use href="#ic-home" x="612.0" y="919" width="38" height="38" color="#176B57" style="--stroke:2"/>
+<text x="631.0" y="997" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="680" text-anchor="middle" letter-spacing="0">Sinh hoạt</text>
+<rect x="722.0" y="883" width="159" height="153" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="801.5" cy="938" r="28" fill="#EDF6F0"/>
+<use href="#ic-rest" x="782.5" y="919" width="38" height="38" color="#176B57" style="--stroke:2"/>
+<text x="801.5" y="997" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="680" text-anchor="middle" letter-spacing="0">Nghỉ ngơi</text>
+<rect x="892.5" y="883" width="159" height="153" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="972.0" cy="938" r="28" fill="#EDF6F0"/>
+<use href="#ic-connect" x="953.0" y="919" width="38" height="38" color="#176B57" style="--stroke:2"/>
+<text x="972.0" y="997" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="680" text-anchor="middle" letter-spacing="0">Kết nối</text>
+<rect x="1063.0" y="883" width="159" height="153" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="1142.5" cy="938" r="28" fill="#EDF6F0"/>
+<use href="#ic-fun" x="1123.5" y="919" width="38" height="38" color="#176B57" style="--stroke:2"/>
+<text x="1142.5" y="997" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="680" text-anchor="middle" letter-spacing="0">Giải trí</text>
+<rect x="1233.5" y="883" width="159" height="153" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="1313.0" cy="938" r="28" fill="#EDF6F0"/>
+<use href="#ic-sleep" x="1294.0" y="919" width="38" height="38" color="#176B57" style="--stroke:2"/>
+<text x="1313.0" y="997" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="680" text-anchor="middle" letter-spacing="0">Ngủ</text>
+<rect x="1404.0" y="883" width="159" height="153" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="1483.5" cy="938" r="28" fill="#EDF6F0"/>
+<use href="#ic-other" x="1464.5" y="919" width="38" height="38" color="#176B57" style="--stroke:2"/>
+<text x="1483.5" y="997" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="680" text-anchor="middle" letter-spacing="0">Khác</text>
+<text x="44" y="1087" fill="#207E68" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" text-anchor="start" letter-spacing="2">04</text>
+<text x="104" y="1087" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="25" font-weight="750" text-anchor="start" letter-spacing="0">THAO TÁC</text>
+<text x="1553" y="1087" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="450" text-anchor="end" letter-spacing="0">Mỗi ý nghĩa có hình riêng: Hủy ≠ Xóa nháp ≠ Lỗi</text>
+<rect x="40.0" y="1114" width="117" height="128" rx="16" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="98.5" cy="1160" r="24" fill="#EDF6F0"/>
+<use href="#ic-add" x="82.5" y="1144" width="32" height="32" color="#176B57" style="--stroke:2"/>
+<text x="98.5" y="1215" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="620" text-anchor="middle" letter-spacing="0">Thêm</text>
+<rect x="168.2" y="1114" width="117" height="128" rx="16" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="226.75" cy="1160" r="24" fill="#EDF6F0"/>
+<use href="#ic-edit" x="210.75" y="1144" width="32" height="32" color="#176B57" style="--stroke:2"/>
+<text x="226.75" y="1215" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="620" text-anchor="middle" letter-spacing="0">Sửa</text>
+<rect x="296.5" y="1114" width="117" height="128" rx="16" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="355.0" cy="1160" r="24" fill="#EDF6F0"/>
+<use href="#ic-delete" x="339.0" y="1144" width="32" height="32" color="#B63F37" style="--stroke:2"/>
+<text x="355.0" y="1215" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="620" text-anchor="middle" letter-spacing="0">Xóa</text>
+<rect x="424.8" y="1114" width="117" height="128" rx="16" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="483.25" cy="1160" r="24" fill="#EDF6F0"/>
+<use href="#ic-confirm" x="467.25" y="1144" width="32" height="32" color="#176B57" style="--stroke:2"/>
+<text x="483.25" y="1215" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="620" text-anchor="middle" letter-spacing="0">Xác nhận</text>
+<rect x="553.0" y="1114" width="117" height="128" rx="16" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="611.5" cy="1160" r="24" fill="#EDF6F0"/>
+<use href="#ic-cancel" x="595.5" y="1144" width="32" height="32" color="#176B57" style="--stroke:2"/>
+<text x="611.5" y="1215" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="620" text-anchor="middle" letter-spacing="0">Hủy</text>
+<rect x="681.2" y="1114" width="117" height="128" rx="16" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="739.75" cy="1160" r="24" fill="#EDF6F0"/>
+<use href="#ic-eraser" x="723.75" y="1144" width="32" height="32" color="#176B57" style="--stroke:2"/>
+<text x="739.75" y="1215" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="620" text-anchor="middle" letter-spacing="0">Xóa nháp</text>
+<rect x="809.5" y="1114" width="117" height="128" rx="16" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="868.0" cy="1160" r="24" fill="#EDF6F0"/>
+<use href="#ic-notify" x="852.0" y="1144" width="32" height="32" color="#176B57" style="--stroke:2"/>
+<text x="868.0" y="1215" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="620" text-anchor="middle" letter-spacing="0">Nhắc nhở</text>
+<rect x="937.8" y="1114" width="117" height="128" rx="16" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="996.25" cy="1160" r="24" fill="#EDF6F0"/>
+<use href="#ic-settings" x="980.25" y="1144" width="32" height="32" color="#176B57" style="--stroke:2"/>
+<text x="996.25" y="1215" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="620" text-anchor="middle" letter-spacing="0">Cài đặt</text>
+<rect x="1066.0" y="1114" width="117" height="128" rx="16" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="1124.5" cy="1160" r="24" fill="#EDF6F0"/>
+<use href="#ic-goal" x="1108.5" y="1144" width="32" height="32" color="#176B57" style="--stroke:2"/>
+<text x="1124.5" y="1215" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="620" text-anchor="middle" letter-spacing="0">Mục tiêu</text>
+<rect x="1194.2" y="1114" width="117" height="128" rx="16" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="1252.75" cy="1160" r="24" fill="#EDF6F0"/>
+<use href="#ic-back" x="1236.75" y="1144" width="32" height="32" color="#176B57" style="--stroke:2"/>
+<text x="1252.75" y="1215" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="620" text-anchor="middle" letter-spacing="0">Hoàn tác</text>
+<rect x="1322.5" y="1114" width="117" height="128" rx="16" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="1381.0" cy="1160" r="24" fill="#EDF6F0"/>
+<use href="#ic-pause" x="1365.0" y="1144" width="32" height="32" color="#176B57" style="--stroke:2"/>
+<text x="1381.0" y="1215" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="620" text-anchor="middle" letter-spacing="0">Tạm dừng</text>
+<rect x="1450.8" y="1114" width="117" height="128" rx="16" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<circle cx="1509.25" cy="1160" r="24" fill="#EDF6F0"/>
+<use href="#ic-error" x="1493.25" y="1144" width="32" height="32" color="#B63F37" style="--stroke:2"/>
+<text x="1509.25" y="1215" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="620" text-anchor="middle" letter-spacing="0">Lỗi</text>
+<text x="44" y="1295" fill="#207E68" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" text-anchor="start" letter-spacing="2">05</text>
+<text x="104" y="1295" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="25" font-weight="750" text-anchor="start" letter-spacing="0">TRẠNG THÁI HIỂN THỊ</text>
+<text x="1553" y="1295" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="450" text-anchor="end" letter-spacing="0">“Selected” đổi cả nền, màu chữ và hình dạng icon</text>
+<rect x="40" y="1322" width="1520" height="153" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<rect x="59" y="1347" width="226" height="99" rx="18" fill="#EDF6F0" stroke="#DDE8E0" stroke-width="1"/>
+<use href="#ic-timer" x="78" y="1369" width="40" height="40" color="#176B57" style="--stroke:2"/>
+<text x="136" y="1408" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="730" text-anchor="start" letter-spacing="0">Mặc định</text>
+<rect x="309" y="1347" width="226" height="99" rx="18" fill="#176B57" stroke="#DDE8E0" stroke-width="1"/>
+<use href="#ic-timer-filled" x="328" y="1369" width="40" height="40" color="#FFFFFF" style="--stroke:2"/>
+<text x="386" y="1408" fill="#FFFFFF" font-family="DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="730" text-anchor="start" letter-spacing="0">Đã chọn</text>
+<text x="386" y="1430" fill="#FFFFFF" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="500" text-anchor="start" letter-spacing="0">Filled</text>
+<rect x="559" y="1347" width="226" height="99" rx="18" fill="#DCF3E8" stroke="#DDE8E0" stroke-width="1"/>
+<use href="#ic-timer-filled-pressed" x="578" y="1369" width="40" height="40" color="#176B57" style="--stroke:2"/>
+<text x="636" y="1408" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="730" text-anchor="start" letter-spacing="0">Đang nhấn</text>
+<rect x="809" y="1347" width="226" height="99" rx="18" fill="#EFF1EE" stroke="#DDE8E0" stroke-width="1"/>
+<use href="#ic-timer" x="828" y="1369" width="40" height="40" color="#A0AEA5" style="--stroke:2"/>
+<text x="886" y="1408" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="730" text-anchor="start" letter-spacing="0">Vô hiệu</text>
+<rect x="1059" y="1347" width="226" height="99" rx="18" fill="#FFF3DF" stroke="#DDE8E0" stroke-width="1"/>
+<use href="#ic-warning" x="1078" y="1369" width="40" height="40" color="#A24C18" style="--stroke:2"/>
+<text x="1136" y="1408" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="730" text-anchor="start" letter-spacing="0">Cảnh báo</text>
+<rect x="1309" y="1347" width="226" height="99" rx="18" fill="#FFF0EF" stroke="#DDE8E0" stroke-width="1"/>
+<use href="#ic-error" x="1328" y="1369" width="40" height="40" color="#B63F37" style="--stroke:2"/>
+<text x="1386" y="1408" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="730" text-anchor="start" letter-spacing="0">Lỗi</text>
+<text x="44" y="1524" fill="#207E68" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" text-anchor="start" letter-spacing="2">06</text>
+<text x="104" y="1524" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="25" font-weight="750" text-anchor="start" letter-spacing="0">COLOR TOKENS — LIGHT / DARK</text>
+<text x="1553" y="1524" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="450" text-anchor="end" letter-spacing="0">Hex cố định · không lấy opacity làm màu trạng thái</text>
+<rect x="40" y="1551" width="748" height="418" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<rect x="812" y="1551" width="748" height="418" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<text x="64" y="1592" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" font-weight="780" text-anchor="start" letter-spacing="0">LIGHT MODE</text>
+<text x="836" y="1592" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" font-weight="780" text-anchor="start" letter-spacing="0">DARK MODE</text>
+<rect x="64" y="1615" width="147" height="62" rx="13" fill="#F5F7F3" stroke="#BBCFC3" stroke-width="1"/>
+<text x="64" y="1703" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="700" text-anchor="start" letter-spacing="0">bg</text>
+<text x="64" y="1723" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start" letter-spacing="0">#F5F7F3</text>
+<text x="64" y="1742" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="400" text-anchor="start" letter-spacing="0">Nền</text>
+<rect x="241" y="1615" width="147" height="62" rx="13" fill="#FFFFFF" stroke="#BBCFC3" stroke-width="1"/>
+<text x="241" y="1703" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="700" text-anchor="start" letter-spacing="0">surface</text>
+<text x="241" y="1723" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start" letter-spacing="0">#FFFFFF</text>
+<text x="241" y="1742" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="400" text-anchor="start" letter-spacing="0">Thẻ</text>
+<rect x="418" y="1615" width="147" height="62" rx="13" fill="#172B27" stroke="#BBCFC3" stroke-width="1"/>
+<text x="418" y="1703" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="700" text-anchor="start" letter-spacing="0">ink</text>
+<text x="418" y="1723" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start" letter-spacing="0">#172B27</text>
+<text x="418" y="1742" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="400" text-anchor="start" letter-spacing="0">Chữ</text>
+<rect x="595" y="1615" width="147" height="62" rx="13" fill="#176B57" stroke="#BBCFC3" stroke-width="1"/>
+<text x="595" y="1703" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="700" text-anchor="start" letter-spacing="0">primary</text>
+<text x="595" y="1723" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start" letter-spacing="0">#176B57</text>
+<text x="595" y="1742" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="400" text-anchor="start" letter-spacing="0">Tương tác</text>
+<rect x="836" y="1615" width="147" height="62" rx="13" fill="#0F201C" stroke="#BBCFC3" stroke-width="1"/>
+<text x="836" y="1703" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="700" text-anchor="start" letter-spacing="0">bg</text>
+<text x="836" y="1723" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start" letter-spacing="0">#0F201C</text>
+<text x="836" y="1742" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="400" text-anchor="start" letter-spacing="0">Nền</text>
+<rect x="1013" y="1615" width="147" height="62" rx="13" fill="#1A3029" stroke="#BBCFC3" stroke-width="1"/>
+<text x="1013" y="1703" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="700" text-anchor="start" letter-spacing="0">surface</text>
+<text x="1013" y="1723" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start" letter-spacing="0">#1A3029</text>
+<text x="1013" y="1742" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="400" text-anchor="start" letter-spacing="0">Thẻ</text>
+<rect x="1190" y="1615" width="147" height="62" rx="13" fill="#F4FAF6" stroke="#BBCFC3" stroke-width="1"/>
+<text x="1190" y="1703" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="700" text-anchor="start" letter-spacing="0">ink</text>
+<text x="1190" y="1723" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start" letter-spacing="0">#F4FAF6</text>
+<text x="1190" y="1742" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="400" text-anchor="start" letter-spacing="0">Chữ</text>
+<rect x="1367" y="1615" width="147" height="62" rx="13" fill="#84DFC0" stroke="#BBCFC3" stroke-width="1"/>
+<text x="1367" y="1703" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="700" text-anchor="start" letter-spacing="0">primary</text>
+<text x="1367" y="1723" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start" letter-spacing="0">#84DFC0</text>
+<text x="1367" y="1742" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="400" text-anchor="start" letter-spacing="0">Tương tác</text>
+<rect x="64" y="1773" width="147" height="37" rx="9" fill="#5A7268" stroke="#BBCFC3" stroke-width="1"/>
+<text x="64" y="1831" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="690" text-anchor="start" letter-spacing="0">muted</text>
+<text x="64" y="1850" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="460" text-anchor="start" letter-spacing="0">#5A7268</text>
+<rect x="241" y="1773" width="147" height="37" rx="9" fill="#B63F37" stroke="#BBCFC3" stroke-width="1"/>
+<text x="241" y="1831" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="690" text-anchor="start" letter-spacing="0">error</text>
+<text x="241" y="1850" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="460" text-anchor="start" letter-spacing="0">#B63F37</text>
+<rect x="418" y="1773" width="147" height="37" rx="9" fill="#A24C18" stroke="#BBCFC3" stroke-width="1"/>
+<text x="418" y="1831" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="690" text-anchor="start" letter-spacing="0">warning</text>
+<text x="418" y="1850" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="460" text-anchor="start" letter-spacing="0">#A24C18</text>
+<rect x="595" y="1773" width="147" height="37" rx="9" fill="#A0AEA5" stroke="#BBCFC3" stroke-width="1"/>
+<text x="595" y="1831" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="690" text-anchor="start" letter-spacing="0">disabled</text>
+<text x="595" y="1850" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="460" text-anchor="start" letter-spacing="0">#A0AEA5</text>
+<rect x="836" y="1773" width="147" height="37" rx="9" fill="#B6D4C4" stroke="#BBCFC3" stroke-width="1"/>
+<text x="836" y="1831" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="690" text-anchor="start" letter-spacing="0">muted</text>
+<text x="836" y="1850" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="460" text-anchor="start" letter-spacing="0">#B6D4C4</text>
+<rect x="1013" y="1773" width="147" height="37" rx="9" fill="#FF958B" stroke="#BBCFC3" stroke-width="1"/>
+<text x="1013" y="1831" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="690" text-anchor="start" letter-spacing="0">error</text>
+<text x="1013" y="1850" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="460" text-anchor="start" letter-spacing="0">#FF958B</text>
+<rect x="1190" y="1773" width="147" height="37" rx="9" fill="#FFCD83" stroke="#BBCFC3" stroke-width="1"/>
+<text x="1190" y="1831" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="690" text-anchor="start" letter-spacing="0">warning</text>
+<text x="1190" y="1850" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="460" text-anchor="start" letter-spacing="0">#FFCD83</text>
+<rect x="1367" y="1773" width="147" height="37" rx="9" fill="#769084" stroke="#BBCFC3" stroke-width="1"/>
+<text x="1367" y="1831" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="690" text-anchor="start" letter-spacing="0">disabled</text>
+<text x="1367" y="1850" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="460" text-anchor="start" letter-spacing="0">#769084</text>
+<path d="M62 1870 L765 1870" fill="none" stroke="#DDE8E0" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M834 1870 L1538 1870" fill="none" stroke="#DDE8E0" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="64" y="1893" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start" letter-spacing="0">primary: icon CTA / selected; muted: thông tin phụ.</text>
+<text x="64" y="1918" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start" letter-spacing="0">error/warning: chỉ cho trạng thái tương ứng; disabled: không dùng cho nội dung cần đọc.</text>
+<text x="836" y="1893" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start" letter-spacing="0">Dark: dùng token primary trên surface của Dark Mode; không mượn màu Light.</text>
+<text x="836" y="1918" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start" letter-spacing="0">Luôn thử icon trên nền thật; không giảm opacity thay cho token.</text>
+<rect x="40" y="1992" width="1520" height="118" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<text x="64" y="2023" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="750" text-anchor="start" letter-spacing="0">BADGE / CHẤM THÔNG BÁO</text>
+<rect x="73" y="2039" width="59" height="59" rx="13" fill="#EDF6F0"/>
+<use href="#ic-notify" x="87" y="2052" width="33" height="33" color="#176B57" style="--stroke:2"/>
+<circle cx="120" cy="2049" r="6" fill="#B63F37" stroke="#FFFFFF" stroke-width="2"/>
+<rect x="610" y="2041" width="62" height="53" rx="13" fill="#EDF6F0"/>
+<use href="#ic-notify" x="626" y="2050" width="32" height="32" color="#176B57" style="--stroke:2"/>
+<circle cx="662" cy="2049" r="12" fill="#B63F37" stroke="#FFFFFF" stroke-width="2"/>
+<text x="662" y="2054" fill="#FFFFFF" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="800" text-anchor="middle" letter-spacing="0">3</text>
+<text x="151" y="2059" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start" letter-spacing="0">Dot: đường kính 6–8 dp, góc phải, cách nét ≥2 dp.</text>
+<text x="151" y="2083" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start" letter-spacing="0">Không lạm dụng màu cảnh báo; icon vẫn có nhãn truy cập.</text>
+<text x="699" y="2059" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start" letter-spacing="0">Count badge: ≥16 dp, nền đặc, không che glyph.</text>
+<text x="699" y="2083" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start" letter-spacing="0">Giữ vùng chạm ≥48 dp; không gắn badge lên Disabled.</text>
+<text x="44" y="2170" fill="#207E68" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" text-anchor="start" letter-spacing="2">07</text>
+<text x="104" y="2170" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="25" font-weight="750" text-anchor="start" letter-spacing="0">DÙNG TRÊN CÁC NỀN</text>
+<text x="1553" y="2170" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="450" text-anchor="end" letter-spacing="0">Độ tương phản icon UI ≥ 3:1; chữ thường ≥ 4.5:1</text>
+<rect x="40" y="2198" width="490" height="189" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<rect x="57" y="2215" width="456" height="103" rx="17" fill="#FFFFFF"/>
+<use href="#ic-timer" x="84" y="2242" width="50" height="50" color="#176B57" style="--stroke:2"/>
+<use href="#ic-settings" x="156" y="2242" width="50" height="50" color="#176B57" style="--stroke:2"/>
+<use href="#ic-warning" x="227" y="2242" width="50" height="50" color="#176B57" style="--stroke:2"/>
+<text x="77" y="2348" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="730" text-anchor="start" letter-spacing="0">LIGHT / MẶC ĐỊNH</text>
+<text x="493" y="2348" fill="#176B57" font-family="DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="760" text-anchor="end" letter-spacing="0">6.4:1</text>
+<rect x="555" y="2198" width="490" height="189" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<rect x="572" y="2215" width="456" height="103" rx="17" fill="#1A3029"/>
+<use href="#ic-timer" x="599" y="2242" width="50" height="50" color="#84DFC0" style="--stroke:2"/>
+<use href="#ic-settings" x="671" y="2242" width="50" height="50" color="#84DFC0" style="--stroke:2"/>
+<use href="#ic-warning" x="742" y="2242" width="50" height="50" color="#84DFC0" style="--stroke:2"/>
+<text x="592" y="2348" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="730" text-anchor="start" letter-spacing="0">DARK / MẶC ĐỊNH</text>
+<text x="1008" y="2348" fill="#176B57" font-family="DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="760" text-anchor="end" letter-spacing="0">8.9:1</text>
+<rect x="1070" y="2198" width="490" height="189" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<rect x="1087" y="2215" width="456" height="103" rx="17" fill="#176B57"/>
+<use href="#ic-timer" x="1114" y="2242" width="50" height="50" color="#FFFFFF" style="--stroke:2"/>
+<use href="#ic-settings" x="1186" y="2242" width="50" height="50" color="#FFFFFF" style="--stroke:2"/>
+<use href="#ic-warning" x="1257" y="2242" width="50" height="50" color="#FFFFFF" style="--stroke:2"/>
+<text x="1107" y="2348" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="730" text-anchor="start" letter-spacing="0">PRIMARY / INVERSE</text>
+<text x="1523" y="2348" fill="#176B57" font-family="DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="760" text-anchor="end" letter-spacing="0">6.4:1</text>
+<text x="46" y="2412" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="start" letter-spacing="0">Không dùng màu Disabled để biểu thị nội dung quan trọng · Disabled được miễn ngưỡng tương phản, nhưng phải có nhãn rõ.</text>
+<text x="44" y="2466" fill="#207E68" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" text-anchor="start" letter-spacing="2">08</text>
+<text x="104" y="2466" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="25" font-weight="750" text-anchor="start" letter-spacing="0">ANDROID ADAPTIVE LAUNCHER</text>
+<text x="1553" y="2466" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="450" text-anchor="end" letter-spacing="0">108 dp canvas · nội dung quan trọng trong vòng tròn đường kính ~72 dp</text>
+<rect x="40" y="2492" width="740" height="306" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<rect x="803" y="2492" width="757" height="306" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<text x="66" y="2529" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="17" font-weight="760" text-anchor="start" letter-spacing="0">FOREGROUND · CHÍNH</text>
+<text x="828" y="2529" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="17" font-weight="760" text-anchor="start" letter-spacing="0">MONOCHROME / THEMED · CÙNG HÌNH</text>
+<rect x="71" y="2554" width="178" height="178" rx="35" fill="url(#app)"/>
+
+
+<g transform="translate(71,2554) scale(1.648148)">
+<use href="#wally-shell-geometry" color="#F6F2E7"/>
+<use href="#wally-inset-geometry" color="#D4E0D4"/>
+<use href="#wally-eye-geometry" color="#103F35"/>
+<use href="#wally-glint-geometry" color="#91D7B8"/>
+</g>
+<circle cx="160" cy="2643" r="59" fill="none" stroke="#FCF4A6" stroke-width="2.5" stroke-dasharray="9 5" opacity="0.95"/>
+<text x="278" y="2600" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="500" text-anchor="start" letter-spacing="0">Mặt mascot ~56/108 dp, không sát mask.</text>
+<text x="278" y="2627" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="500" text-anchor="start" letter-spacing="0">Padding phần tử chính &gt; 18 dp.</text>
+<text x="278" y="2654" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="500" text-anchor="start" letter-spacing="0">Kiểm thử mask tròn / squircle.</text>
+<rect x="836" y="2554" width="178" height="178" rx="35" fill="#0F201C"/>
+<g transform="translate(836,2554) scale(1.648148)">
+<use href="#wally-shell-geometry" color="#FFFFFF"/>
+<use href="#wally-inset-geometry" color="#0F201C"/>
+<use href="#wally-eye-geometry" color="#0F201C"/>
+<use href="#wally-glint-geometry" color="#FFFFFF"/>
+</g>
+<text x="1046" y="2600" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="500" text-anchor="start" letter-spacing="0">Dùng chung 4 lớp hình của foreground.</text>
+<text x="1046" y="2627" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="500" text-anchor="start" letter-spacing="0">Một màu + khoảng trống âm bản; cùng tỷ lệ.</text>
+<text x="1046" y="2654" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="500" text-anchor="start" letter-spacing="0">Không thêm ăng-ten hay khung khác.</text>
+<text x="73" y="2775" fill="#176B57" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start" letter-spacing="0">Nét vàng đứt = vùng an toàn (đường kính 72/108 dp)</text>
+<text x="836" y="2775" fill="#176B57" font-family="DejaVu Sans, Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start" letter-spacing="0">Monochrome dùng đúng hình &amp; toạ độ foreground.</text>
+<g transform="translate(0,38)">
+<text x="44" y="2815" fill="#207E68" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" text-anchor="start" letter-spacing="2">09</text>
+<text x="104" y="2815" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="25" font-weight="750" text-anchor="start" letter-spacing="0">QUY ƯỚC ẨN DỤ &amp; MASCOT</text>
+<text x="1553" y="2815" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="450" text-anchor="end" letter-spacing="0">Tránh nhập nhằng giữa điều hướng, trạng thái, thao tác</text>
+<rect x="40" y="2841" width="750" height="235" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<rect x="812" y="2841" width="748" height="235" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<text x="62" y="2876" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="740" text-anchor="start" letter-spacing="0">METAPHOR CONTRACT</text>
+<use href="#ic-timer" x="64" y="2878" width="24" height="24" color="#176B57" style="--stroke:2"/>
+<text x="103" y="2897" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="650" text-anchor="start" letter-spacing="0">Đồng hồ</text>
+<text x="268" y="2897" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="start" letter-spacing="0">Đo thời lượng / Timer</text>
+<use href="#ic-settings" x="64" y="2910" width="24" height="24" color="#176B57" style="--stroke:2"/>
+<text x="103" y="2929" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="650" text-anchor="start" letter-spacing="0">Bánh răng</text>
+<text x="268" y="2929" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="start" letter-spacing="0">Cấu hình</text>
+<use href="#ic-other" x="64" y="2942" width="24" height="24" color="#176B57" style="--stroke:2"/>
+<text x="103" y="2961" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="650" text-anchor="start" letter-spacing="0">Ba chấm</text>
+<text x="268" y="2961" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="start" letter-spacing="0">Khác / More</text>
+<use href="#ic-eraser" x="64" y="2974" width="24" height="24" color="#176B57" style="--stroke:2"/>
+<text x="103" y="2993" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="650" text-anchor="start" letter-spacing="0">Tẩy</text>
+<text x="268" y="2993" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="start" letter-spacing="0">Xóa nháp</text>
+<use href="#ic-warning" x="64" y="3006" width="24" height="24" color="#A24C18" style="--stroke:2"/>
+<text x="103" y="3025" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="650" text-anchor="start" letter-spacing="0">Tam giác !</text>
+<text x="268" y="3025" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="start" letter-spacing="0">Cảnh báo (cam)</text>
+<use href="#ic-error" x="64" y="3038" width="24" height="24" color="#B63F37"/>
+<text x="103" y="3057" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="650">Tròn !</text>
+<text x="268" y="3057" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="14">Lỗi (đỏ)</text>
+<text x="836" y="2876" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="16" font-weight="740" text-anchor="start" letter-spacing="0">MASCOT WALLY — NƠI ĐƯỢC DÙNG</text>
+<text x="836" y="2908" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="start" letter-spacing="0">• 24 dp: dùng glyph Wally tối giản, không dùng ảnh 3D.</text>
+<text x="836" y="2938" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="start" letter-spacing="0">• ≥ 32 dp: avatar mặt robot 2D, trong chat / coach.</text>
+<text x="836" y="2968" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="start" letter-spacing="0">• ≥ 96 dp: mascot toàn thân ở onboarding / empty state.</text>
+<text x="836" y="2998" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="start" letter-spacing="0">• Không biến mascot thành icon Error / Cài đặt.</text>
+<text x="836" y="3028" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="start" letter-spacing="0">• Kích thước nhỏ: giản lược chi tiết, không ép thu ảnh 3D.</text>
+<text x="44" y="3127" fill="#207E68" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" text-anchor="start" letter-spacing="2">10</text>
+<text x="104" y="3127" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="25" font-weight="750" text-anchor="start" letter-spacing="0">VÍ DỤ ĐÚNG / SAI</text>
+<text x="1553" y="3127" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="450" text-anchor="end" letter-spacing="0">Kiểm tra ý nghĩa, độ tương phản và độ gọn</text>
+<rect x="40" y="3152" width="740" height="170" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<rect x="812" y="3152" width="748" height="170" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<rect x="61" y="3172" width="94" height="94" rx="17" fill="#176B57"/>
+<use href="#ic-timer-filled" x="84" y="3195" width="48" height="48" color="#FFFFFF" style="--stroke:2"/>
+<text x="181" y="3205" fill="#176B57" font-family="DejaVu Sans, Arial, sans-serif" font-size="18" font-weight="780" text-anchor="start" letter-spacing="0">ĐÚNG  ✓</text>
+<text x="181" y="3235" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="start" letter-spacing="0">Selected: icon filled + chữ trắng + nền đủ tương phản.</text>
+<text x="181" y="3260" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="start" letter-spacing="0">“Khác” ba chấm; Warning tam giác, Lỗi tròn !.</text>
+<rect x="832" y="3172" width="94" height="94" rx="17" fill="#103F35"/>
+<use href="#ic-timer" x="856" y="3195" width="48" height="48" color="#207E68" style="--stroke:2"/>
+<text x="951" y="3205" fill="#B63F37" font-family="DejaVu Sans, Arial, sans-serif" font-size="18" font-weight="780" text-anchor="start" letter-spacing="0">SAI  ×</text>
+<text x="951" y="3235" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="start" letter-spacing="0">Chỉ đổi nền; nét icon tối và khó đọc.</text>
+<text x="951" y="3260" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="500" text-anchor="start" letter-spacing="0">Lặp dấu X cho cả Hủy, Xóa nháp và Lỗi.</text>
+<text x="44" y="3375" fill="#207E68" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" text-anchor="start" letter-spacing="2">11</text>
+<text x="104" y="3375" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="25" font-weight="750" text-anchor="start" letter-spacing="0">THÊM ICON MỚI — CHECKLIST</text>
+<text x="1553" y="3375" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" font-weight="450" text-anchor="end" letter-spacing="0">Kiểm trước khi đưa asset vào app</text>
+<rect x="40" y="3399" width="1520" height="118" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<rect x="67" y="3415" width="18" height="18" rx="4" fill="#DCF3E8" stroke="#176B57" stroke-width="1"/>
+<use href="#ic-confirm" x="69" y="3417" width="14" height="14" color="#176B57" style="--stroke:2"/>
+<text x="95" y="3430" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="580" text-anchor="start" letter-spacing="0">Ẩn dụ duy nhất</text>
+<rect x="437" y="3415" width="18" height="18" rx="4" fill="#DCF3E8" stroke="#176B57" stroke-width="1"/>
+<use href="#ic-confirm" x="439" y="3417" width="14" height="14" color="#176B57" style="--stroke:2"/>
+<text x="465" y="3430" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="580" text-anchor="start" letter-spacing="0">Grid + keyline</text>
+<rect x="807" y="3415" width="18" height="18" rx="4" fill="#DCF3E8" stroke="#176B57" stroke-width="1"/>
+<use href="#ic-confirm" x="809" y="3417" width="14" height="14" color="#176B57" style="--stroke:2"/>
+<text x="835" y="3430" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="580" text-anchor="start" letter-spacing="0">16 dp giản lược</text>
+<rect x="1177" y="3415" width="18" height="18" rx="4" fill="#DCF3E8" stroke="#176B57" stroke-width="1"/>
+<use href="#ic-confirm" x="1179" y="3417" width="14" height="14" color="#176B57" style="--stroke:2"/>
+<text x="1205" y="3430" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="580" text-anchor="start" letter-spacing="0">Tương phản ≥ 3:1</text>
+<rect x="67" y="3460" width="18" height="18" rx="4" fill="#DCF3E8" stroke="#176B57" stroke-width="1"/>
+<use href="#ic-confirm" x="69" y="3462" width="14" height="14" color="#176B57" style="--stroke:2"/>
+<text x="95" y="3475" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="580" text-anchor="start" letter-spacing="0">Light / Dark</text>
+<rect x="437" y="3460" width="18" height="18" rx="4" fill="#DCF3E8" stroke="#176B57" stroke-width="1"/>
+<use href="#ic-confirm" x="439" y="3462" width="14" height="14" color="#176B57" style="--stroke:2"/>
+<text x="465" y="3475" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="580" text-anchor="start" letter-spacing="0">48 dp hit target</text>
+<rect x="807" y="3460" width="18" height="18" rx="4" fill="#DCF3E8" stroke="#176B57" stroke-width="1"/>
+<use href="#ic-confirm" x="809" y="3462" width="14" height="14" color="#176B57" style="--stroke:2"/>
+<text x="835" y="3475" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="580" text-anchor="start" letter-spacing="0">Selected là filled</text>
+<rect x="1177" y="3460" width="18" height="18" rx="4" fill="#DCF3E8" stroke="#176B57" stroke-width="1"/>
+<use href="#ic-confirm" x="1179" y="3462" width="14" height="14" color="#176B57" style="--stroke:2"/>
+<text x="1205" y="3475" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="580" text-anchor="start" letter-spacing="0">Tên + xuất file + test</text>
+<path d="M40 3535 L1560 3535" fill="none" stroke="#DDE8E0" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<text x="44" y="3598" fill="#207E68" font-family="DejaVu Sans, Arial, sans-serif" font-size="14" font-weight="800" letter-spacing="2">12</text>
+<text x="104" y="3598" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="25" font-weight="750">BÀN GIAO &amp; QUY ƯỚC TÀI NGUYÊN</text>
+<text x="1553" y="3598" fill="#5A7268" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" text-anchor="end">Nguồn vector + export + kiểm thử trên Android</text>
+<rect x="40" y="3625" width="1520" height="176" rx="20" fill="#FFFFFF" stroke="#DDE8E0" stroke-width="1"/>
+<rect x="63" y="3650" width="480" height="127" rx="14" fill="#EDF6F0"/>
+<text x="83" y="3680" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="18" font-weight="730">Nguồn &amp; đặt tên</text>
+<text x="83" y="3708" fill="#405E51" font-family="DejaVu Sans, Arial, sans-serif" font-size="15">SVG master + file nguồn chỉnh sửa được</text>
+<text x="83" y="3736" fill="#176B57" font-family="DejaVu Sans Mono, monospace" font-size="15" font-weight="700">ic_{chuc_nang}_{state}</text>
+<text x="83" y="3761" fill="#405E51" font-family="DejaVu Sans, Arial, sans-serif" font-size="13">Ví dụ: ic_timer_selected · ic_warning_default</text>
+<rect x="559" y="3650" width="480" height="127" rx="14" fill="#EDF6F0"/>
+<text x="579" y="3680" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="18" font-weight="730">Định dạng xuất</text>
+<text x="579" y="3708" fill="#405E51" font-family="DejaVu Sans, Arial, sans-serif" font-size="15">SVG vector master + VectorDrawable XML</text>
+<text x="579" y="3736" fill="#405E51" font-family="DejaVu Sans, Arial, sans-serif" font-size="15">PNG/WebP @1× / @2× / @3× khi cần raster</text>
+<text x="579" y="3761" fill="#405E51" font-family="DejaVu Sans, Arial, sans-serif" font-size="13">Launcher: foreground / background / monochrome</text>
+<rect x="1055" y="3650" width="482" height="127" rx="14" fill="#EDF6F0"/>
+<text x="1075" y="3680" fill="#172B27" font-family="DejaVu Sans, Arial, sans-serif" font-size="18" font-weight="730">Kiểm duyệt trước merge</text>
+<text x="1075" y="3708" fill="#405E51" font-family="DejaVu Sans, Arial, sans-serif" font-size="15">Light/Dark · selected/pressed/disabled</text>
+<text x="1075" y="3736" fill="#405E51" font-family="DejaVu Sans, Arial, sans-serif" font-size="15">16 / 24 / 48 dp · hit target ≥48 dp</text>
+<text x="1075" y="3761" fill="#405E51" font-family="DejaVu Sans, Arial, sans-serif" font-size="13">Test mask adaptive, trùng nghĩa &amp; tương phản</text>
+<line x1="40" y1="3831" x2="1560" y2="3831" stroke="#DDE8E0"/>
+<text x="44" y="3850" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="680" letter-spacing="1">TIME WALLET × WALLY  ·  ICON DESIGN SYSTEM  ·  MASTER VECTOR</text>
+<text x="1555" y="3850" fill="#4E665C" font-family="DejaVu Sans, Arial, sans-serif" font-size="12" font-weight="600" text-anchor="end">v3.0  ·  17.11.2026</text>
+</svg>

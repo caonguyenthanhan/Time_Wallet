@@ -303,9 +303,10 @@ fun InsightsScreen(
                     ) {
                         displaySlices.forEachIndexed { idx, slice ->
                             LegendRow(
-                                label = "${slice.category.emoji} ${slice.category.displayName}",
+                                label = slice.category.displayName,
                                 value = fmt(slice.seconds),
                                 dot = Color(slice.category.colorHex),
+                                category = slice.category,
                                 percentText = "${slice.percent}%",
                                 isSelected = selectedSliceIndex == idx,
                                 onClick = {
@@ -322,9 +323,10 @@ fun InsightsScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         weeklyInsights.untimedCategoryTotals.forEach { uStat ->
                             LegendRow(
-                                label = "${uStat.category.emoji} ${uStat.category.displayName}",
+                                label = uStat.category.displayName,
                                 value = fmt(uStat.durationSeconds),
-                                dot = Color(0xFFC5CFC9)
+                                dot = Color(0xFFC5CFC9),
+                                category = uStat.category
                             )
                         }
                     }

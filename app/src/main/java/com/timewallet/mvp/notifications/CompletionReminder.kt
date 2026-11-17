@@ -117,7 +117,7 @@ object CompletionNotificationHelper {
         )
 
         val notif = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_wallet)
+            .setSmallIcon(R.drawable.ic_action_notify_default)
             .setContentTitle("Đã tới giờ kết thúc: ${record.title}")
             .setContentText("${rangeText}Chạm để xác nhận hoàn thành, điều chỉnh, gián đoạn hoặc hủy.")
             .setPriority(NotificationCompat.PRIORITY_HIGH)

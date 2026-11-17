@@ -12,7 +12,18 @@
 
 > **Tuyên ngôn sản phẩm:** *Thời gian là tài sản hữu hạn và không thể tích lũy. Time Wallet giúp bạn hiểu và chủ động phân bổ 24 giờ mỗi ngày một cách trung thực — không phán xét nghỉ ngơi và không chạy theo điểm số năng suất giả.*
 
-Ứng dụng Android Native **Time Wallet (`com.timewallet.mvp`)** kết hợp **Sổ cái Thời gian 5 lớp bất biến (Offline-first Room v5)** với trợ lý **Wally AI (API-First Opt-in)** có lớp kiểm chứng tất định, được xây dựng theo đặc tả [Time_Wallet_MVP_Spec.md](Time_Wallet_MVP/Time_Wallet_MVP_Spec.md) và hồ sơ [WALLY_V120_PRODUCTION_CANDIDATE.md](WALLY_V120_PRODUCTION_CANDIDATE.md).
+<table>
+  <tr>
+    <td width="132" align="center" valign="middle">
+      <img src="docs/brand/wally-hero.webp" alt="Wally — Linh vật Trợ lý Thời gian Time Wallet" width="112" />
+    </td>
+    <td valign="middle">
+      <b>Wally — Trợ lý AI Thời gian cá nhân:</b> Kết hợp <b>Sổ cái Thời gian 5 lớp bất biến (Offline-first Room v5)</b> với <b>Wally AI (API-First Opt-in)</b> kiểm chứng tất định, tách rạch ròi <i>thực tế có mốc giờ / chưa gắn giờ / dự kiến</i>, linh vật <b>Wally chi tiết nền trong suốt</b> (<a href="docs/brand/wally-hero.webp">wally-hero.webp</a>) cùng bộ icon vector 24dp & Launcher Monochrome đồng nhất (<a href="docs/brand/TimeWallet_Wally_Icon_Style_Guide_v3.svg">Icon Design System v3</a>).
+    </td>
+  </tr>
+</table>
+
+Ứng dụng Android Native **Time Wallet (`com.timewallet.mvp`)** là sổ cái cá nhân kèm hồ sơ đặc tả [Time_Wallet_MVP_Spec.md](Time_Wallet_MVP/Time_Wallet_MVP_Spec.md) và bàn giao phát hành [WALLY_V120_PRODUCTION_CANDIDATE.md](WALLY_V120_PRODUCTION_CANDIDATE.md).
 
 ---
 
@@ -23,7 +34,7 @@
 </p>
 
 <p align="center">
-  <sub><i>Ảnh tổng hợp chụp trực tiếp trên APK Release <code>1CCA6C8A…</code> (<code>v1.2.0</code> · <code>versionCode 16</code>) trên emulator QA tách biệt <code>WallyQA</code> (Android 9, <code>780×1688 @320dpi</code>) với dữ liệu mock synthetic 7 ngày và live AI <code>cinb/claude-sonnet-4-6</code> (khóa QA đã xóa khỏi máy ảo ngay sau khi chụp; hiển thị trên thiết bị thật Owner: <code>NOT_TESTED</code>).</i></sub>
+  <sub><i>Ảnh tổng hợp chụp trực tiếp trên APK Release <code>AC224463…</code> (<code>v1.2.0</code> · <code>versionCode 16</code>) trên emulator QA tách biệt <code>WallyQA</code> (Android 9, <code>780×1688 @320dpi</code>) với dữ liệu mock synthetic 7 ngày, hệ thống icon v3, Hero WebP nền trong suốt và live AI <code>cinb/claude-sonnet-4-6</code> (khóa QA đã xóa sạch khỏi máy ảo ngay sau khi chụp; hiển thị trên thiết bị thật Owner: <code>NOT_TESTED</code>).</i></sub>
 </p>
 
 ---
@@ -45,7 +56,8 @@
   5. **Kéo-thả sắp xếp thứ tự ngân sách (`InsightsScreen`, `BudgetDao`, `BudgetPolicy`):** tay cầm `⋮⋮`, bản xem trước nổi, vạch chèn `BudgetInsertionLine` trước khi thả, nút trợ năng `↑`/`↓` giữ nguyên phân nhóm ưu tiên và công bố qua `liveRegion`.
 - **Sẵn sàng Production dùng cá nhân (`v1.2.0` · `versionCode 16`):**
   - **Sao lưu / Khôi phục JSON lossless** (`MERGE_SAFE` và `REPLACE_ALL`, an toàn khi chuyển `Debug → Release`, không ghi đè khóa AI), cô lập Release Keystore ngoài Git, `CompletionBootReceiver` khôi phục lịch nhắc `AlarmManager` sau khởi động lại / cập nhật app / đổi múi giờ.
-  - **Kiểm chứng hiện hành (`1CCA6C8A…`):** `618/620` JVM & contract tests PASS (`0 failed`, `2` bài Live API skipped khi chạy offline), `lintRelease` đạt **0 errors** (`46 warnings`), APK Release ký số Scheme v2 hợp lệ (`1CCA6C8A…`, `8,457,131` bytes); kiểm thử trực quan + tương tác + live AI `cinb/claude-sonnet-4-6` (`COACH` / `QUERY` / `RECORD` đều HTTP 200, `0` lỗi, `FATAL EXCEPTION = 0`) đạt **PASS** trên emulator QA `WallyQA`. *(Cold-boot `BOOT_COMPLETED`, Android 13–16 AEHD và thiết bị thật của Owner giữ trạng thái `NOT_TESTED`.)*
+  - **Hệ thống nhận diện & Icon Design System v3 (`docs/brand/`):** 38 VectorDrawable đồng nhất (`ic_nav_*`, `ic_nav_timer_pressed` giữ kim trắng sắc nét trên nền Mint, 9 `CategoryBadge` danh mục thay emoji rời rạc, tách biệt rõ ràng `Warning` / `Error` / `Eraser` / `Delete` / `Notify`), Launcher Adaptive + Monochrome (`@mipmap/ic_launcher`), avatar 2D đồng bộ cho Coach/Header/Bubble (`32–48dp`), và linh vật toàn thân nền trong suốt (`ic_wally.webp` `512×512` xuất từ `Wally_Vector_Detailed.svg`) loại bỏ hoàn toàn ô nền xanh lệch màu trên `ChatScreen`.
+  - **Kiểm chứng hiện hành (`AC224463…`):** `618/620` JVM & contract tests PASS (`0 failed`, `2` bài Live API skipped khi chạy offline), `lintRelease` đạt **0 errors** (`51 warnings`), APK Release ký số Scheme v2 hợp lệ (`AC224463…`, `8,583,778` bytes); kiểm thử trực quan + tương tác + live AI `cinb/claude-sonnet-4-6` (`COACH` / `QUERY` / `RECORD` đều HTTP 200, `FATAL EXCEPTION = 0`, bảng `Wally Chat Welcome` nền trong suốt & bảng `Error` / `Eraser` đạt chuẩn) đạt **PASS** trên emulator QA `WallyQA`. *(Cold-boot `BOOT_COMPLETED`, Android 13–16 AEHD và thiết bị thật của Owner giữ trạng thái `NOT_TESTED`.)*
 
 ---
 
@@ -63,22 +75,23 @@
 ## Bộ ảnh chi tiết các màn hình (`docs/screenshots/ui-preview/`)
 
 <details>
-<summary>Mở xem bộ ảnh chụp màn hình chi tiết trên APK Release 1CCA6C8A… & mô tả luồng nghiệp vụ</summary>
+<summary>Mở xem bộ ảnh chụp màn hình chi tiết trên APK Release AC224463… & mô tả luồng nghiệp vụ</summary>
 
 | Màn hình / Luồng chính | Ảnh chụp | Mô tả nhanh |
 |---|---|---|
-| Tổng quan | [01_tong-quan.png](docs/screenshots/ui-preview/01_tong-quan.png) | Ví thời gian hôm nay (`15h 36` đã ghi nhận + `Dự kiến 1h 54`), nút thao tác nhanh, Donut 2D đủ tên danh mục không cắt chữ |
-| Donut 2D tương tác | [01_tong-quan_donut_pop.png](docs/screenshots/ui-preview/01_tong-quan_donut_pop.png) | Chạm lát `💼 Công việc` đẩy nổi 2D (`6h 53 · 45%`) và cập nhật chi tiết ở tâm |
-| Wally AI Coach (`7 ngày qua`) | [01b_wally-coach-ai.png](docs/screenshots/ui-preview/01b_wally-coach-ai.png) | Thẻ `✦ WALLY AI · 7 NGÀY QUA` ngắn gọn (`cinb/claude-sonnet-4-6`), hộp `Lưu ý:`, Action Items (`Gắn Tag →`, `Lên lịch →`) và nhóm nút nổi (`↑`, `✦`, `+`) |
+| Tổng quan | [01_tong-quan.png](docs/screenshots/ui-preview/01_tong-quan.png) | Ví thời gian hôm nay (`14h 50` đã ghi nhận + `Dự kiến 2h 40`), avatar 2D Wally, icon vector `Hỏi Wally` và Donut 2D dùng bộ icon danh mục v3 |
+| Donut 2D tương tác | [01_tong-quan_donut_pop.png](docs/screenshots/ui-preview/01_tong-quan_donut_pop.png) | Chạm dòng `Ngủ` đẩy nổi lát 2D (`6h 30 · 44%`) và cập nhật chi tiết ở tâm |
+| Wally AI Coach (`7 ngày qua`) | [01b_wally-coach-ai.png](docs/screenshots/ui-preview/01b_wally-coach-ai.png) | Thẻ `✦ WALLY AI · 7 NGÀY QUA` ngắn gọn (`cinb/claude-sonnet-4-6`), avatar 2D mới, hộp `Lưu ý:`, Action Item (`Lên lịch →`) và nhóm nút nổi (`↑`, robot mini, `+`) |
 | Speed Dial thao tác nhanh | [01c_speed-dial.png](docs/screenshots/ui-preview/01c_speed-dial.png) | FAB tròn góc dưới phải mở 3 hành động nhanh (`Nhìn lại ngày hôm nay`, `Bắt đầu đồng hồ`, `Ghi giờ thủ công`) |
-| Đồng hồ | [02_dong-ho.png](docs/screenshots/ui-preview/02_dong-ho.png) | Đếm giờ thời gian thực, chip danh mục/Tag (`Học AI`, `Deep Work`, `Đọc sách`), thẻ `Dopamine Time Dice` gợi ý phiên |
-| Wally Chat & câu trả lời `✦` | [03_wally.png](docs/screenshots/ui-preview/03_wally.png) | Bong bóng chat có đuôi, metadata `"20:28 · Wally đã xem ✓✓"`, thẻ trả lời `✦ Wally (AI)` có gạch nhấn và danh sách rõ ràng |
+| Đồng hồ | [02_dong-ho.png](docs/screenshots/ui-preview/02_dong-ho.png) | Tab đang chọn dùng `ic_nav_timer_pressed` giữ kim trắng sắc nét trên nền Mint, chip danh mục/Tag vector (`Học AI`, `Deep Work`, `Đọc sách`), thẻ `Dopamine Time Dice` |
+| Wally Chat & câu trả lời `✦` | [03_wally.png](docs/screenshots/ui-preview/03_wally.png) | Bong bóng chat có đuôi, metadata `"23:28 · Wally đã xem ✓✓"`, thẻ trả lời `✦ Wally (AI)` có gạch nhấn và danh sách rõ ràng |
 | Chỉ báo 3 chấm đang soạn | [03a_wally-typing.png](docs/screenshots/ui-preview/03a_wally-typing.png) | Bong bóng chờ 3 chấm xanh nảy tuần tự (`Wally đang soạn...` + `Hủy`) và trạng thái `Đã gửi ✓` |
-| Wally AI (Đa đề xuất) | [03b_wally-proposals.png](docs/screenshots/ui-preview/03b_wally-proposals.png) | `✦ AI đã bật`, bóc tách câu tiếng Việt thành 5 thẻ đề xuất kèm Tag gợi ý `🏷` và nút `✓ Xác nhận toàn bộ` |
-| Nhật ký (Tổng quan ngày) | [04_nhat-ky.png](docs/screenshots/ui-preview/04_nhat-ky.png) | Timeline từ sáng `07:00 → 14:30`, cột giờ trái, `+6h 30` chuyển tiếp xuyên đêm (`UC-15`) |
-| Timeline `DOING` / `PLANNED` & `±15p` | [04b_nhat-ky-doing-planned.png](docs/screenshots/ui-preview/04b_nhat-ky-doing-planned.png) | Vòng xoay động cho phiên `Đang diễn ra` (`19:45`), chấm rỗng kết thúc đường nối (`21:15 Dự kiến`), tay cầm `↔ Kéo giãn nhanh ±15p` |
-| Phân tích (`7 ngày gần nhất`) | [05_phan-tich.png](docs/screenshots/ui-preview/05_phan-tich.png) | Đủ **7 cột `Th 4–Th 3`** (`106h 54` tuần), khử trùng song song `1h 00` |
-| Donut 6 danh mục & Ngân sách Kéo-Thả | [05b_phan-tich-budgets-dnd.png](docs/screenshots/ui-preview/05b_phan-tich-budgets-dnd.png) | Donut 6 lát (`106h 54 · 7 ngày`, không cắt chữ) + `Ngân sách tuần` có tay cầm `⋮⋮` sắp xếp ưu tiên |
+| Wally AI (Đa đề xuất) | [03b_wally-proposals.png](docs/screenshots/ui-preview/03b_wally-proposals.png) | `✦ AI đã bật`, bóc tách câu tiếng Việt thành 5 thẻ đề xuất kèm 5 `CategoryBadge` vector và nút `✓ Xác nhận toàn bộ (5 hoạt động)` |
+| Wally Welcome (Mascot chi tiết) | [03c_wally-welcome.png](docs/screenshots/ui-preview/03c_wally-welcome.png) | Màn chào `ChatScreen` hiển thị `ic_wally.webp` (`512×512` xuất từ `Wally_Vector_Detailed`) nền trong suốt hoàn toàn, hòa tự nhiên với nền sáng không lệch màu |
+| Nhật ký (Tổng quan ngày) | [04_nhat-ky.png](docs/screenshots/ui-preview/04_nhat-ky.png) | Timeline từ sáng `07:00 → 14:30`, `CategoryBadge` vector, icon thùng rác `Delete` đỏ tách biệt, `+6h 30` chuyển tiếp xuyên đêm (`UC-15`) |
+| Timeline `DOING` / `PLANNED` & `±15p` | [04b_nhat-ky-doing-planned.png](docs/screenshots/ui-preview/04b_nhat-ky-doing-planned.png) | Thẻ chờ xác nhận (`19:45`, `21:15`), nút `✓ Xác nhận kết quả` và tay cầm `↔ Kéo giãn nhanh ±15p` |
+| Phân tích (`7 ngày gần nhất`) | [05_phan-tich.png](docs/screenshots/ui-preview/05_phan-tich.png) | Đủ **7 cột `Th 4–Th 3`** (`106h 15` tuần), khử trùng song song `1h 00`, icon vector danh mục |
+| Donut 6 danh mục & Ngân sách Kéo-Thả | [05b_phan-tich-budgets-dnd.png](docs/screenshots/ui-preview/05b_phan-tich-budgets-dnd.png) | Thẻ `Ngân sách tuần` dùng `CategoryBadge` vector + thùng rác `Delete` + tay cầm `⋮⋮` sắp xếp ưu tiên |
 | Thêm giờ (`ManualEntrySheet`) | [06_nhap-gio_manual.png](docs/screenshots/ui-preview/06_nhap-gio_manual.png) | Nhập khoảng giờ tự tính, sticky footer với `Clean · Xóa nhập liệu`, `Thoát`, `Lưu` |
 | Xử lý hoạt động xen giữa | [07_xu-ly-chong-lan.png](docs/screenshots/ui-preview/07_xu-ly-chong-lan.png) | Hộp thoại chọn khoảng nghỉ xen giữa / chạy song song / chỉnh giờ |
 | Xác nhận trạng thái | [08_xac-nhan-trang-thai.png](docs/screenshots/ui-preview/08_xac-nhan-trang-thai.png) | Đối soát hoàn thành, điều chỉnh, dừng sớm hoặc hủy hoạt động dự kiến |
@@ -100,6 +113,7 @@ Time_Wallet/
 ├── ai_test/                        # Script kiểm thử gateway (đọc biến môi trường FOZA_API_KEY)
 ├── docs/
 │   ├── archive/                    # Hồ sơ, review & biên bản QA lịch sử (v1.0.5–v1.0.13)
+│   ├── brand/                      # Icon Design System v3 SVG & Wally WebP showcase
 │   └── screenshots/                # Bộ ảnh UI v1.2.0 Preview & baseline v1.0.11
 ├── app/
 │   ├── build.gradle.kts            # Cấu hình Kotlin, Compose, Room schema export, Release signing ngoài Git

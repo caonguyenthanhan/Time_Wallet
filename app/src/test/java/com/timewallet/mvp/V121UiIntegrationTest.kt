@@ -165,6 +165,49 @@ class V121UiIntegrationTest {
         assertTrue(personal.contains("◆ ACTION ITEMS"))
         assertTrue(chat.contains("◆ BƯỚC TIẾP THEO"))
         assertTrue(chat.contains("text = \"✦\"") && personal.contains("✦ WALLY AI"))
+
+        // Linh vật robot Wally mới (toàn thân >=96dp qua ic_wally.webp + avatar 2D >=32dp qua ic_wally_avatar_2d.xml)
+        assertTrue(File("src/main/res/drawable-nodpi/ic_wally.webp").exists())
+        assertTrue(File("src/main/res/drawable/ic_wally_avatar_2d.xml").exists())
+        assertTrue(!File("src/main/res/drawable/ic_wally.xml").exists())
+        assertTrue(uikit.contains("fun WallyMascotAvatar(") && uikit.contains("R.drawable.ic_wally") && uikit.contains("R.drawable.ic_wally_avatar_2d"))
+        assertTrue(overview.contains("WallyMascotAvatar("))
+        assertTrue(personal.contains("WallyMascotAvatar("))
+        assertTrue(chat.contains("WallyMascotAvatar("))
+
+        // Style Guide v3 VectorDrawable, Adaptive + Monochrome Launcher & Metaphor Separation
+        val res = File("src/main/res")
+        listOf(
+            "mipmap-anydpi-v26/ic_launcher.xml",
+            "mipmap-anydpi-v26/ic_launcher_round.xml",
+            "drawable/ic_launcher_wally_background.xml",
+            "drawable/ic_launcher_wally_foreground.xml",
+            "drawable/ic_launcher_wally_monochrome.xml",
+            "drawable/ic_action_eraser_default.xml",
+            "drawable/ic_action_delete_error.xml",
+            "drawable/ic_warning_default.xml",
+            "drawable/ic_error_default.xml",
+            "drawable/ic_nav_timer_pressed.xml",
+            "drawable/ic_action_notify_default.xml"
+        ).forEach { assertTrue("Thiếu $it", File(res, it).exists()) }
+        listOf("overview", "timer", "wally", "journal", "analytics").forEach { nav ->
+            assertTrue("Thiếu nav $nav default", File(res, "drawable/ic_nav_${nav}_default.xml").exists())
+            assertTrue("Thiếu nav $nav selected", File(res, "drawable/ic_nav_${nav}_selected.xml").exists())
+        }
+        listOf("work", "learn", "move", "home", "rest", "connect", "fun", "sleep", "other").forEach { cat ->
+            assertTrue("Thiếu category $cat", File(res, "drawable/ic_cat_${cat}_default.xml").exists())
+        }
+        val manifest = File("src/main/AndroidManifest.xml").readText(Charsets.UTF_8)
+        assertTrue(manifest.contains("@mipmap/ic_launcher") && manifest.contains("@mipmap/ic_launcher_round"))
+        val adaptiveXml = File(res, "mipmap-anydpi-v26/ic_launcher.xml").readText(Charsets.UTF_8)
+        assertTrue(adaptiveXml.contains("<monochrome"))
+        assertTrue(uikit.contains("AppTab.CHAT -> WalletGlyph.WALLY_BOT") && uikit.contains("WalletGlyph.ERROR"))
+        assertTrue(chat.contains("WalletGlyph.ERASER") && File("src/main/java/com/timewallet/mvp/ui/screens/ManualEntrySheet.kt").readText(Charsets.UTF_8).contains("WalletGlyph.ERASER"))
+        assertTrue(File("src/main/java/com/timewallet/mvp/ui/screens/ComponentsAndDialogs.kt").readText(Charsets.UTF_8).contains("WalletGlyph.DELETE"))
+        assertTrue(File("src/main/java/com/timewallet/mvp/notifications/CompletionReminder.kt").readText(Charsets.UTF_8).contains("R.drawable.ic_action_notify_default"))
+        assertTrue(File("../docs/brand/TimeWallet_Wally_Icon_Style_Guide_v3.svg").exists() && File("../docs/brand/wally-hero.webp").exists())
+        assertTrue(File(res, "drawable-nodpi/ic_wally.webp").exists())
+        assertFalse("Không giữ bản Wally_Vector.svg giản lược nữa", File("../docs/brand/Wally_Vector.svg").exists())
     }
 
     @Test

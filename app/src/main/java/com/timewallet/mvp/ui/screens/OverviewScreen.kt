@@ -1,6 +1,5 @@
 package com.timewallet.mvp.ui.screens
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,7 +34,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -43,7 +41,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.timewallet.mvp.R
 import com.timewallet.mvp.data.local.ManualEntryDraft
 import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.model.TimeBudgetProgress
@@ -109,10 +106,9 @@ fun OverviewScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Image(
-                painter = painterResource(id = R.drawable.ic_wally),
-                contentDescription = "Wally, trợ lý thời gian",
-                modifier = Modifier.size(44.dp)
+            WallyMascotAvatar(
+                size = 46.dp,
+                contentDescription = "Wally, trợ lý thời gian"
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -207,7 +203,7 @@ fun OverviewScreen(
         ) {
             QuickActionTile(WalletGlyph.CLOCK, "Đồng hồ", "Mở tab Đồng hồ", Modifier.weight(1f)) { onNavigateToTab(AppTab.TIMER) }
             QuickActionTile(WalletGlyph.PLUS, "Thêm giờ", "Nhập giờ thủ công", Modifier.weight(1f), onAddManual)
-            QuickActionTile(WalletGlyph.SPARK, "Hỏi Wally", "Mở tab Wally", Modifier.weight(1f)) { onNavigateToTab(AppTab.CHAT) }
+            QuickActionTile(WalletGlyph.WALLY_BOT, "Hỏi Wally", "Mở tab Wally", Modifier.weight(1f)) { onNavigateToTab(AppTab.CHAT) }
         }
 
         // Donut phân bổ theo danh mục (tỷ lệ trên tổng đã ghi nhận).
@@ -250,9 +246,10 @@ fun OverviewScreen(
                     ) {
                         displaySlices.forEachIndexed { idx, slice ->
                             LegendRow(
-                                label = "${slice.category.emoji} ${slice.category.displayName}",
+                                label = slice.category.displayName,
                                 value = fmt(slice.seconds),
                                 dot = Color(slice.category.colorHex),
+                                category = slice.category,
                                 percentText = "${slice.percent}%",
                                 isSelected = selectedSliceIndex == idx,
                                 onClick = {

@@ -271,9 +271,10 @@ fun TimeWalletBottomBar(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
                                 .padding(top = 3.dp, end = 12.dp)
-                                .size(7.dp)
+                                .size(8.dp)
                                 .clip(CircleShape)
-                                .background(WalletMint)
+                                .background(WalletDangerText)
+                                .border(1.5.dp, Color.White, CircleShape)
                         )
                     }
                 }
@@ -489,15 +490,7 @@ fun ActivityRecordRow(
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(9.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(RoundedCornerShape(11.dp))
-                .background(categoryColor.copy(alpha = 0.14f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(text = record.category.emoji, fontSize = 16.sp)
-        }
+        CategoryBadge(category = record.category, size = 36.dp)
 
         Column(modifier = Modifier.weight(1f)) {
             // Dòng 1 (v1.0.10): TÊN chiếm toàn bộ chiều rộng còn lại (tối đa 2 dòng), thời lượng nằm bên phải.
@@ -592,18 +585,18 @@ fun ActivityRecordRow(
                                 .clickable { onDeleteClick(record) },
                             contentAlignment = Alignment.Center
                         ) {
-                            GlyphIcon(WalletGlyph.CLOSE, color = Color(0xFF6B7770), size = 20.dp)
+                            GlyphIcon(WalletGlyph.DELETE, color = WalletDangerText, size = 19.dp)
                         }
                     }
                 }
             }
             // Dòng 3 (hiếm): nút xác nhận / điều chỉnh trạng thái hoặc đối soát chồng lấn.
             if (canConfirmToActual) {
-                val actionBg = if (record.isNeedsReconciliation) Color(0xFFB55D0E) else WalletMint
-                val actionLabel = when {
-                    record.isNeedsReconciliation -> "⚖ Đối soát chồng lấn"
-                    needsCompletionConfirm -> "✓ Xác nhận kết quả"
-                    else -> "⚙ Xác nhận / Điều chỉnh"
+                val actionBg = if (record.isNeedsReconciliation) Color(0xFFA24C18) else WalletMint
+                val (actionGlyph, actionLabel) = when {
+                    record.isNeedsReconciliation -> WalletGlyph.WARNING to "Đối soát chồng lấn"
+                    needsCompletionConfirm -> WalletGlyph.CONFIRM to "Xác nhận kết quả"
+                    else -> WalletGlyph.SETTINGS to "Xác nhận / Điều chỉnh"
                 }
                 Box(
                     modifier = Modifier
@@ -614,12 +607,18 @@ fun ActivityRecordRow(
                         .clickable { onConfirmActualClick?.invoke(record) }
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
-                    Text(
-                        text = actionLabel,
-                        fontSize = cappedSp(12f),
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        GlyphIcon(actionGlyph, color = Color.White, size = 13.dp)
+                        Text(
+                            text = actionLabel,
+                            fontSize = cappedSp(12f),
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
                 }
             }
         }
@@ -722,7 +721,11 @@ fun CategorySelectorGrid(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text(text = category.emoji, fontSize = 12.sp)
+                CategoryIcon(
+                    category = category,
+                    size = 14.dp,
+                    tint = if (selected) Color.White else WalletMint
+                )
                 Text(
                     text = category.displayName,
                     fontSize = 11.sp,
@@ -1239,12 +1242,18 @@ fun AiSettingsDialog(
         onDismissRequest = onDismiss,
         containerColor = Color.White,
         title = {
-            Text(
-                text = "Cấu hình AI đề xuất (Opt-in)",
-                fontSize = 16.5.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = WalletInk
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                GlyphIcon(WalletGlyph.SETTINGS, color = WalletMint, size = 20.dp)
+                Text(
+                    text = "Cấu hình AI đề xuất (Opt-in)",
+                    fontSize = 16.5.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = WalletInk
+                )
+            }
         },
         text = {
             Column(
@@ -1615,15 +1624,7 @@ fun TimeBudgetItemCard(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             dragHandleContent?.invoke()
-            Box(
-                modifier = Modifier
-                    .size(if (compactMode) 38.dp else 42.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(catColor.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(text = cat.emoji, fontSize = if (compactMode) 18.sp else 20.sp)
-            }
+            CategoryBadge(category = cat, size = if (compactMode) 38.dp else 42.dp)
 
             Text(
                 text = cat.displayName,
@@ -1655,7 +1656,7 @@ fun TimeBudgetItemCard(
                         .clickable { onDeleteClick(cat) },
                     contentAlignment = Alignment.Center
                 ) {
-                    GlyphIcon(WalletGlyph.CLOSE, color = Color(0xFF6B7770), size = 20.dp)
+                    GlyphIcon(WalletGlyph.DELETE, color = WalletDangerText, size = 19.dp)
                 }
             }
         }

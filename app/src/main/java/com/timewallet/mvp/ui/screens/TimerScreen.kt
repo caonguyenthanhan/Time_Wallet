@@ -213,7 +213,7 @@ fun TimerScreen(
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 tagSuggestions.forEach { t ->
-                    ChoiceChip("${t.category.emoji} ${t.name}", selectedTagId == t.id, "Tag ${t.name}") { onSelectTag(t.id) }
+                    ChoiceChip(t.name, selectedTagId == t.id, "Tag ${t.name}", leadingCategory = t.category) { onSelectTag(t.id) }
                 }
             }
         } else if (isRunning && activeTimer?.tagId != null) {
@@ -370,7 +370,11 @@ private fun CategoryChipRow(selectedKey: String, enabled: Boolean, onSelectCateg
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Text(text = category.emoji, fontSize = 15.sp)
+                CategoryIcon(
+                    category = category,
+                    size = 15.dp,
+                    tint = if (selected) Color.White else WalletMint
+                )
                 Text(
                     text = category.displayName,
                     fontSize = 13.sp,
@@ -467,11 +471,17 @@ private fun DiceSection(
                         verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         Text(text = lastRoll.selectedFace.headline, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk)
-                        Text(
-                            text = "${lastRoll.selectedFace.category.emoji} ${lastRoll.selectedFace.category.displayName} · ${lastRoll.selectedFace.durationMinutes} phút",
-                            fontSize = 13.sp,
-                            color = WalletMuted
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            CategoryIcon(category = lastRoll.selectedFace.category, size = 15.dp, tint = WalletMint)
+                            Text(
+                                text = "${lastRoll.selectedFace.category.displayName} · ${lastRoll.selectedFace.durationMinutes} phút",
+                                fontSize = 13.sp,
+                                color = WalletMuted
+                            )
+                        }
                     }
                 }
                 Row(

@@ -1,7 +1,6 @@
 package com.timewallet.mvp.ui.screens
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -44,7 +43,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -55,7 +53,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.timewallet.mvp.R
 import com.timewallet.mvp.domain.model.GoalGroupState
 import com.timewallet.mvp.domain.model.GoalKind
 import com.timewallet.mvp.domain.model.GoalPeriod
@@ -80,9 +77,16 @@ import com.timewallet.mvp.ui.theme.WalletStroke
 
 private val ErrorRed = Color(0xFFB3261E)
 
-/** Chip chọn có vùng chạm >= 48dp, có mô tả và trạng thái chọn cho TalkBack (không chỉ dựa vào màu). */
+/** Chip chọn có vùng chạm >= 48dp, biểu tượng vector danh mục/hành động tùy chọn và trạng thái chọn cho TalkBack. */
 @Composable
-fun ChoiceChip(text: String, selected: Boolean, description: String, onClick: () -> Unit) {
+fun ChoiceChip(
+    text: String,
+    selected: Boolean,
+    description: String,
+    leadingCategory: TimeCategory? = null,
+    leadingGlyph: WalletGlyph? = null,
+    onClick: () -> Unit
+) {
     Row(
         modifier = Modifier
             .minimumInteractiveComponentSize()
@@ -96,10 +100,26 @@ fun ChoiceChip(text: String, selected: Boolean, description: String, onClick: ()
             }
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
+        if (selected) {
+            GlyphIcon(WalletGlyph.CONFIRM, color = Color.White, size = 14.dp)
+        }
+        when {
+            leadingCategory != null -> CategoryIcon(
+                category = leadingCategory,
+                size = 15.dp,
+                tint = if (selected) Color.White else WalletMint
+            )
+            leadingGlyph != null -> GlyphIcon(
+                glyph = leadingGlyph,
+                color = if (selected) Color.White else WalletMint,
+                size = 15.dp
+            )
+        }
         Text(
-            text = if (selected) "✓ $text" else text,
+            text = text,
             fontSize = 13.5.sp,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             color = if (selected) Color.White else WalletInk
@@ -118,7 +138,12 @@ fun SmallLabel(text: String) {
 fun CategoryChoiceRow(selectedKey: String?, onSelect: (String) -> Unit) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         TimeCategory.entries.forEach { c ->
-            ChoiceChip("${c.emoji} ${c.displayName}", selectedKey == c.key, "Nhóm ${c.displayName}") { onSelect(c.key) }
+            ChoiceChip(
+                text = c.displayName,
+                selected = selectedKey == c.key,
+                description = "Nhóm ${c.displayName}",
+                leadingCategory = c
+            ) { onSelect(c.key) }
         }
     }
 }
@@ -142,10 +167,15 @@ fun TagPicker(
     val shown = if (searching) TagRules.search(allActiveTags, query) else suggestions
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         shown.forEach { t ->
-            ChoiceChip("${t.category.emoji} ${t.name}", selectedTagId == t.id, "Tag ${t.name}") { onSelect(t.id) }
+            ChoiceChip(
+                text = t.name,
+                selected = selectedTagId == t.id,
+                description = "Tag ${t.name}",
+                leadingCategory = t.category
+            ) { onSelect(t.id) }
         }
         if (onCreateClick != null) {
-            ChoiceChip("＋ Tag mới", false, "Tạo Tag mới", onCreateClick)
+            ChoiceChip("Tag mới", false, "Tạo Tag mới", leadingGlyph = WalletGlyph.PLUS, onClick = onCreateClick)
         }
     }
     if (allActiveTags.size > suggestions.size || searching) {
@@ -215,7 +245,16 @@ fun PersonalHubCard(
 ) {
     SoftCard(modifier = Modifier.padding(top = 12.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SectionTitle(text = "Mục tiêu của bạn", actionText = "Quản lý", onAction = onOpenGoals)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                GlyphIcon(WalletGlyph.GOAL, color = WalletMint, size = 18.dp)
+                Box(modifier = Modifier.weight(1f)) {
+                    SectionTitle(text = "Mục tiêu của bạn", actionText = "Quản lý", onAction = onOpenGoals)
+                }
+            }
             if (goalSummaries.isEmpty()) {
                 Text(
                     "Đặt mục tiêu theo hoạt động (Tag) hoặc nhóm, ví dụ \"Chạy bộ ít nhất 30 phút mỗi ngày\". Wally sẽ theo dõi tiến độ giúp bạn.",
@@ -246,10 +285,9 @@ fun PersonalHubCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.ic_wally),
-                        contentDescription = null,
-                        modifier = Modifier.size(34.dp)
+                    WallyMascotAvatar(
+                        size = 40.dp,
+                        contentDescription = null
                     )
                     Column(modifier = Modifier.weight(1f)) {
                         Row(
@@ -590,7 +628,7 @@ private fun ActionItemCard(
                 contentAlignment = Alignment.Center
             ) {
                 if (checked) {
-                    Text("✓", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                    GlyphIcon(WalletGlyph.CONFIRM, color = Color.White, size = 13.dp)
                 }
             }
         }
@@ -723,7 +761,10 @@ fun TagManagerDialog(
                         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color(0xFFF3F7F4)).padding(10.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text("${t.category.emoji} ${t.name}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = WalletInk)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            CategoryIcon(category = t.category, size = 16.dp, tint = WalletMint)
+                            Text(t.name, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = WalletInk)
+                        }
                         Text("Nhóm: ${t.category.displayName}", fontSize = 11.5.sp, color = WalletMuted)
                         if (state.renamingId == t.id) {
                             OutlinedTextField(
@@ -755,8 +796,13 @@ fun TagManagerDialog(
                     }
                     if (state.showArchived) {
                         archived.forEach { t ->
-                            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                Text("${t.category.emoji} ${t.name}", fontSize = 13.sp, color = WalletMuted, modifier = Modifier.weight(1f))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                CategoryIcon(category = t.category, size = 15.dp, tint = WalletMuted)
+                                Text(t.name, fontSize = 13.sp, color = WalletMuted, modifier = Modifier.weight(1f))
                                 TextButton(onClick = { onRestore(t.id) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Khôi phục") }
                             }
                         }
@@ -794,7 +840,12 @@ fun GoalsDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color.White,
-        title = { Text("Mục tiêu thời gian", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                GlyphIcon(WalletGlyph.GOAL, color = WalletMint, size = 20.dp)
+                Text("Mục tiêu thời gian", fontWeight = FontWeight.ExtraBold, color = WalletInk)
+            }
+        },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (summaries.isEmpty()) Text("Chưa có mục tiêu nào.", fontSize = 13.sp, color = WalletMuted)
@@ -804,7 +855,12 @@ fun GoalsDialog(
                         Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                             TextButton(onClick = { onEdit(s.groupId) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Sửa", fontSize = 12.5.sp) }
                             if (s.state == GoalGroupState.PAUSED) TextButton(onClick = { onResume(s.groupId) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Tiếp tục", fontSize = 12.5.sp) }
-                            else TextButton(onClick = { onPause(s.groupId) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Tạm dừng", fontSize = 12.5.sp) }
+                            else TextButton(onClick = { onPause(s.groupId) }, modifier = Modifier.heightIn(min = 48.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    GlyphIcon(WalletGlyph.PAUSE, color = WalletMint, size = 14.dp)
+                                    Text("Tạm dừng", fontSize = 12.5.sp)
+                                }
+                            }
                             TextButton(onClick = { confirmEnd = s.groupId }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Kết thúc", fontSize = 12.5.sp) }
                         }
                     }
@@ -814,7 +870,12 @@ fun GoalsDialog(
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
                     modifier = Modifier.heightIn(min = 48.dp)
-                ) { Text("＋ Mục tiêu mới", fontWeight = FontWeight.Bold) }
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        GlyphIcon(WalletGlyph.PLUS, color = Color.White, size = 16.dp)
+                        Text("Mục tiêu mới", fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Đóng", fontWeight = FontWeight.Bold) } }
@@ -846,7 +907,11 @@ fun GoalEditorDialog(
                     if (state.targetType == GoalTargetType.TAG) {
                         if (activeTags.isEmpty()) Text("Chưa có Tag. Hãy tạo Tag (ví dụ \"Chạy bộ\") trong Quản lý Tag trước.", fontSize = 12.5.sp, color = WalletMuted)
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            activeTags.forEach { t -> ChoiceChip("${t.category.emoji} ${t.name}", state.targetKey == t.id, "Tag ${t.name}") { onChange { it.copy(targetKey = t.id) } } }
+                            activeTags.forEach { t ->
+                                ChoiceChip(t.name, state.targetKey == t.id, "Tag ${t.name}", leadingCategory = t.category) {
+                                    onChange { it.copy(targetKey = t.id) }
+                                }
+                            }
                         }
                     } else {
                         CategoryChoiceRow(state.targetKey) { k -> onChange { it.copy(targetKey = k) } }
