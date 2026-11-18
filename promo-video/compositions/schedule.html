@@ -1,0 +1,580 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script>
+  </head>
+  <body>
+    <template>
+      <style>
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 400;
+          src: url('assets/fonts/BeVietnamPro-400-vietnamese.woff2') format('woff2');
+          unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+        }
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 400;
+          src: url('assets/fonts/BeVietnamPro-400-latin.woff2') format('woff2');
+          unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2212, U+FEFF, U+FFFD;
+        }
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 600;
+          src: url('assets/fonts/BeVietnamPro-600-vietnamese.woff2') format('woff2');
+          unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+        }
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 600;
+          src: url('assets/fonts/BeVietnamPro-600-latin.woff2') format('woff2');
+          unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2212, U+FEFF, U+FFFD;
+        }
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 700;
+          src: url('assets/fonts/BeVietnamPro-700-vietnamese.woff2') format('woff2');
+          unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+        }
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 700;
+          src: url('assets/fonts/BeVietnamPro-700-latin.woff2') format('woff2');
+          unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2212, U+FEFF, U+FFFD;
+        }
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 800;
+          src: url('assets/fonts/BeVietnamPro-800-vietnamese.woff2') format('woff2');
+          unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+        }
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 800;
+          src: url('assets/fonts/BeVietnamPro-800-latin.woff2') format('woff2');
+          unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2212, U+FEFF, U+FFFD;
+        }
+        @font-face {
+          font-family: 'JetBrains Mono';
+          font-style: normal;
+          font-weight: 500;
+          src: url('assets/fonts/JetBrainsMono-500-latin.woff2') format('woff2');
+        }
+        @font-face {
+          font-family: 'JetBrains Mono';
+          font-style: normal;
+          font-weight: 700;
+          src: url('assets/fonts/JetBrainsMono-700-latin.woff2') format('woff2');
+        }
+
+        * {
+          box-sizing: border-box;
+          margin: 0;
+          padding: 0;
+        }
+
+        #root {
+          position: absolute;
+          inset: 0;
+          overflow: hidden;
+          background: var(--color-ground, #F5F7F3);
+          font-family: 'Be Vietnam Pro', sans-serif;
+          color: var(--color-ink, #172B27);
+        }
+
+        .sched-stage {
+          position: relative;
+          width: 100%;
+          height: 100%;
+          padding: 72px 124px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 68px;
+        }
+
+        .sched-left {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 24px;
+        }
+
+        .sched-kicker {
+          display: inline-flex;
+          align-self: flex-start;
+          padding: 10px 22px;
+          border-radius: 999px;
+          background: var(--color-accent-soft, #DCF3E8);
+          color: var(--color-accent, #176B57);
+          font-size: 28px;
+          font-weight: 700;
+        }
+
+        .sched-headline {
+          font-size: 54px;
+          font-weight: 800;
+          line-height: 1.18;
+          letter-spacing: -0.025em;
+          color: var(--color-ink, #172B27);
+        }
+
+        .sched-headline .accent {
+          color: var(--color-accent, #176B57);
+        }
+
+        .sched-sub {
+          font-size: 28px;
+          font-weight: 500;
+          color: var(--color-muted, #5A7268);
+          line-height: 1.38;
+        }
+
+        .sched-card {
+          background: #FFFFFF;
+          border: 2px solid #DDE8E0;
+          border-radius: 32px;
+          overflow: hidden;
+          box-shadow: 0 24px 56px rgba(16, 63, 53, 0.1);
+        }
+
+        .sched-emerald-header {
+          background: linear-gradient(135deg, #103F35 0%, #176B57 70%, #207E68 100%);
+          padding: 22px 28px;
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+        }
+
+        .sched-mode-bar {
+          position: relative;
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          background: rgba(255, 255, 255, 0.14);
+          border-radius: 16px;
+          padding: 5px;
+        }
+
+        .sched-mode-indicator {
+          position: absolute;
+          left: 5px;
+          top: 5px;
+          width: calc(25% - 3px);
+          height: calc(100% - 10px);
+          border-radius: 12px;
+          background: #FFFFFF;
+        }
+
+        .sched-mode-tab {
+          position: relative;
+          z-index: 2;
+          text-align: center;
+          padding: 10px 8px;
+          font-size: 28px;
+          font-weight: 700;
+          color: #DCF3E8;
+        }
+
+        .sched-mode-tab.active-text {
+          color: #103F35;
+        }
+
+        .sched-legend {
+          display: flex;
+          gap: 24px;
+          font-size: 28px;
+          font-weight: 600;
+          color: #FFFFFF;
+        }
+
+        .sched-grid-body {
+          padding: 22px 26px 24px;
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+
+        .sched-row {
+          display: flex;
+          gap: 18px;
+          align-items: stretch;
+        }
+
+        .sched-hour {
+          width: 96px;
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 28px;
+          font-weight: 700;
+          color: #5A7268;
+          padding-top: 12px;
+          flex-shrink: 0;
+        }
+
+        .sched-slot-single {
+          flex: 1;
+          padding: 16px 20px;
+          border-radius: 18px;
+          background: #EDF4FC;
+          border: 2px solid #5B9BD5;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+        }
+
+        .sched-slot-split {
+          flex: 1;
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 14px;
+          align-items: start;
+        }
+
+        .block-planned {
+          padding: 16px 18px;
+          border-radius: 18px;
+          background: #FFF9EE;
+          border: 2.5px dashed #D89428;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .block-actual {
+          padding: 16px 18px;
+          border-radius: 18px;
+          background: #F4EEFF;
+          border: 2.5px solid #7C4DFF;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .block-title {
+          font-size: 28px;
+          font-weight: 700;
+          color: #172B27;
+        }
+
+        .block-badge-amber {
+          align-self: flex-start;
+          padding: 4px 14px;
+          border-radius: 999px;
+          background: #FFEAC2;
+          color: #8A4B00;
+          font-size: 28px;
+          font-weight: 700;
+        }
+
+        .block-badge-mint {
+          align-self: flex-start;
+          padding: 4px 14px;
+          border-radius: 999px;
+          background: #DCF3E8;
+          color: #176B57;
+          font-size: 28px;
+          font-weight: 700;
+          white-space: nowrap;
+        }
+
+        .block-diff {
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 28px;
+          font-weight: 700;
+          color: #4C2A99;
+        }
+
+        .unplaced-tray {
+          padding: 16px 22px;
+          border-radius: 20px;
+          background: #EDF6F0;
+          border: 2px solid #DDE8E0;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 14px;
+        }
+
+        .unplaced-label {
+          font-size: 28px;
+          font-weight: 700;
+          color: #172B27;
+        }
+
+        .unplaced-chip {
+          padding: 10px 18px;
+          border-radius: 999px;
+          background: #FFFFFF;
+          border: 2px solid #176B57;
+          font-size: 28px;
+          font-weight: 700;
+          color: #176B57;
+          white-space: nowrap;
+        }
+
+        .phone-shell {
+          width: 392px;
+          height: 844px;
+          border-radius: 48px;
+          padding: 11px;
+          background: linear-gradient(145deg, #2D3834, #172B27 45%, #0D1A17);
+          box-shadow: 0 40px 90px rgba(16, 63, 53, 0.24);
+          position: relative;
+          flex-shrink: 0;
+        }
+
+        .phone-screen {
+          width: 100%;
+          height: 100%;
+          border-radius: 38px;
+          overflow: hidden;
+          background: #F5F7F3;
+        }
+
+        .phone-screen img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          object-position: top center;
+          display: block;
+        }
+
+        .phone-camera {
+          position: absolute;
+          top: 22px;
+          left: 190px;
+          width: 12px;
+          height: 12px;
+          border-radius: 999px;
+          background: #0A0D0C;
+        }
+
+        .flood-overlay {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 1920px;
+          height: 1080px;
+          background: #103F35;
+          pointer-events: none;
+          z-index: 60;
+        }
+      </style>
+
+      <div id="root" data-composition-id="schedule" data-width="1920" data-height="1080">
+        <div id="sched-stage-clip" class="clip" data-start="0" data-duration="8" style="position: absolute; inset: 0;">
+          <div id="sched-stage" class="sched-stage">
+            <div class="sched-left">
+              <div id="sched-head" style="display: flex; flex-direction: column; gap: 12px;">
+                <div class="sched-kicker">LỊCH TRÌNH TRỰC QUAN 4 CHẾ ĐỘ</div>
+                <h2 class="sched-headline">
+                  Kế hoạch riêng · <span class="accent">Thực tế rạch ròi</span>
+                </h2>
+                <p class="sched-sub">
+                  Đối chiếu dự kiến và thực tế trực tiếp — giữ nguyên việc chưa gắn giờ.
+                </p>
+              </div>
+
+              <div id="sched-card" class="sched-card">
+                <div class="sched-emerald-header">
+                  <div class="sched-mode-bar">
+                    <div id="sched-mode-pill" class="sched-mode-indicator" data-layout-ignore="true"></div>
+                    <div id="tab-ngay" class="sched-mode-tab active-text">Ngày</div>
+                    <div id="tab-3ngay" class="sched-mode-tab">3 ngày</div>
+                    <div id="tab-tuan" class="sched-mode-tab">Tuần</div>
+                    <div id="tab-thang" class="sched-mode-tab">Tháng</div>
+                  </div>
+                  <div class="sched-legend">
+                    <span>■ Đã thực hiện</span>
+                    <span>□ Dự kiến</span>
+                    <span>○ Chưa xác nhận</span>
+                  </div>
+                </div>
+
+                <div class="sched-grid-body">
+                  <div class="sched-row">
+                    <div class="sched-hour">13:00</div>
+                    <div id="sched-row-13" class="sched-slot-single">
+                      <span class="block-title" style="display: inline-flex; align-items: center; gap: 10px;">
+                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#245EA8" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M3 12c5 4 13 4 18 0"/></svg>
+                        Kiểm thử & phát hành sản phẩm · 45p
+                      </span>
+                      <span class="block-badge-mint">Đã thực hiện</span>
+                    </div>
+                  </div>
+
+                  <div class="sched-row">
+                    <div class="sched-hour">14:00</div>
+                    <div class="sched-slot-split">
+                      <div id="sched-planned-block" class="block-planned">
+                        <div class="block-title" style="display: inline-flex; align-items: center; gap: 10px;">
+                          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#8A4B00" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V5c-3-1-6-1-9 1ZM12 6v14"/></svg>
+                          Đọc sách (KH)
+                        </div>
+                        <div class="block-badge-amber">Chưa xác nhận</div>
+                        <div class="block-diff" style="color: #8A4B00;">14:00–15:00 · 1h</div>
+                      </div>
+
+                      <div id="sched-actual-block" class="block-actual">
+                        <div class="block-title" style="display: inline-flex; align-items: center; gap: 10px;">
+                          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#5B3DC4" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V5c-3-1-6-1-9 1ZM12 6v14"/></svg>
+                          Đọc sách
+                        </div>
+                        <div class="block-badge-mint">Đã thực hiện</div>
+                        <div id="sched-diff-label" class="block-diff">KH 1h → TT 1h 12p (+12p)</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div id="sched-unplaced-tray" class="unplaced-tray">
+                    <div class="unplaced-label">Chưa gắn giờ · Chỉ thời lượng (không tự bịa giờ)</div>
+                    <div class="unplaced-chip" style="display: inline-flex; align-items: center; gap: 10px;">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#176B57" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V5c-3-1-6-1-9 1ZM12 6v14"/></svg>
+                      Đọc sách · 30p
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div id="sched-phone" class="phone-shell">
+              <div class="phone-screen">
+                <img src="assets/screens/06a_lich-trinh-ngay.png" alt="Lịch trình Ngày Time Wallet" />
+              </div>
+              <div class="phone-camera" data-layout-ignore="true"></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="sched-flood-clip" class="clip" data-start="7.45" data-duration="0.55">
+          <div id="sched-flood" class="flood-overlay" data-layout-ignore="true"></div>
+        </div>
+      </div>
+
+      <script>
+        (function () {
+          const tl = gsap.timeline({ paused: true });
+          const diffEl = document.getElementById("sched-diff-label");
+          const diffProxy = { mins: 60 };
+
+          function renderDiff(m) {
+            const total = Math.round(m);
+            const extra = total - 60;
+            diffEl.textContent =
+              extra > 0
+                ? "KH 1h → TT 1h " + String(extra).padStart(2, "0") + "p (+" + extra + "p)"
+                : "KH 1h → TT 1h 00p";
+          }
+
+          // Whip catch arrival from right
+          tl.fromTo(
+            "#sched-head",
+            { x: 110, opacity: 0 },
+            { x: 0, opacity: 1, duration: 0.52, ease: "power4.out" },
+            0
+          );
+
+          tl.fromTo(
+            "#sched-card",
+            { x: 90, opacity: 0.85 },
+            { x: 0, opacity: 1, duration: 0.56, ease: "power4.out" },
+            0.04
+          );
+
+          tl.fromTo(
+            "#sched-phone",
+            { x: 70, opacity: 0.85, scale: 0.96 },
+            { x: 0, opacity: 1, scale: 1, duration: 0.56, ease: "power4.out" },
+            0.05
+          );
+
+          // Mode pill glides Ngày -> 3 ngày -> Tuần -> Ngày with matching dark contrast text
+          tl.fromTo(
+            "#sched-mode-pill",
+            { x: 0 },
+            { x: 266, duration: 0.36, ease: "power2.inOut" },
+            1.4
+          );
+          tl.to("#tab-ngay", { color: "#DCF3E8", duration: 0.16 }, 1.48);
+          tl.to("#tab-3ngay", { color: "#103F35", duration: 0.16 }, 1.56);
+
+          tl.to("#sched-mode-pill", { x: 532, duration: 0.36, ease: "power2.inOut" }, 1.95);
+          tl.to("#tab-3ngay", { color: "#DCF3E8", duration: 0.16 }, 2.02);
+          tl.to("#tab-tuan", { color: "#103F35", duration: 0.16 }, 2.1);
+
+          tl.to("#sched-mode-pill", { x: 0, duration: 0.42, ease: "power3.out" }, 2.55);
+          tl.to("#tab-tuan", { color: "#DCF3E8", duration: 0.16 }, 2.6);
+          tl.to("#tab-ngay", { color: "#103F35", duration: 0.18 }, 2.74);
+
+          // Side-by-side Planned vs Actual blocks pop in & Actual expands by +12p
+          tl.fromTo(
+            "#sched-planned-block",
+            { opacity: 0, y: 14 },
+            { opacity: 1, y: 0, duration: 0.4, ease: "power3.out" },
+            2.95
+          );
+
+          tl.fromTo(
+            "#sched-actual-block",
+            { opacity: 0, y: 14, scaleY: 0.88 },
+            { opacity: 1, y: 0, scaleY: 1, duration: 0.45, ease: "power3.out" },
+            3.25
+          );
+
+          tl.fromTo(
+            diffProxy,
+            { mins: 60 },
+            {
+              mins: 72,
+              duration: 1.15,
+              ease: "power2.out",
+              onUpdate: function () {
+                renderDiff(diffProxy.mins);
+              },
+            },
+            3.85
+          );
+
+          tl.fromTo(
+            "#sched-actual-block",
+            { paddingBottom: 18 },
+            { paddingBottom: 34, duration: 1.15, ease: "power2.out" },
+            3.85
+          );
+
+          // Highlight unplaced tray
+          tl.fromTo(
+            "#sched-unplaced-tray",
+            { backgroundColor: "#EDF6F0", borderColor: "#DDE8E0", scale: 1 },
+            { backgroundColor: "#DCF3E8", borderColor: "#176B57", scale: 1.015, duration: 0.42, ease: "back.out(1.4)" },
+            5.45
+          );
+
+          // Colour flood transition into dark emerald Insights stage
+          tl.fromTo(
+            "#sched-flood",
+            { opacity: 0, clipPath: "circle(0% at 50% 25%)" },
+            { opacity: 1, clipPath: "circle(135% at 50% 25%)", duration: 0.5, ease: "power2.inOut" },
+            7.48
+          );
+
+          tl.to({}, { duration: 0.01 }, 7.99);
+          renderDiff(60);
+          window.__timelines = window.__timelines || {};
+          window.__timelines["schedule"] = tl;
+          tl.seek(0);
+        })();
+      </script>
+    </template>
+  </body>
+</html>

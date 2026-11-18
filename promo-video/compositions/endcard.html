@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script>
+  </head>
+  <body>
+    <template>
+      <style>
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 400;
+          src: url('assets/fonts/BeVietnamPro-400-vietnamese.woff2') format('woff2');
+          unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+        }
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 400;
+          src: url('assets/fonts/BeVietnamPro-400-latin.woff2') format('woff2');
+          unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2212, U+FEFF, U+FFFD;
+        }
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 600;
+          src: url('assets/fonts/BeVietnamPro-600-vietnamese.woff2') format('woff2');
+          unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+        }
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 600;
+          src: url('assets/fonts/BeVietnamPro-600-latin.woff2') format('woff2');
+          unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2212, U+FEFF, U+FFFD;
+        }
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 700;
+          src: url('assets/fonts/BeVietnamPro-700-vietnamese.woff2') format('woff2');
+          unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+        }
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 700;
+          src: url('assets/fonts/BeVietnamPro-700-latin.woff2') format('woff2');
+          unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2212, U+FEFF, U+FFFD;
+        }
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 800;
+          src: url('assets/fonts/BeVietnamPro-800-vietnamese.woff2') format('woff2');
+          unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+        }
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 800;
+          src: url('assets/fonts/BeVietnamPro-800-latin.woff2') format('woff2');
+          unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2212, U+FEFF, U+FFFD;
+        }
+
+        * {
+          box-sizing: border-box;
+          margin: 0;
+          padding: 0;
+        }
+
+        #root {
+          position: absolute;
+          inset: 0;
+          overflow: hidden;
+          background: var(--color-ground, #F5F7F3);
+          font-family: 'Be Vietnam Pro', sans-serif;
+          color: var(--color-ink, #172B27);
+        }
+
+        .end-tint {
+          position: absolute;
+          inset: 0;
+          background: radial-gradient(circle at 50% 42%, rgba(220, 243, 232, 0.85) 0%, rgba(245, 247, 243, 0) 64%);
+          pointer-events: none;
+        }
+
+        .end-stage {
+          position: relative;
+          width: 100%;
+          height: 100%;
+          padding: 96px 160px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          text-align: center;
+          gap: 30px;
+        }
+
+        .end-lockup {
+          display: flex;
+          align-items: center;
+          gap: 36px;
+        }
+
+        .end-icon-frame {
+          width: 204px;
+          height: 204px;
+          border-radius: 46px;
+          background: transparent;
+          box-shadow: 0 28px 60px rgba(16, 63, 53, 0.22);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .end-icon-img {
+          width: 204px;
+          height: 204px;
+          object-fit: contain;
+          display: block;
+        }
+
+        .end-wally-img {
+          width: 205px;
+          height: 205px;
+          object-fit: contain;
+          filter: drop-shadow(0 18px 30px rgba(16, 63, 53, 0.16));
+        }
+
+        .end-wordmark {
+          font-size: 76px;
+          font-weight: 800;
+          letter-spacing: -0.03em;
+          color: #172B27;
+          line-height: 1.08;
+        }
+
+        .end-wordmark .accent {
+          color: #176B57;
+        }
+
+        .end-manifesto {
+          font-size: 46px;
+          font-weight: 700;
+          color: #172B27;
+          line-height: 1.25;
+        }
+
+        .end-sub {
+          font-size: 32px;
+          font-weight: 600;
+          color: #176B57;
+        }
+
+        .end-cta-pill {
+          margin-top: 8px;
+          padding: 18px 40px;
+          border-radius: 999px;
+          background: #176B57;
+          color: #FFFFFF;
+          font-size: 28px;
+          font-weight: 700;
+          box-shadow: 0 14px 32px rgba(23, 107, 87, 0.24);
+        }
+      </style>
+
+      <div id="root" data-composition-id="endcard" data-width="1920" data-height="1080">
+        <div class="end-tint" data-layout-ignore="true"></div>
+
+        <div id="end-stage-clip" class="clip" data-start="0" data-duration="4.5" style="position: absolute; inset: 0;">
+          <div class="end-stage">
+            <div class="end-lockup">
+              <div id="end-icon" class="end-icon-frame">
+                <img class="end-icon-img" src="assets/brand/app-icon-mark.png" alt="Time Wallet Icon" />
+              </div>
+              <img id="end-wally" class="end-wally-img" src="assets/brand/wally-hero.webp" alt="Wally Mascot" />
+            </div>
+
+            <h1 id="end-wordmark" class="end-wordmark">
+              Time Wallet <span class="accent">· Ví Thời Gian</span>
+            </h1>
+
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 14px;">
+              <p id="end-manifesto" class="end-manifesto">
+                Thời gian của bạn. Lựa chọn của bạn.
+              </p>
+              <p id="end-sub" class="end-sub">
+                Your time. Your choices. Your life.
+              </p>
+            </div>
+
+            <div id="end-cta" class="end-cta-pill">
+              Android Native · Kotlin · Jetpack Compose · Offline-First
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <script>
+        (function () {
+          const tl = gsap.timeline({ paused: true });
+
+          tl.fromTo(
+            "#end-icon",
+            { opacity: 0.92, scale: 0.88, y: 8 },
+            { opacity: 1, scale: 1, y: 0, duration: 0.56, ease: "back.out(1.4)" },
+            0
+          );
+
+          tl.fromTo(
+            "#end-wally",
+            { opacity: 0, scale: 0.86, x: 26 },
+            { opacity: 1, scale: 1, x: 0, duration: 0.58, ease: "power4.out" },
+            0.16
+          );
+
+          tl.fromTo(
+            "#end-wordmark",
+            { opacity: 0, clipPath: "inset(0 100% 0 0)" },
+            { opacity: 1, clipPath: "inset(0 0% 0 0)", duration: 0.62, ease: "power4.out" },
+            0.42
+          );
+
+          tl.fromTo(
+            "#end-manifesto",
+            { opacity: 0, filter: "blur(6px)" },
+            { opacity: 1, filter: "blur(0px)", duration: 0.52, ease: "power3.out" },
+            0.9
+          );
+
+          tl.fromTo(
+            "#end-sub",
+            { opacity: 0, y: 12 },
+            { opacity: 1, y: 0, duration: 0.44, ease: "power3.out" },
+            1.18
+          );
+
+          tl.fromTo(
+            "#end-cta",
+            { opacity: 0, y: 16, scale: 0.96 },
+            { opacity: 1, y: 0, scale: 1, duration: 0.48, ease: "power4.out" },
+            1.42
+          );
+
+          // Dead-still hold from 1.90s -> 4.50s (2.6s clean reading hold)
+          tl.to({}, { duration: 0.01 }, 4.49);
+          window.__timelines = window.__timelines || {};
+          window.__timelines["endcard"] = tl;
+          tl.seek(0);
+        })();
+      </script>
+    </template>
+  </body>
+</html>

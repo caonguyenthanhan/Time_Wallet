@@ -1,0 +1,15 @@
+{
+  "lang": "vi",
+  "lines": [
+    { "id": "cue-click", "sfx": ["click-soft"] },
+    { "id": "cue-pop", "sfx": ["pop"] },
+    { "id": "cue-whoosh", "sfx": ["whoosh-short"] },
+    { "id": "cue-chime", "sfx": ["chime"] },
+    { "id": "cue-typing", "sfx": ["typing"] }
+  ],
+  "bgm": {
+    "mode": "generate",
+    "query": "calm ambient Rhodes piano and warm soft synth pad, gentle minimal underscore",
+    "prompt": "calm ambient warm Rhodes electric piano, soft felt synth pads, subtle gentle pulse, peaceful mindful morning feel, minimal arrangement, 92 BPM, major key, no heavy drums, no harsh transients"
+  }
+}

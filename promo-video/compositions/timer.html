@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script>
+  </head>
+  <body>
+    <template>
+      <style>
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 400;
+          src: url('assets/fonts/BeVietnamPro-400-vietnamese.woff2') format('woff2');
+          unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+        }
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 400;
+          src: url('assets/fonts/BeVietnamPro-400-latin.woff2') format('woff2');
+          unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2212, U+FEFF, U+FFFD;
+        }
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 600;
+          src: url('assets/fonts/BeVietnamPro-600-vietnamese.woff2') format('woff2');
+          unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+        }
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 600;
+          src: url('assets/fonts/BeVietnamPro-600-latin.woff2') format('woff2');
+          unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2212, U+FEFF, U+FFFD;
+        }
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 700;
+          src: url('assets/fonts/BeVietnamPro-700-vietnamese.woff2') format('woff2');
+          unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+        }
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 700;
+          src: url('assets/fonts/BeVietnamPro-700-latin.woff2') format('woff2');
+          unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2212, U+FEFF, U+FFFD;
+        }
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 800;
+          src: url('assets/fonts/BeVietnamPro-800-vietnamese.woff2') format('woff2');
+          unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+        }
+        @font-face {
+          font-family: 'Be Vietnam Pro';
+          font-style: normal;
+          font-weight: 800;
+          src: url('assets/fonts/BeVietnamPro-800-latin.woff2') format('woff2');
+          unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2212, U+FEFF, U+FFFD;
+        }
+        @font-face {
+          font-family: 'JetBrains Mono';
+          font-style: normal;
+          font-weight: 500;
+          src: url('assets/fonts/JetBrainsMono-500-latin.woff2') format('woff2');
+        }
+        @font-face {
+          font-family: 'JetBrains Mono';
+          font-style: normal;
+          font-weight: 700;
+          src: url('assets/fonts/JetBrainsMono-700-latin.woff2') format('woff2');
+        }
+
+        * {
+          box-sizing: border-box;
+          margin: 0;
+          padding: 0;
+        }
+
+        #root {
+          position: absolute;
+          inset: 0;
+          overflow: hidden;
+          background: var(--color-ground, #F5F7F3);
+          font-family: 'Be Vietnam Pro', sans-serif;
+          color: var(--color-ink, #172B27);
+        }
+
+        .timer-grain {
+          position: absolute;
+          inset: 0;
+          opacity: 0.025;
+          background-image: radial-gradient(#172B27 1px, transparent 1px);
+          background-size: 4px 4px;
+          pointer-events: none;
+        }
+
+        .timer-stage {
+          position: relative;
+          width: 100%;
+          height: 100%;
+          padding: 78px 130px;
+          display: flex;
+          align-items: center;
+          gap: 74px;
+        }
+
+        .phone-shell {
+          width: 392px;
+          height: 844px;
+          border-radius: 48px;
+          padding: 11px;
+          background: linear-gradient(145deg, #2D3834, #172B27 45%, #0D1A17);
+          box-shadow:
+            0 44px 96px rgba(16, 63, 53, 0.24),
+            0 16px 32px rgba(16, 63, 53, 0.16),
+            inset 0 1px 0 rgba(255, 255, 255, 0.2);
+          position: relative;
+          flex-shrink: 0;
+        }
+
+        .phone-screen {
+          width: 100%;
+          height: 100%;
+          border-radius: 38px;
+          overflow: hidden;
+          background: #F5F7F3;
+        }
+
+        .phone-screen img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          object-position: top center;
+          display: block;
+        }
+
+        .phone-camera {
+          position: absolute;
+          top: 22px;
+          left: 190px;
+          width: 12px;
+          height: 12px;
+          border-radius: 999px;
+          background: #0A0D0C;
+        }
+
+        .timer-right {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 32px;
+        }
+
+        .timer-header {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+
+        .feature-kicker {
+          display: inline-flex;
+          align-self: flex-start;
+          padding: 10px 22px;
+          border-radius: 999px;
+          background: var(--color-accent-soft, #DCF3E8);
+          color: var(--color-accent, #176B57);
+          font-size: 28px;
+          font-weight: 700;
+          letter-spacing: 0.03em;
+        }
+
+        .feature-headline {
+          font-size: 58px;
+          font-weight: 800;
+          line-height: 1.16;
+          letter-spacing: -0.025em;
+          color: var(--color-ink, #172B27);
+        }
+
+        .feature-headline .accent {
+          color: var(--color-accent, #176B57);
+        }
+
+        .feature-sub {
+          font-size: 29px;
+          font-weight: 500;
+          line-height: 1.38;
+          color: var(--color-muted, #5A7268);
+        }
+
+        .timer-module-card {
+          background: var(--color-surface, #FFFFFF);
+          border: 2px solid var(--color-stroke, #DDE8E0);
+          border-radius: 36px;
+          padding: 40px 44px;
+          display: flex;
+          align-items: center;
+          gap: 44px;
+          box-shadow: 0 24px 56px rgba(16, 63, 53, 0.1);
+        }
+
+        .ring-wrap {
+          position: relative;
+          width: 340px;
+          height: 340px;
+          flex-shrink: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .ring-svg {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 340px;
+          height: 340px;
+        }
+
+        .ring-center {
+          position: relative;
+          z-index: 2;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .ring-label {
+          font-size: 28px;
+          font-weight: 700;
+          color: var(--color-muted, #5A7268);
+        }
+
+        .ring-digits {
+          font-family: 'JetBrains Mono', monospace;
+          font-size: 62px;
+          font-weight: 700;
+          color: var(--color-ink, #172B27);
+          letter-spacing: -0.02em;
+        }
+
+        .ring-status {
+          padding: 8px 18px;
+          border-radius: 999px;
+          font-size: 28px;
+          font-weight: 700;
+          background: #EDF6F0;
+          color: var(--color-muted, #5A7268);
+        }
+
+        .timer-controls {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
+        }
+
+        .timer-input-box {
+          padding: 18px 24px;
+          border-radius: 20px;
+          border: 2.5px solid var(--color-accent, #176B57);
+          background: #FFFFFF;
+          font-size: 30px;
+          font-weight: 700;
+          color: var(--color-ink, #172B27);
+        }
+
+        .chips-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 12px;
+        }
+
+        .chip-pill {
+          padding: 12px 18px;
+          border-radius: 999px;
+          border: 2px solid var(--color-stroke, #DDE8E0);
+          background: #FFFFFF;
+          font-size: 28px;
+          font-weight: 600;
+          color: var(--color-ink, #172B27);
+        }
+
+        .chip-pill.selected {
+          background: var(--color-accent, #176B57);
+          border-color: var(--color-accent, #176B57);
+          color: #FFFFFF;
+        }
+
+        .timer-cta-btn {
+          width: 100%;
+          padding: 20px 28px;
+          border-radius: 999px;
+          background: var(--color-accent, #176B57);
+          color: #FFFFFF;
+          font-size: 30px;
+          font-weight: 700;
+          text-align: center;
+          box-shadow: 0 12px 24px rgba(23, 107, 87, 0.24);
+        }
+
+        .measured-badge {
+          align-self: flex-start;
+          padding: 12px 22px;
+          border-radius: 16px;
+          background: var(--color-accent-soft, #DCF3E8);
+          color: var(--color-accent, #176B57);
+          font-size: 28px;
+          font-weight: 700;
+        }
+
+        .timer-cursor-layer {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 1920px;
+          height: 1080px;
+          pointer-events: none;
+          z-index: 40;
+        }
+
+        .timer-cursor {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 56px;
+          height: 56px;
+          filter: drop-shadow(0 8px 16px rgba(16, 63, 53, 0.28));
+        }
+      </style>
+
+      <div id="root" data-composition-id="timer" data-width="1920" data-height="1080">
+        <div class="timer-grain" data-layout-ignore="true"></div>
+
+        <div id="timer-stage-clip" class="clip" data-start="0" data-duration="7.5" style="position: absolute; inset: 0;">
+          <div id="timer-stage" class="timer-stage">
+            <div id="timer-phone" class="phone-shell">
+              <div class="phone-screen">
+                <img src="assets/screens/02_dong-ho.png" alt="Time Wallet Timer" />
+              </div>
+              <div class="phone-camera" data-layout-ignore="true"></div>
+            </div>
+
+            <div class="timer-right">
+              <div id="timer-head" class="timer-header">
+                <div class="feature-kicker">ĐỒNG HỒ THỜI GIAN THỰC</div>
+                <h2 class="feature-headline">
+                  Đo trực tiếp từng <span class="accent">phút thực</span>
+                </h2>
+                <p class="feature-sub">
+                  Bấm giờ một chạm — giữ phiên chạy nền bền vững, không suy đoán giờ giả.
+                </p>
+              </div>
+
+              <div id="timer-module" class="timer-module-card">
+                <div class="ring-wrap">
+                  <svg class="ring-svg" viewBox="0 0 340 340" data-layout-ignore="true">
+                    <circle
+                      cx="170"
+                      cy="170"
+                      r="146"
+                      fill="none"
+                      stroke="#E9EFEA"
+                      stroke-width="20"
+                    />
+                    <circle
+                      id="timer-ring-arc"
+                      cx="170"
+                      cy="170"
+                      r="146"
+                      fill="none"
+                      stroke="#176B57"
+                      stroke-width="20"
+                      stroke-linecap="round"
+                      stroke-dasharray="918"
+                      stroke-dashoffset="918"
+                      transform="rotate(-90 170 170)"
+                    />
+                  </svg>
+                  <div class="ring-center">
+                    <div class="ring-label">THỜI GIAN THỰC</div>
+                    <div id="timer-digits" class="ring-digits">00 : 00</div>
+                    <div id="timer-status" class="ring-status">Sẵn sàng</div>
+                  </div>
+                </div>
+
+                <div class="timer-controls">
+                  <div class="timer-input-box">Deep Work — Thiết kế hệ thống</div>
+                  <div id="timer-chips" class="chips-row">
+                    <div class="chip-pill selected" style="display: inline-flex; align-items: center; gap: 9px;">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M3 12c5 4 13 4 18 0"/></svg>
+                      Công việc
+                    </div>
+                    <div class="chip-pill" style="display: inline-flex; align-items: center; gap: 9px;">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#176B57" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V5c-3-1-6-1-9 1ZM12 6v14"/></svg>
+                      Học tập
+                    </div>
+                    <div class="chip-pill">✓ Deep Work</div>
+                  </div>
+                  <div id="timer-cta" class="timer-cta-btn">▶ Bắt đầu đo</div>
+                  <div id="timer-saved" class="measured-badge">✓ Đã lưu · 45p (MEASURED)</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="timer-cursor-clip" class="clip timer-cursor-layer" data-start="0.8" data-duration="1.6">
+          <div id="timer-cursor" class="timer-cursor" data-layout-ignore="true">
+            <svg viewBox="0 0 32 32" width="56" height="56">
+              <path
+                d="M6 3L26 15L16.5 17.5L13 27L6 3Z"
+                fill="#FFFFFF"
+                stroke="#172B27"
+                stroke-width="2.4"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <script>
+        (function () {
+          const tl = gsap.timeline({ paused: true });
+          const digitsEl = document.getElementById("timer-digits");
+          const statusEl = document.getElementById("timer-status");
+          const ctaEl = document.getElementById("timer-cta");
+          const arcEl = document.getElementById("timer-ring-arc");
+          const clockProxy = { sec: 0 };
+
+          function renderTimer(sec) {
+            const s = Math.round(sec);
+            const mins = Math.floor(s / 60);
+            const rem = s % 60;
+            digitsEl.textContent =
+              String(mins).padStart(2, "0") + " : " + String(rem).padStart(2, "0");
+
+            const active = s > 0;
+            statusEl.textContent = s >= 2700 ? "● Đã đo xong" : active ? "● Đang đo" : "Sẵn sàng";
+            statusEl.style.background = active ? "#DCF3E8" : "#EDF6F0";
+            statusEl.style.color = active ? "#176B57" : "#5A7268";
+            ctaEl.textContent = s >= 2700 ? "✓ Đã ghi vào Sổ cái" : active ? "⏸ Kết thúc & Lưu" : "▶ Bắt đầu đo";
+            ctaEl.style.background = active ? "#103F35" : "#176B57";
+            const dash = 918 * (1 - (s / 3600));
+            arcEl.setAttribute("stroke-dashoffset", dash.toFixed(1));
+          }
+
+          tl.fromTo(
+            "#timer-phone",
+            { opacity: 0.92, x: -24, scale: 1.04 },
+            { opacity: 1, x: 0, scale: 1, duration: 0.58, ease: "power4.out" },
+            0
+          );
+
+          tl.fromTo(
+            "#timer-head",
+            { opacity: 0, clipPath: "inset(0 100% 0 0)" },
+            { opacity: 1, clipPath: "inset(0 0% 0 0)", duration: 0.62, ease: "power4.out" },
+            0.15
+          );
+
+          tl.fromTo(
+            "#timer-module",
+            { opacity: 0, y: 26, scale: 0.97 },
+            { opacity: 1, y: 0, scale: 1, duration: 0.55, ease: "power4.out" },
+            0.35
+          );
+
+          tl.fromTo(
+            "#timer-chips .chip-pill",
+            { opacity: 0, y: 12, scale: 0.92 },
+            { opacity: 1, y: 0, scale: 1, duration: 0.36, stagger: 0.07, ease: "back.out(1.4)" },
+            0.65
+          );
+
+          // Cursor enters and presses Start at 1.80s
+          tl.fromTo(
+            "#timer-cursor",
+            { x: 1850, y: 980, opacity: 0 },
+            { x: 1370, y: 740, opacity: 1, duration: 0.72, ease: "power2.inOut" },
+            0.95
+          );
+
+          tl.fromTo(
+            "#timer-cta",
+            { scale: 1 },
+            { scale: 0.96, duration: 0.09, ease: "power2.in" },
+            1.76
+          );
+          tl.to("#timer-cta", { scale: 1, duration: 0.16, ease: "power3.out" }, 1.85);
+
+          tl.to("#timer-cursor", { opacity: 0, x: 1450, y: 800, duration: 0.3, ease: "power2.in" }, 2.0);
+
+          // Live measurement: 00:00 -> 45:00
+          tl.fromTo(
+            clockProxy,
+            { sec: 0 },
+            {
+              sec: 2700,
+              duration: 3.6,
+              ease: "power1.inOut",
+              onUpdate: function () {
+                renderTimer(clockProxy.sec);
+              },
+            },
+            1.88
+          );
+
+          tl.fromTo(
+            "#timer-saved",
+            { opacity: 0, y: 10, scale: 0.92 },
+            { opacity: 1, y: 0, scale: 1, duration: 0.38, ease: "back.out(1.5)" },
+            5.55
+          );
+
+          // Exit morph handoff to Wally AI
+          tl.fromTo(
+            "#timer-stage",
+            { opacity: 1, scale: 1 },
+            { opacity: 0.88, scale: 0.97, duration: 0.32, ease: "power3.in" },
+            7.16
+          );
+
+          tl.to({}, { duration: 0.01 }, 7.49);
+          renderTimer(0);
+          window.__timelines = window.__timelines || {};
+          window.__timelines["timer"] = tl;
+          tl.seek(0);
+        })();
+      </script>
+    </template>
+  </body>
+</html>
