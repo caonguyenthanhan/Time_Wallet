@@ -23,7 +23,9 @@ fun EditableProposalDraft.toBatchInput(): BatchRecordInput = BatchRecordInput(
     endHm = endLocal.trim(),
     convertFutureToPlanned = isFuturePlanned,
     idempotencyKey = idempotencyKey,
-    tagId = tagId
+    tagId = tagId,
+    isMarkedWaste = isMarkedWaste,
+    taskId = taskId
 )
 
 /**

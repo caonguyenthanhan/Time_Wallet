@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -44,14 +45,20 @@ import androidx.compose.ui.unit.sp
 import com.timewallet.mvp.domain.model.ActiveTimerSession
 import com.timewallet.mvp.domain.model.ConfirmationState
 import com.timewallet.mvp.domain.model.LedgerRecord
+import com.timewallet.mvp.domain.model.TaskItem
 import com.timewallet.mvp.domain.model.TimeLayer
+import com.timewallet.mvp.domain.usecase.DayLedgerStats
 import com.timewallet.mvp.domain.usecase.JournalDayTotal
 import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
 import com.timewallet.mvp.domain.usecase.ScheduleViewMode
+import com.timewallet.mvp.domain.usecase.SelectedSlotGroup
 import com.timewallet.mvp.ui.HistoryFilter
+import com.timewallet.mvp.ui.theme.WalletCardBg
+import com.timewallet.mvp.ui.theme.WalletDangerSolid
 import com.timewallet.mvp.ui.theme.WalletDangerText
 import com.timewallet.mvp.ui.theme.WalletInk
 import com.timewallet.mvp.ui.theme.WalletMint
+import com.timewallet.mvp.ui.theme.WalletMintAccent
 import com.timewallet.mvp.ui.theme.WalletMintDark
 import com.timewallet.mvp.ui.theme.WalletMintTint
 import com.timewallet.mvp.ui.theme.WalletMuted
@@ -97,13 +104,34 @@ fun HistoryScreen(
     onSelectScheduleDate: (String) -> Unit = {},
     onSelectScheduleViewMode: (ScheduleViewMode) -> Unit = {},
     onAddForSlot: (dateLocal: String, startHm: String?, endHm: String?, saveAsPlanned: Boolean) -> Unit = { _, _, _, _ -> onAddManual() },
+    onAddForSlots: (List<SelectedSlotGroup>) -> Unit = { groups ->
+        groups.firstOrNull()?.let { g ->
+            val todayCheck = runCatching { LocalDate.parse(todayDateLocal) }.getOrDefault(LocalDate.now())
+            val slotDate = runCatching { LocalDate.parse(g.dateLocal) }.getOrDefault(todayCheck)
+            onAddForSlot(g.dateLocal, g.startHm, g.endHm, slotDate.isAfter(todayCheck))
+        }
+    },
     onMoveOrResizeBlock: (recordId: String, dateLocal: String, startHm: String, endHm: String) -> Unit = { _, _, _, _ -> },
-    onNavigateToTimer: () -> Unit = {}
+    onNavigateToTimer: () -> Unit = {},
+    showCalendarMode: Boolean? = null,
+    onShowCalendarModeChange: ((Boolean) -> Unit)? = null,
+    todayStats: DayLedgerStats? = null,
+    inboxTasks: List<TaskItem> = emptyList(),
+    onScheduleTaskOnDate: (TaskItem, String) -> Unit = { _, _ -> },
+    onOpenDailyReview: () -> Unit = {},
+    onOpenTasksTab: () -> Unit = {},
+    onRequestWallyReplan: () -> Unit = {}
 ) {
     var recordPendingDelete by remember { mutableStateOf<LedgerRecord?>(null) }
     var selectedPlannedId by remember { mutableStateOf<String?>(null) }
+    var showInboxScheduleSheet by remember { mutableStateOf(false) }
     var liveStatusAnnouncement by remember { mutableStateOf("") }
-    var showCalendarMode by rememberSaveable { mutableStateOf(true) }
+    var internalCalendarMode by rememberSaveable { mutableStateOf(true) }
+    val activeCalendarMode = showCalendarMode ?: internalCalendarMode
+    val setCalendarMode: (Boolean) -> Unit = { mode ->
+        internalCalendarMode = mode
+        onShowCalendarModeChange?.invoke(mode)
+    }
     val nowMs = System.currentTimeMillis()
 
     val filteredRecords = remember(records, selectedFilter, nowMs, todayDateLocal) {
@@ -142,8 +170,8 @@ fun HistoryScreen(
     }
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        modifier = if (activeCalendarMode) Modifier.fillMaxSize() else Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -151,34 +179,31 @@ fun HistoryScreen(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                text = "Nhật ký",
-                fontSize = 26.sp,
+                text = if (activeCalendarMode) "Lịch trình" else "Nhật ký",
+                fontSize = 17.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = WalletInk,
+                maxLines = 1,
+                softWrap = false,
                 modifier = Modifier.weight(1f)
             )
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(100.dp))
-                    .background(Color(0xFFE9F0EC))
+                    .background(WalletStroke.copy(alpha = 0.45f))
                     .border(1.dp, WalletStroke, RoundedCornerShape(100.dp))
-                    .padding(3.dp),
+                    .padding(2.dp),
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 listOf(true to "Lịch trình", false to "Dòng thời gian").forEach { (isCal, label) ->
-                    val selected = showCalendarMode == isCal
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(100.dp))
-                            .background(if (selected) WalletMintDark else Color.Transparent)
-                            .semantics {
-                                contentDescription = "Chế độ $label"
-                                this.selected = selected
-                            }
-                            .walletClickable(onClickLabel = "Chế độ $label", role = Role.Tab) {
-                                showCalendarMode = isCal
-                            }
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    val selected = activeCalendarMode == isCal
+                    WalletPill(
+                        onClickLabel = "Chế độ $label",
+                        containerColor = if (selected) WalletMintDark else Color.Transparent,
+                        selected = selected,
+                        role = Role.Tab,
+                        contentDescription = "Chế độ $label",
+                        onClick = { setCalendarMode(isCal) }
                     ) {
                         Text(
                             text = label,
@@ -193,23 +218,36 @@ fun HistoryScreen(
             }
         }
 
-        if (showCalendarMode) {
-            ScheduleCalendarView(
+        if (todayStats != null) {
+            Compact24hWalletCard(
                 todayDateLocal = todayDateLocal,
-                records = records,
-                activeTimer = activeTimer,
-                selectedDateLocal = selectedScheduleDate.ifBlank { todayDateLocal },
-                viewMode = scheduleViewMode,
-                onSelectDate = onSelectScheduleDate,
-                onSelectViewMode = onSelectScheduleViewMode,
-                onAddForSlot = onAddForSlot,
-                onEditRecord = onEditRecord,
-                onConfirmPlannedOrActiveRecord = onConfirmPlannedOrActiveRecord,
-                onMoveOrResizeBlock = onMoveOrResizeBlock,
-                onNavigateToTimer = onNavigateToTimer,
-                showBackButton = false,
-                embeddedInScrollContainer = true
+                todayStats = todayStats,
+                inboxTaskCount = inboxTasks.size,
+                onOpenDailyReview = onOpenDailyReview,
+                onOpenTasksInbox = { showInboxScheduleSheet = true }
             )
+        }
+
+        if (activeCalendarMode) {
+            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                ScheduleCalendarView(
+                    todayDateLocal = todayDateLocal,
+                    records = records,
+                    activeTimer = activeTimer,
+                    selectedDateLocal = selectedScheduleDate.ifBlank { todayDateLocal },
+                    viewMode = scheduleViewMode,
+                    onSelectDate = onSelectScheduleDate,
+                    onSelectViewMode = onSelectScheduleViewMode,
+                    onAddForSlot = onAddForSlot,
+                    onEditRecord = onEditRecord,
+                    onConfirmPlannedOrActiveRecord = onConfirmPlannedOrActiveRecord,
+                    onMoveOrResizeBlock = onMoveOrResizeBlock,
+                    onNavigateToTimer = onNavigateToTimer,
+                    showBackButton = false,
+                    embeddedInScrollContainer = false,
+                    onAddForSlots = onAddForSlots
+                )
+            }
         } else {
 
         // Bộ lọc gọn: một hàng cuộn ngang, nhãn không xuống dòng.
@@ -224,8 +262,8 @@ fun HistoryScreen(
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(100.dp))
-                        .background(if (selected) Color(0xFF205F4B) else Color.White)
-                        .border(1.dp, if (selected) Color(0xFF205F4B) else WalletStroke, RoundedCornerShape(100.dp))
+                        .background(if (selected) WalletMint else WalletCardBg)
+                        .border(1.dp, if (selected) WalletMint else WalletStroke, RoundedCornerShape(100.dp))
                         .semantics { this.selected = selected }
                         .walletClickable(onClickLabel = "Lọc ${filter.label}", role = Role.Tab) { onSelectFilter(filter) }
                         .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -235,7 +273,7 @@ fun HistoryScreen(
                         text = filter.shortLabel(),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (selected) Color.White else Color(0xFF657A6C),
+                        color = if (selected) Color.White else WalletMuted,
                         maxLines = 1,
                         softWrap = false
                     )
@@ -381,12 +419,12 @@ fun HistoryScreen(
                                     .weight(1f)
                                     .padding(vertical = 4.dp)
                                     .clip(RoundedCornerShape(20.dp))
-                                    .background(Color.White)
+                                    .background(WalletCardBg)
                                     .then(
                                         if (isSelectedPlanned) {
                                             Modifier.border(1.5.dp, WalletMint, RoundedCornerShape(20.dp))
                                         } else {
-                                            Modifier
+                                            Modifier.border(1.dp, WalletStroke, RoundedCornerShape(20.dp))
                                         }
                                     )
                                     .padding(horizontal = 12.dp, vertical = 2.dp)
@@ -420,7 +458,7 @@ fun HistoryScreen(
                                                 color = if (minsNow >= 20) WalletInk else WalletMuted,
                                                 modifier = Modifier
                                                     .clip(RoundedCornerShape(8.dp))
-                                                    .background(Color.White)
+                                                    .background(WalletCardBg)
                                                     .walletClickable(
                                                         onClickLabel = "Giảm 15 phút cho ${record.title}",
                                                         enabled = minsNow >= 20
@@ -434,7 +472,7 @@ fun HistoryScreen(
                                                 text = LedgerAnalyticsCalculator.formatCompactDurationSeconds(record.durationSeconds),
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                color = WalletMint,
+                                                color = WalletMintAccent,
                                                 modifier = Modifier.weight(1f),
                                                 textAlign = TextAlign.Center,
                                                 maxLines = 1,
@@ -447,7 +485,7 @@ fun HistoryScreen(
                                                 color = WalletInk,
                                                 modifier = Modifier
                                                     .clip(RoundedCornerShape(8.dp))
-                                                    .background(Color.White)
+                                                    .background(WalletCardBg)
                                                     .walletClickable(onClickLabel = "Tăng 15 phút cho ${record.title}") {
                                                         onResizePlannedRecord(record.id, 15)
                                                         liveStatusAnnouncement = "Đã tăng thêm \"${record.title}\" 15 phút."
@@ -472,7 +510,7 @@ fun HistoryScreen(
                                             text = "↔ Kéo giãn nhanh ±15p",
                                             fontSize = 11.5.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = WalletMint,
+                                            color = WalletMintAccent,
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(8.dp))
                                                 .walletClickable(onClickLabel = "Chọn để chỉnh nhanh thời lượng ${record.title}") {
@@ -495,7 +533,7 @@ fun HistoryScreen(
     recordPendingDelete?.let { target ->
         AlertDialog(
             onDismissRequest = { recordPendingDelete = null },
-            containerColor = Color.White,
+            containerColor = WalletCardBg,
             title = {
                 Text("Xóa bản ghi?", fontWeight = FontWeight.ExtraBold, color = WalletInk)
             },
@@ -512,7 +550,7 @@ fun HistoryScreen(
                         onDeleteRecord(target.id)
                         recordPendingDelete = null
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = WalletDangerText)
+                    colors = ButtonDefaults.buttonColors(containerColor = WalletDangerSolid, contentColor = Color.White)
                 ) {
                     Text("Xóa", fontWeight = FontWeight.Bold)
                 }
@@ -520,6 +558,90 @@ fun HistoryScreen(
             dismissButton = {
                 TextButton(onClick = { recordPendingDelete = null }) {
                     Text("Hủy", color = WalletMuted)
+                }
+            }
+        )
+    }
+
+    if (showInboxScheduleSheet) {
+        val targetDate = selectedScheduleDate.ifBlank { todayDateLocal }
+        AlertDialog(
+            onDismissRequest = { showInboxScheduleSheet = false },
+            containerColor = WalletCardBg,
+            title = {
+                Text("Việc Inbox chờ xếp lịch (${inboxTasks.size})", fontWeight = FontWeight.ExtraBold, color = WalletInk)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (inboxTasks.isEmpty()) {
+                        Text("Tất cả công việc Inbox đều đã có lịch hoặc hoàn thành.", fontSize = 12.sp, color = WalletMuted)
+                    } else {
+                        Text(
+                            text = "Chạm \"Xếp vào $targetDate\" để gán khung giờ trống, hoặc nhờ Wally tự xếp nhiều việc.",
+                            fontSize = 11.5.sp,
+                            color = WalletMuted
+                        )
+                        inboxTasks.take(6).forEach { task ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(WalletMintTint)
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(task.title, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = WalletInk)
+                                    Text(
+                                        "${task.priority.name} · ${task.category.displayName} · ~${task.estimatedMinutes ?: 30}p",
+                                        fontSize = 11.sp,
+                                        color = WalletMuted
+                                    )
+                                }
+                                Text(
+                                    text = "Xếp lịch",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(100.dp))
+                                        .background(WalletMintDark)
+                                        .walletClickable(onClickLabel = "Xếp lịch ${task.title}") {
+                                            showInboxScheduleSheet = false
+                                            onScheduleTaskOnDate(task, targetDate)
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                if (inboxTasks.isNotEmpty()) {
+                    Button(
+                        onClick = {
+                            showInboxScheduleSheet = false
+                            onRequestWallyReplan()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = WalletMintDark, contentColor = Color.White)
+                    ) {
+                        Text("✦ Wally gợi ý lịch", fontWeight = FontWeight.Bold)
+                    }
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        showInboxScheduleSheet = false
+                        onOpenTasksTab()
+                    }) {
+                        Text("Mở tab Việc", color = WalletMintAccent, fontWeight = FontWeight.Bold)
+                    }
+                    TextButton(onClick = { showInboxScheduleSheet = false }) {
+                        Text("Đóng", color = WalletMuted)
+                    }
                 }
             }
         )

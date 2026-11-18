@@ -38,7 +38,8 @@ object ManualEntryDraftCoordinator {
                 startText = storedDraft.startText,
                 endText = storedDraft.endText,
                 endIsNow = storedDraft.endIsNow,
-                saveAsPlanned = storedDraft.saveAsPlanned
+                saveAsPlanned = storedDraft.saveAsPlanned,
+                isMarkedWaste = storedDraft.isMarkedWaste
             )
             return restored to storedDraft
         }

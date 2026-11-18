@@ -48,10 +48,16 @@ import com.timewallet.mvp.domain.model.DailyReviewSnapshot
 import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.usecase.DailyReviewAssistant
 import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
+import com.timewallet.mvp.ui.theme.WalletCardBg
+import com.timewallet.mvp.ui.theme.WalletDivider
+import com.timewallet.mvp.ui.theme.WalletInfoBg
+import com.timewallet.mvp.ui.theme.WalletInfoText
 import com.timewallet.mvp.ui.theme.WalletInk
 import com.timewallet.mvp.ui.theme.WalletMint
-import com.timewallet.mvp.ui.theme.WalletMintDark
+import com.timewallet.mvp.ui.theme.WalletMintAccent
+import com.timewallet.mvp.ui.theme.WalletMintSoft
 import com.timewallet.mvp.ui.theme.WalletMuted
+import com.timewallet.mvp.ui.theme.WalletSoftNeutral
 import com.timewallet.mvp.ui.theme.WalletStroke
 import java.time.Instant
 import java.time.LocalDate
@@ -153,7 +159,7 @@ fun DailyReviewScreen(
                 modifier = Modifier
                     .minimumInteractiveComponentSize()
                     .clip(RoundedCornerShape(10.dp))
-                    .background(Color.White)
+                    .background(WalletCardBg)
                     .border(1.dp, WalletStroke, RoundedCornerShape(10.dp))
                     .semantics { role = Role.Button }
                     .clickable(onClick = onBackToDashboard)
@@ -171,14 +177,14 @@ fun DailyReviewScreen(
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFFE5F5EC))
+                        .background(WalletMintSoft)
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
                         text = "✓ Đã lưu cục bộ",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        color = WalletMintDark
+                        color = WalletMintAccent
                     )
                 }
             }
@@ -201,7 +207,7 @@ fun DailyReviewScreen(
                     modifier = Modifier
                         .minimumInteractiveComponentSize()
                         .clip(RoundedCornerShape(9.dp))
-                        .background(Color(0xFFF2F6F3))
+                        .background(WalletSoftNeutral)
                         .semantics { role = Role.Button }
                         .clickable(onClickLabel = "Xem ngày trước", onClick = onSelectPreviousDay)
                         .padding(horizontal = 10.dp, vertical = 7.dp)
@@ -235,7 +241,7 @@ fun DailyReviewScreen(
                             text = "Bấm để về Hôm nay ($todayDateLocal)",
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = WalletMint
+                            color = WalletMintAccent
                         )
                     }
                 }
@@ -244,7 +250,7 @@ fun DailyReviewScreen(
                     modifier = Modifier
                         .minimumInteractiveComponentSize()
                         .clip(RoundedCornerShape(9.dp))
-                        .background(Color(0xFFF2F6F3))
+                        .background(WalletSoftNeutral)
                         .semantics { role = Role.Button }
                         .clickable(onClickLabel = "Xem ngày sau", onClick = onSelectNextDay)
                         .padding(horizontal = 10.dp, vertical = 7.dp)
@@ -373,8 +379,8 @@ fun DailyReviewScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0xFFF8FAF8))
-                                .border(1.dp, Color(0xFFE3ECE5), RoundedCornerShape(12.dp))
+                                .background(WalletSoftNeutral)
+                                .border(1.dp, WalletStroke, RoundedCornerShape(12.dp))
                                 .padding(11.dp)
                         ) {
                             Row(
@@ -423,8 +429,8 @@ fun DailyReviewScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(10.dp))
-                                        .background(Color(0xFFEEF5FF))
-                                        .border(1.dp, Color(0xFFCFE0FA), RoundedCornerShape(10.dp))
+                                        .background(WalletInfoBg)
+                                        .border(1.dp, WalletInfoText.copy(alpha = 0.25f), RoundedCornerShape(10.dp))
                                         .padding(10.dp)
                                 ) {
                                     Column {
@@ -432,7 +438,7 @@ fun DailyReviewScreen(
                                             text = "💡 Câu hỏi Feynman (Học tập):",
                                             fontSize = 10.5.sp,
                                             fontWeight = FontWeight.ExtraBold,
-                                            color = Color(0xFF1E56A0)
+                                            color = WalletInfoText
                                         )
                                         Spacer(modifier = Modifier.height(2.dp))
                                         Text(
@@ -464,7 +470,7 @@ fun DailyReviewScreen(
                                     modifier = Modifier
                                         .minimumInteractiveComponentSize()
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0xFFE6F4EC))
+                                        .background(WalletMintSoft)
                                         .semantics { role = Role.Button }
                                         .clickable(onClickLabel = "Lưu ghi chú kết quả") {
                                             onSaveActivityNote(
@@ -480,7 +486,7 @@ fun DailyReviewScreen(
                                         text = "✓ Lưu ghi chú mục này",
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = WalletMintDark
+                                        color = WalletMintAccent
                                     )
                                 }
                             }
@@ -520,7 +526,7 @@ fun DailyReviewScreen(
             )
 
             Spacer(modifier = Modifier.height(10.dp))
-            HorizontalDivider(color = Color(0xFFEAF0E9))
+            HorizontalDivider(color = WalletDivider)
             Spacer(modifier = Modifier.height(10.dp))
 
             // Câu hỏi phản tư 1
@@ -597,7 +603,7 @@ fun DailyReviewScreen(
                 },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
+                colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
                 contentPadding = PaddingValues(vertical = 12.dp)
             ) {
                 Text(
@@ -613,14 +619,14 @@ fun DailyReviewScreen(
                 onClick = onExportJsonClick,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, Color(0xFFDCE8DF)),
+                border = BorderStroke(1.dp, WalletStroke),
                 contentPadding = PaddingValues(vertical = 10.dp)
             ) {
                 Text(
                     text = "⇩ Xuất JSON (kèm Daily Review & Ngân sách)",
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.Bold,
-                    color = WalletMintDark
+                    color = WalletMintAccent
                 )
             }
         }
@@ -638,8 +644,8 @@ private fun ReviewMetricBox(
     Card(
         modifier = modifier,
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, Color(0xFFE5ECE7)),
+        colors = CardDefaults.cardColors(containerColor = WalletCardBg),
+        border = BorderStroke(1.dp, WalletStroke),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp)
     ) {
         Column(modifier = Modifier.padding(11.dp)) {

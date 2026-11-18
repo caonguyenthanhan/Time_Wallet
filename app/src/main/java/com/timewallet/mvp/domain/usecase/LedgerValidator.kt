@@ -157,7 +157,10 @@ object LedgerValidator {
         plannedDurationSeconds: Long? = null,
         overlapResolutionOverride: String? = null,
         relationGroupId: String? = null,
-        overlapWithTitle: String? = null
+        overlapWithTitle: String? = null,
+        isMarkedWaste: Boolean = false,
+        taskId: String? = null,
+        habitId: String? = null
     ): ValidationResult {
         val title = rawTitle.trim()
         if (title.isEmpty()) {
@@ -284,7 +287,10 @@ object LedgerValidator {
                 plannedDurationSeconds = effectivePlannedDuration,
                 overlapResolutionRaw = overlapResolutionOverride,
                 relationGroupId = relationGroupId,
-                overlapWithTitle = overlapWithTitle
+                overlapWithTitle = overlapWithTitle,
+                isMarkedWaste = isMarkedWaste,
+                taskId = taskId,
+                habitId = habitId
             )
         )
     }
@@ -433,7 +439,10 @@ object LedgerValidator {
                 tagId = item.tagId,
                 overlapResolutionOverride = item.overlapResolutionRaw,
                 relationGroupId = item.relationGroupId,
-                overlapWithTitle = item.overlapWithTitle
+                overlapWithTitle = item.overlapWithTitle,
+                isMarkedWaste = item.isMarkedWaste,
+                taskId = item.taskId,
+                habitId = item.habitId
             )
 
             when (validation) {
@@ -470,7 +479,10 @@ data class BatchRecordInput(
     val tagId: String? = null,
     val overlapResolutionRaw: String? = null,
     val relationGroupId: String? = null,
-    val overlapWithTitle: String? = null
+    val overlapWithTitle: String? = null,
+    val isMarkedWaste: Boolean = false,
+    val taskId: String? = null,
+    val habitId: String? = null
 )
 
 sealed class BatchValidationResult {

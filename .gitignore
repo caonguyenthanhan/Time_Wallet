@@ -39,3 +39,19 @@ feedback/
 *.tmp
 text.md
 
+# Design scratch / heavy uncompiled brand sources & promo renders
+reference/
+Wally_Vector.svg
+Wally_Vector_Detailed.svg
+TimeWallet_Wally_Icon_Style_Guide.svg
+TimeWallet_Wally_Icon_Style_Guide_v2.svg
+TimeWallet_Wally_Icon_Style_Guide_v3.svg
+Robot vui vẻ với biểu tượng lịch và đồng hồ.png
+promo-video/.hyperframes/
+promo-video/.media/
+promo-video/.thumbnails/
+promo-video/.waveform-cache/
+promo-video/renders/
+promo-video/assets/bgm/
+promo-video/assets/sfx/
+promo-video/assets/voice/

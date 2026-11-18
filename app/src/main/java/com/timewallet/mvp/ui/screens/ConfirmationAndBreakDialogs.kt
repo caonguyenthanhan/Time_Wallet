@@ -44,10 +44,17 @@ import com.timewallet.mvp.domain.usecase.BreakDecision
 import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
 import com.timewallet.mvp.domain.usecase.LedgerValidator
 import com.timewallet.mvp.ui.PendingOverlapConflict
+import com.timewallet.mvp.ui.theme.WalletCardBg
+import com.timewallet.mvp.ui.theme.WalletClarificationBg
+import com.timewallet.mvp.ui.theme.WalletDangerText
 import com.timewallet.mvp.ui.theme.WalletInk
 import com.timewallet.mvp.ui.theme.WalletMint
+import com.timewallet.mvp.ui.theme.WalletMintAccent
 import com.timewallet.mvp.ui.theme.WalletMuted
+import com.timewallet.mvp.ui.theme.WalletSoftNeutral
 import com.timewallet.mvp.ui.theme.WalletStroke
+import com.timewallet.mvp.ui.theme.WalletWarningBorder
+import com.timewallet.mvp.ui.theme.WalletWarningText
 import java.time.Instant
 import java.time.LocalTime
 import java.time.ZoneId
@@ -96,7 +103,7 @@ fun ActivityConfirmationDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color.White,
+        containerColor = WalletCardBg,
         title = {
             Text(
                 text = when (confState) {
@@ -119,7 +126,7 @@ fun ActivityConfirmationDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFFF6F9F7))
+                        .background(WalletSoftNeutral)
                         .border(1.dp, WalletStroke, RoundedCornerShape(12.dp))
                         .padding(10.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -136,7 +143,7 @@ fun ActivityConfirmationDialog(
                         "Đã tính thực tế hiện tại: ${LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(actualElapsed)}",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = WalletMint
+                        color = WalletMintAccent
                     )
                 }
 
@@ -145,14 +152,14 @@ fun ActivityConfirmationDialog(
                         if (confState == ConfirmationState.PLANNED && hasStarted) {
                             Button(
                                 onClick = onStartDoing,
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF185FA5)),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF185FA5), contentColor = Color.White),
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                             ) { Text("Bắt đầu thực hiện (Đang diễn ra)", fontWeight = FontWeight.Bold) }
                         }
                         if (hasStarted) {
                             Button(
                                 onClick = onConfirmCompleted,
-                                colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
+                                colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                             ) { Text("Xác nhận hoàn thành", fontWeight = FontWeight.Bold) }
                         }
@@ -175,7 +182,7 @@ fun ActivityConfirmationDialog(
                         OutlinedButton(
                             onClick = onCancelActivity,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                        ) { Text("Hủy (không diễn ra)", color = Color(0xFFB3261E)) }
+                        ) { Text("Hủy (không diễn ra)", color = WalletDangerText) }
                     }
 
                     "ADJUST" -> {
@@ -209,7 +216,7 @@ fun ActivityConfirmationDialog(
                             OutlinedButton(onClick = { subMode = "MAIN" }, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Quay lại") }
                             Button(
                                 onClick = { onAdjust(editTitle, editStartHm, editEndHm) },
-                                colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
+                                colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
                                 modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                             ) { Text("Lưu điều chỉnh", fontWeight = FontWeight.Bold) }
                         }
@@ -228,7 +235,7 @@ fun ActivityConfirmationDialog(
                             OutlinedButton(onClick = { subMode = "MAIN" }, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Quay lại") }
                             Button(
                                 onClick = { onInterrupt(earlyEndHm) },
-                                colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
+                                colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
                                 modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                             ) { Text("Chốt gián đoạn", fontWeight = FontWeight.Bold) }
                         }
@@ -256,7 +263,7 @@ fun ActivityConfirmationDialog(
                             OutlinedButton(onClick = { subMode = "MAIN" }, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Quay lại") }
                             Button(
                                 onClick = { onContinue(continueEndHm) },
-                                colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
+                                colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
                                 modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                             ) { Text("Tiếp tục", fontWeight = FontWeight.Bold) }
                         }
@@ -299,7 +306,7 @@ fun OverlapResolutionDialog(
 
     AlertDialog(
         onDismissRequest = onDismissDiscard,
-        containerColor = Color.White,
+        containerColor = WalletCardBg,
         title = {
             Text("Phát hiện chồng lấn thời gian", fontSize = 16.5.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk)
         },
@@ -312,8 +319,8 @@ fun OverlapResolutionDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFFFFF8EC))
-                        .border(1.dp, Color(0xFFF2D6A2), RoundedCornerShape(12.dp))
+                        .background(WalletClarificationBg)
+                        .border(1.dp, WalletWarningBorder, RoundedCornerShape(12.dp))
                         .padding(10.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
@@ -321,7 +328,7 @@ fun OverlapResolutionDialog(
                     conflict.conflicts.take(3).forEach { c ->
                         val cs = c.startedAt?.let { Instant.ofEpochMilli(it).atZone(zone).format(hmFmt) } ?: "?"
                         val ce = c.endedAt?.let { Instant.ofEpochMilli(it).atZone(zone).format(hmFmt) } ?: "?"
-                        Text("Trùng với: ${c.title} ($cs–$ce)", fontSize = 12.sp, color = Color(0xFF9C540B))
+                        Text("Trùng với: ${c.title} ($cs–$ce)", fontSize = 12.sp, color = WalletWarningText)
                     }
                     if (conflict.remainingChatDraftIds.isNotEmpty()) {
                         Text(
@@ -337,7 +344,7 @@ fun OverlapResolutionDialog(
                     if (!hasActiveTimerConflict) {
                         Button(
                             onClick = { onResolve(BreakDecision.BREAK_CONFIRMED, null, null) },
-                            colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
+                            colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                         ) {
                             Column(modifier = Modifier.fillMaxWidth()) {
@@ -388,7 +395,7 @@ fun OverlapResolutionDialog(
                         OutlinedButton(onClick = { adjustingTime = false }, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Quay lại") }
                         Button(
                             onClick = { onResolve(BreakDecision.TIME_ADJUSTED, adjStart, adjEnd) },
-                            colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
+                            colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                         ) { Text("Áp dụng giờ mới", fontWeight = FontWeight.Bold) }
                     }

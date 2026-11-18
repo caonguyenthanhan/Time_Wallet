@@ -23,11 +23,13 @@ class V110UiContractTest {
     @Test
     fun `main activity wires the tag manager the goals dialogs the personal card and the timer tags`() {
         val m = src("MainActivity.kt")
-        listOf("PersonalHubCard(", "TagManagerDialog(", "GoalsDialog(", "GoalEditorDialog(", "viewModel::requestCoach", "viewModel::confirmCoachSuggestion",
+        listOf("TagManagerDialog(", "GoalsDialog(", "GoalEditorDialog(", "ProfileSettingsScreen(", "viewModel::requestCoach", "viewModel::confirmCoachSuggestion",
             "onSelectTag = viewModel::selectTimerTag", "onSelectTag = viewModel::selectManualTag", "TagRules.suggestions(").forEach {
             assertTrue("MainActivity thiếu $it", m.contains(it))
         }
-        assertEquals("5 tab giữ nguyên", 5, Regex("""[A-Z]+\("[a-z]+", "[^"]+", "[^"]+"\)""").findAll(vm.substring(vm.indexOf("enum class AppTab"), vm.indexOf("enum class HistoryFilter"))).count())
+        val insights = src("ui/screens/InsightsScreen.kt")
+        assertTrue("InsightsScreen thiếu mục Công cụ", insights.contains("Wally AI Coach") && insights.contains("Ngân sách thời gian"))
+        assertEquals("4 tab chính + Wally Overlay", 4, Regex("""[A-Z]+\("[a-z]+", "[^"]+", "[^"]+"\)""").findAll(vm.substring(vm.indexOf("enum class AppTab"), vm.indexOf("enum class HistoryFilter"))).count())
     }
 
     @Test
@@ -71,9 +73,10 @@ class V110UiContractTest {
     @Test
     fun `the coach prompt is separate and the version is bumped`() {
         val gradle = File("build.gradle.kts").readText()
-        assertTrue(gradle.contains("versionName = \"1.2.0\"") && gradle.contains("versionCode = 16"))
+        assertTrue(gradle.contains("versionName = \"2.0.0\"") && gradle.contains("versionCode = 18"))
         assertTrue(gradle.contains("room.schemaLocation"))
         assertTrue(File("schemas/com.timewallet.mvp.data.local.TimeWalletDatabase/4.json").exists())
         assertTrue(File("schemas/com.timewallet.mvp.data.local.TimeWalletDatabase/5.json").exists())
+        assertTrue(File("schemas/com.timewallet.mvp.data.local.TimeWalletDatabase/6.json").exists())
     }
 }

@@ -7,9 +7,18 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import com.timewallet.mvp.domain.model.ActiveTimerSession
 import com.timewallet.mvp.domain.model.ActivityReviewNote
+import com.timewallet.mvp.domain.model.AiReadPermissions
 import com.timewallet.mvp.domain.model.CategoryTimeBudget
+import com.timewallet.mvp.domain.model.CustomizationSettings
 import com.timewallet.mvp.domain.model.DailyReviewRecord
+import com.timewallet.mvp.domain.model.Habit
+import com.timewallet.mvp.domain.model.HabitLog
 import com.timewallet.mvp.domain.model.LedgerRecord
+import com.timewallet.mvp.domain.model.LocalCategoryRule
+import com.timewallet.mvp.domain.model.Project
+import com.timewallet.mvp.domain.model.TaskItem
+import com.timewallet.mvp.domain.model.ThemeModePreference
+import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.usecase.ApiKeyHygiene
 import com.timewallet.mvp.domain.usecase.ChatHistoryEntry
 import org.json.JSONArray
@@ -111,7 +120,8 @@ data class SavedProposalDraft(
     val hasInitialTimeEvidence: Boolean,
     val isFuturePlanned: Boolean,
     val idempotencyKey: String,
-    val tagId: String? = null
+    val tagId: String? = null,
+    val isMarkedWaste: Boolean = false
 )
 
 /** Bản nháp form Nhập giờ thủ công (lưu cục bộ ngoài sổ cái, không tạo bản ghi và không ảnh hưởng thống kê). */
@@ -129,7 +139,8 @@ data class ManualEntryDraft(
     val endText: String = "",
     val endIsNow: Boolean = false,
     val saveAsPlanned: Boolean = false,
-    val updatedAtEpochMs: Long = 0L
+    val updatedAtEpochMs: Long = 0L,
+    val isMarkedWaste: Boolean = false
 ) {
     fun hasUserData(todayLocal: String): Boolean =
         categoryKey != null ||
@@ -141,6 +152,7 @@ data class ManualEntryDraft(
             endText.isNotBlank() ||
             endIsNow ||
             saveAsPlanned ||
+            isMarkedWaste ||
             note.isNotBlank() ||
             dateLocal != todayLocal
 
@@ -275,7 +287,9 @@ class TimerAndSettingsStore(
             timezone = tz,
             targetDurationSeconds = targetSecs,
             startedBootCount = startedBootCount,
-            tagId = prefs.getString(KEY_TIMER_TAG_ID, null)?.takeIf { it.isNotBlank() }
+            tagId = prefs.getString(KEY_TIMER_TAG_ID, null)?.takeIf { it.isNotBlank() },
+            taskId = prefs.getString(KEY_TIMER_TASK_ID, null)?.takeIf { it.isNotBlank() },
+            habitId = prefs.getString(KEY_TIMER_HABIT_ID, null)?.takeIf { it.isNotBlank() }
         )
     }
 
@@ -295,9 +309,13 @@ class TimerAndSettingsStore(
                 remove(KEY_TIMER_TARGET_SECONDS)
                 remove(KEY_TIMER_BOOT_COUNT)
                 remove(KEY_TIMER_TAG_ID)
+                remove(KEY_TIMER_TASK_ID)
+                remove(KEY_TIMER_HABIT_ID)
             } else {
                 putBoolean(KEY_TIMER_ACTIVE, true)
                 if (session.tagId != null) putString(KEY_TIMER_TAG_ID, session.tagId) else remove(KEY_TIMER_TAG_ID)
+                if (session.taskId != null) putString(KEY_TIMER_TASK_ID, session.taskId) else remove(KEY_TIMER_TASK_ID)
+                if (session.habitId != null) putString(KEY_TIMER_HABIT_ID, session.habitId) else remove(KEY_TIMER_HABIT_ID)
                 putString(KEY_TIMER_TITLE, session.title)
                 putString(KEY_TIMER_CATEGORY, session.categoryKey)
                 putLong(KEY_TIMER_START_EPOCH, session.startedAtEpochMs)
@@ -488,6 +506,7 @@ class TimerAndSettingsStore(
                 put("endText", draft.endText)
                 put("endIsNow", draft.endIsNow)
                 put("saveAsPlanned", draft.saveAsPlanned)
+                put("isMarkedWaste", draft.isMarkedWaste)
                 put("updatedAtEpochMs", draft.updatedAtEpochMs)
             }.toString()
             edit.putString(KEY_MANUAL_DRAFT_JSON, json)
@@ -519,7 +538,8 @@ class TimerAndSettingsStore(
                 endText = obj.optString("endText", ""),
                 endIsNow = obj.optBoolean("endIsNow", false),
                 saveAsPlanned = obj.optBoolean("saveAsPlanned", false),
-                updatedAtEpochMs = obj.optLong("updatedAtEpochMs", 0L)
+                updatedAtEpochMs = obj.optLong("updatedAtEpochMs", 0L),
+                isMarkedWaste = obj.optBoolean("isMarkedWaste", false)
             )
         } catch (_: Exception) {
             null
@@ -631,6 +651,7 @@ class TimerAndSettingsStore(
                         put("isFuturePlanned", d.isFuturePlanned)
                         put("idempotencyKey", d.idempotencyKey)
                         put("tagId", d.tagId ?: JSONObject.NULL)
+                        put("isMarkedWaste", d.isMarkedWaste)
                     }
                 )
             }
@@ -660,12 +681,123 @@ class TimerAndSettingsStore(
                             hasInitialTimeEvidence = o.optBoolean("hasInitialTimeEvidence", false),
                             isFuturePlanned = o.optBoolean("isFuturePlanned", false),
                             idempotencyKey = o.optString("idempotencyKey", id),
-                            tagId = if (o.isNull("tagId")) null else o.optString("tagId").takeIf { it.isNotBlank() }
+                            tagId = if (o.isNull("tagId")) null else o.optString("tagId").takeIf { it.isNotBlank() },
+                            isMarkedWaste = o.optBoolean("isMarkedWaste", false)
                         )
                     )
                 }
             }
         }.getOrDefault(emptyList())
+    }
+
+    fun hasSeenAppIntro(): Boolean = prefs.getBoolean(KEY_HAS_SEEN_APP_INTRO, false)
+
+    fun setAppIntroSeen(seen: Boolean = true) {
+        prefs.edit().putBoolean(KEY_HAS_SEEN_APP_INTRO, seen).apply()
+    }
+
+    fun isFocusPinEnabled(): Boolean = prefs.getBoolean(KEY_FOCUS_PIN_ENABLED, false)
+
+    fun setFocusPinEnabled(enabled: Boolean, immediate: Boolean = false) {
+        val edit = prefs.edit().putBoolean(KEY_FOCUS_PIN_ENABLED, enabled)
+        if (immediate) edit.commit() else edit.apply()
+    }
+
+    fun loadCustomizationSettings(): CustomizationSettings {
+        val raw = prefs.getString(KEY_CUSTOMIZATION_JSON, null) ?: return CustomizationSettings()
+        return runCatching {
+            val o = JSONObject(raw)
+            CustomizationSettings(
+                enableKanban = o.optBoolean("enableKanban", false),
+                enableEisenhower = o.optBoolean("enableEisenhower", false),
+                enableHabits = o.optBoolean("enableHabits", true),
+                enablePomodoro = o.optBoolean("enablePomodoro", true),
+                enableDice = o.optBoolean("enableDice", true),
+                enableAiAssistant = o.optBoolean("enableAiAssistant", true),
+                defaultPomodoroMinutes = o.optInt("defaultPomodoroMinutes", 25).coerceIn(5, 120),
+                defaultBreakMinutes = o.optInt("defaultBreakMinutes", 5).coerceIn(1, 30),
+                themeMode = ThemeModePreference.fromStorage(o.optString("themeMode", "LIGHT"))
+            )
+        }.getOrDefault(CustomizationSettings())
+    }
+
+    fun saveCustomizationSettings(settings: CustomizationSettings, immediate: Boolean = false) {
+        val obj = JSONObject()
+            .put("enableKanban", settings.enableKanban)
+            .put("enableEisenhower", settings.enableEisenhower)
+            .put("enableHabits", settings.enableHabits)
+            .put("enablePomodoro", settings.enablePomodoro)
+            .put("enableDice", settings.enableDice)
+            .put("enableAiAssistant", settings.enableAiAssistant)
+            .put("defaultPomodoroMinutes", settings.defaultPomodoroMinutes)
+            .put("defaultBreakMinutes", settings.defaultBreakMinutes)
+            .put("themeMode", settings.themeMode.name)
+        val edit = prefs.edit().putString(KEY_CUSTOMIZATION_JSON, obj.toString())
+        if (immediate) edit.commit() else edit.apply()
+    }
+
+    fun loadAiReadPermissions(): AiReadPermissions {
+        val raw = prefs.getString(KEY_AI_READ_PERMS_JSON, null) ?: return AiReadPermissions()
+        return runCatching {
+            val o = JSONObject(raw)
+            AiReadPermissions(
+                readLedger = o.optBoolean("readLedger", true),
+                readTasks = o.optBoolean("readTasks", true),
+                readHabits = o.optBoolean("readHabits", true),
+                readGoals = o.optBoolean("readGoals", true)
+            )
+        }.getOrDefault(AiReadPermissions())
+    }
+
+    fun saveAiReadPermissions(perms: AiReadPermissions, immediate: Boolean = false) {
+        val obj = JSONObject()
+            .put("readLedger", perms.readLedger)
+            .put("readTasks", perms.readTasks)
+            .put("readHabits", perms.readHabits)
+            .put("readGoals", perms.readGoals)
+        val edit = prefs.edit().putString(KEY_AI_READ_PERMS_JSON, obj.toString())
+        if (immediate) edit.commit() else edit.apply()
+    }
+
+    fun loadLocalRules(): List<LocalCategoryRule> {
+        val raw = prefs.getString(KEY_LOCAL_RULES_JSON, null) ?: return emptyList()
+        return runCatching {
+            val arr = JSONArray(raw)
+            buildList {
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val id = o.optString("id").takeIf { it.isNotBlank() } ?: continue
+                    val kw = o.optString("keyword").takeIf { it.isNotBlank() } ?: continue
+                    add(
+                        LocalCategoryRule(
+                            id = id,
+                            keyword = kw,
+                            category = TimeCategory.fromKeyOrDefault(o.optString("categoryKey", "work")),
+                            tagId = if (o.isNull("tagId")) null else o.optString("tagId").takeIf { it.isNotBlank() },
+                            markWasteByDefault = o.optBoolean("markWasteByDefault", false),
+                            enabled = o.optBoolean("enabled", true)
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    fun saveLocalRules(rules: List<LocalCategoryRule>, immediate: Boolean = false) {
+        val arr = JSONArray()
+        for (r in rules) {
+            arr.put(
+                JSONObject()
+                    .put("id", r.id)
+                    .put("keyword", r.keyword)
+                    .put("categoryKey", r.category.key)
+                    .put("tagId", r.tagId ?: JSONObject.NULL)
+                    .put("markWasteByDefault", r.markWasteByDefault)
+                    .put("enabled", r.enabled)
+            )
+        }
+        val edit = prefs.edit().putString(KEY_LOCAL_RULES_JSON, arr.toString())
+        if (immediate) edit.commit() else edit.apply()
     }
 
     companion object {
@@ -679,6 +811,8 @@ class TimerAndSettingsStore(
         private const val KEY_TIMER_TARGET_SECONDS = "timer_target_seconds"
         const val KEY_TIMER_BOOT_COUNT = "timer_boot_count"
         const val KEY_TIMER_TAG_ID = "timer_tag_id"   // v1.1.0
+        const val KEY_TIMER_TASK_ID = "timer_task_id" // v2.0
+        const val KEY_TIMER_HABIT_ID = "timer_habit_id" // v2.0
 
         private const val KEY_AI_OPT_IN = "ai_opt_in_enabled"
         const val KEY_AI_BASE_URL = "ai_base_url"
@@ -693,7 +827,23 @@ class TimerAndSettingsStore(
         private const val KEY_CHAT_INPUT_DRAFT = "chat_input_draft_v1"
         private const val KEY_CHAT_HISTORY_JSON = "chat_history_v1"
         private const val KEY_CHAT_PROPOSALS_DRAFT_JSON = "chat_proposals_draft_v1"
+        private const val KEY_HAS_SEEN_APP_INTRO = "has_seen_app_intro_v1"
+        private const val KEY_FOCUS_PIN_ENABLED = "focus_pin_enabled_v1"
+        private const val KEY_CUSTOMIZATION_JSON = "customization_settings_v2"
+        private const val KEY_AI_READ_PERMS_JSON = "ai_read_permissions_v2"
+        private const val KEY_LOCAL_RULES_JSON = "local_category_rules_v2"
         private const val MAX_CHAT_HISTORY_ENTRIES = 60
+
+        fun isFocusPinEnabled(context: Context): Boolean =
+            context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(KEY_FOCUS_PIN_ENABLED, false)
+
+        fun setFocusPinEnabled(context: Context, enabled: Boolean, immediate: Boolean = false) {
+            val edit = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_FOCUS_PIN_ENABLED, enabled)
+            if (immediate) edit.commit() else edit.apply()
+        }
 
         private val defaultVault: ApiKeyVault = AesGcmKeystoreVault()
 
@@ -731,12 +881,18 @@ object LedgerJsonExporter {
         activityNotes: List<ActivityReviewNote> = emptyList(),
         // v1.1.0: chỉ xuất khi có (đầu ra cũ không đổi khi chưa dùng Tag/Mục tiêu).
         tags: List<com.timewallet.mvp.domain.model.Tag> = emptyList(),
-        goals: List<com.timewallet.mvp.domain.model.Goal> = emptyList()
+        goals: List<com.timewallet.mvp.domain.model.Goal> = emptyList(),
+        // v2.0: mở rộng tùy chọn cho Tasks/Projects/Habits, tương thích ngược schemaVersion=1 khi rỗng.
+        projects: List<Project> = emptyList(),
+        tasks: List<TaskItem> = emptyList(),
+        habits: List<Habit> = emptyList(),
+        habitLogs: List<HabitLog> = emptyList()
     ): String {
         val notesByRecordId = activityNotes.associateBy { it.recordId }
+        val exportVersion = if (projects.isEmpty() && tasks.isEmpty() && habits.isEmpty() && habitLogs.isEmpty()) 1 else 2
         val sb = StringBuilder()
         sb.append("{\n")
-        sb.append("  \"schemaVersion\": 1,\n")
+        sb.append("  \"schemaVersion\": ").append(exportVersion).append(",\n")
         sb.append("  \"exportedAt\": ").append(serializeJsonString(exportedAtIso)).append(",\n")
         if (activeTimer != null) {
             sb.append("  \"activeTimer\": {\n")
@@ -776,6 +932,9 @@ object LedgerJsonExporter {
             if (r.overlapResolutionRaw != null) sb.append("      \"overlapResolution\": ").append(serializeJsonString(r.overlapResolutionRaw)).append(",\n")
             if (r.relationGroupId != null) sb.append("      \"relationGroupId\": ").append(serializeJsonString(r.relationGroupId)).append(",\n")
             if (r.overlapWithTitle != null) sb.append("      \"overlapWithTitle\": ").append(serializeJsonString(r.overlapWithTitle)).append(",\n")
+            if (r.isMarkedWaste) sb.append("      \"isMarkedWaste\": true,\n")
+            if (r.taskId != null) sb.append("      \"taskId\": ").append(serializeJsonString(r.taskId)).append(",\n")
+            if (r.habitId != null) sb.append("      \"habitId\": ").append(serializeJsonString(r.habitId)).append(",\n")
             sb.append("      \"outcomeNote\": ").append(note?.outcomeNote?.let { serializeJsonString(it) } ?: "null").append(",\n")
             sb.append("      \"feynmanPrompt\": ").append(
                 if (r.category.key == "learn") serializeJsonString("Bạn sẽ giải thích điều vừa học cho người chưa biết như thế nào?") else "null"
@@ -845,8 +1004,86 @@ object LedgerJsonExporter {
                     .append(", \"validTo\": ").append(g.validTo?.let { serializeJsonString(it) } ?: "null")
                     .append(", \"createdAt\": ").append(g.createdAt)
                     .append(", \"updatedAt\": ").append(g.updatedAt)
+                    .append(", \"isPriority\": ").append(g.isPriority)
+                    .append(", \"priorityOrder\": ").append(g.priorityOrder)
                     .append("}")
                     .append(if (index < goals.lastIndex) "," else "").append("\n")
+            }
+            sb.append("  ]")
+        }
+        if (projects.isNotEmpty()) {
+            sb.append(",\n  \"projects\": [\n")
+            projects.forEachIndexed { index, p ->
+                sb.append("    {\"id\": ").append(serializeJsonString(p.id))
+                    .append(", \"name\": ").append(serializeJsonString(p.name))
+                    .append(", \"colorHex\": ").append(p.colorHex)
+                    .append(", \"archivedAt\": ").append(p.archivedAt?.toString() ?: "null")
+                    .append(", \"createdAt\": ").append(p.createdAt)
+                    .append(", \"updatedAt\": ").append(p.updatedAt)
+                    .append("}").append(if (index < projects.lastIndex) "," else "").append("\n")
+            }
+            sb.append("  ]")
+        }
+        if (tasks.isNotEmpty()) {
+            sb.append(",\n  \"tasks\": [\n")
+            tasks.forEachIndexed { index, t ->
+                sb.append("    {\"id\": ").append(serializeJsonString(t.id))
+                    .append(", \"title\": ").append(serializeJsonString(t.title))
+                    .append(", \"notes\": ").append(serializeJsonString(t.notes))
+                    .append(", \"projectId\": ").append(t.projectId?.let { serializeJsonString(it) } ?: "null")
+                    .append(", \"tagId\": ").append(t.tagId?.let { serializeJsonString(it) } ?: "null")
+                    .append(", \"category\": ").append(serializeJsonString(t.category.key))
+                    .append(", \"priority\": ").append(serializeJsonString(t.priority.name))
+                    .append(", \"estimatedMinutes\": ").append(t.estimatedMinutes?.toString() ?: "null")
+                    .append(", \"dueDateLocal\": ").append(t.dueDateLocal?.let { serializeJsonString(it) } ?: "null")
+                    .append(", \"dueTimeLocal\": ").append(t.dueTimeLocal?.let { serializeJsonString(it) } ?: "null")
+                    .append(", \"status\": ").append(serializeJsonString(t.status.name))
+                    .append(", \"eisenhowerQuad\": ").append(t.eisenhowerQuad?.let { serializeJsonString(it.name) } ?: "null")
+                    .append(", \"goalId\": ").append(t.goalId?.let { serializeJsonString(it) } ?: "null")
+                    .append(", \"createdAt\": ").append(t.createdAt)
+                    .append(", \"updatedAt\": ").append(t.updatedAt)
+                    .append(", \"completedAt\": ").append(t.completedAt?.toString() ?: "null")
+                    .append(", \"subtasks\": [")
+                t.subtasks.forEachIndexed { sIdx, s ->
+                    sb.append("{\"id\": ").append(serializeJsonString(s.id))
+                        .append(", \"title\": ").append(serializeJsonString(s.title))
+                        .append(", \"isDone\": ").append(s.isDone)
+                        .append(", \"sortOrder\": ").append(s.sortOrder).append("}")
+                    if (sIdx < t.subtasks.lastIndex) sb.append(", ")
+                }
+                sb.append("]}").append(if (index < tasks.lastIndex) "," else "").append("\n")
+            }
+            sb.append("  ]")
+        }
+        if (habits.isNotEmpty()) {
+            sb.append(",\n  \"habits\": [\n")
+            habits.forEachIndexed { index, h ->
+                sb.append("    {\"id\": ").append(serializeJsonString(h.id))
+                    .append(", \"title\": ").append(serializeJsonString(h.title))
+                    .append(", \"tagId\": ").append(h.tagId?.let { serializeJsonString(it) } ?: "null")
+                    .append(", \"category\": ").append(serializeJsonString(h.category.key))
+                    .append(", \"frequency\": ").append(serializeJsonString(h.frequency.name))
+                    .append(", \"daysMask\": ").append(h.daysMask)
+                    .append(", \"targetPerPeriod\": ").append(h.targetPerPeriod)
+                    .append(", \"minSessionMinutes\": ").append(h.minSessionMinutes)
+                    .append(", \"goalId\": ").append(h.goalId?.let { serializeJsonString(it) } ?: "null")
+                    .append(", \"archivedAt\": ").append(h.archivedAt?.toString() ?: "null")
+                    .append(", \"createdAt\": ").append(h.createdAt)
+                    .append(", \"updatedAt\": ").append(h.updatedAt)
+                    .append("}").append(if (index < habits.lastIndex) "," else "").append("\n")
+            }
+            sb.append("  ]")
+        }
+        if (habitLogs.isNotEmpty()) {
+            sb.append(",\n  \"habitLogs\": [\n")
+            habitLogs.forEachIndexed { index, l ->
+                sb.append("    {\"id\": ").append(serializeJsonString(l.id))
+                    .append(", \"habitId\": ").append(serializeJsonString(l.habitId))
+                    .append(", \"dateLocal\": ").append(serializeJsonString(l.dateLocal))
+                    .append(", \"completed\": ").append(l.completed)
+                    .append(", \"linkedLedgerId\": ").append(l.linkedLedgerId?.let { serializeJsonString(it) } ?: "null")
+                    .append(", \"updatedAt\": ").append(l.updatedAt)
+                    .append("}").append(if (index < habitLogs.lastIndex) "," else "").append("\n")
             }
             sb.append("  ]")
         }

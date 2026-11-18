@@ -30,8 +30,9 @@ class V1011UiPolishContractTest {
     @Test
     fun `Wally is a conversation with a pinned composer outside the shared scroll column`() {
         val m = main()
-        assertTrue(m.contains("val isChatTab = state.currentTab == AppTab.CHAT"))
-        assertTrue(m.contains("if (isChatTab) Modifier else Modifier.verticalScroll(scrollState)"))
+        assertTrue(m.contains("val lockOuterScroll = (state.currentTab == AppTab.SCHEDULE && journalCalendarMode && !state.isShowingDailyReview)"))
+        assertTrue(m.contains("WallyAiOverlay"))
+        assertTrue(m.contains("if (lockOuterScroll) Modifier else Modifier.verticalScroll(scrollState)"))
         // hội thoại tự cuộn bên trong và có ô nhập ghim dưới
         val chat = src("ChatScreen.kt")
         assertTrue(chat.contains(".verticalScroll(scroll)"))
@@ -74,10 +75,11 @@ class V1011UiPolishContractTest {
         val t = src("TimerScreen.kt")
         val clock = t.indexOf("text = formattedClock")
         val start = t.indexOf("Bắt đầu đo")
-        val diceCall = t.indexOf("        DiceSection(")
+        val diceCall = t.indexOf("DiceSection(")
         assertTrue(clock in 0 until start && start in 0 until diceCall)
-        // xúc xắc đóng sẵn trừ khi vừa lắc; giải thích thuật toán nằm trong mục mở rộng
-        assertTrue(t.contains("var open by remember { mutableStateOf(lastRoll != null) }"))
+        // xúc xắc mở qua BottomSheet thay vì chiếm diện tích chính; giải thích thuật toán nằm trong InfoToggle
+        assertTrue(t.contains("var showDiceSheet by remember"))
+        assertTrue(t.contains("ModalBottomSheet("))
         assertTrue(t.contains("InfoToggle(label = \"Cách xúc xắc hoạt động\")"))
         assertFalse("không còn thuật ngữ kỹ thuật trên màn hình chính", t.contains("(MEASURED)") || t.contains("RPE"))
     }
@@ -95,11 +97,11 @@ class V1011UiPolishContractTest {
     fun `charts are visual first - donut and bars exist and analytics shows charts before budgets`() {
         val ins = src("InsightsScreen.kt")
         assertTrue(ins.contains("DonutWithLegend("))
-        val bars = ins.indexOf("7 ngày gần nhất")
-        val donut = ins.indexOf("Phân bổ thời gian")
-        val budget = ins.indexOf("Ngân sách tuần")
-        assertTrue("biểu đồ trước, ngân sách sau", bars in 0 until budget && donut in 0 until budget)
-        assertTrue("nhãn cột dùng cỡ chữ có giới hạn và nhãn ngắn", ins.contains("cappedSp(10f)") && ins.contains("compactBarLabel(day.timedSeconds)"))
+        val bars = ins.indexOf("Phân bổ 24 giờ · 7 ngày")
+        val donut = ins.indexOf("Chi tiết Donut 7 ngày")
+        val budget = ins.indexOf("private fun BudgetsManagerSheetContent(")
+        assertTrue("biểu đồ trong Thống kê đứng trước hộp thoại Ngân sách ở Công cụ", bars in 0 until budget && donut in bars until budget)
+        assertTrue("nhãn cột dùng cỡ chữ có giới hạn và nhãn ngắn", ins.contains("cappedSp(10f)") && ins.contains("compactBarLabel("))
         assertTrue(ins.contains("softWrap = false"))
         // thời lượng chưa gắn giờ vẫn tách riêng, không cộng gộp
         assertTrue(ins.contains("Chưa gắn giờ"))
@@ -159,8 +161,9 @@ class V1011UiPolishContractTest {
     fun `the status chip shows no host name, the analytics hint is collapsed and the timer keeps the chosen category in view`() {
         assertFalse(src("ChatScreen.kt").contains("aiPreferences.trustedHost"))
         val ins = src("InsightsScreen.kt")
-        assertTrue(ins.contains("reflectionOpen") && ins.contains("maxLines = if (reflectionOpen) Int.MAX_VALUE else 3"))
-        assertTrue(ins.contains("totalTimedSeconds + weeklyInsights.totalUntimedSeconds > 0L"))
+        assertTrue(ins.contains("weeklyEfficiency.actionableInsight") && ins.contains("EfficiencyInfoSheetContent"))
+        assertFalse(ins.contains("Nhận xét cố định từ dữ liệu mô phỏng"))
+        assertFalse(ins.contains("Đặt giờ trên lịch"))
         assertTrue(src("TimerScreen.kt").contains("requester.bringIntoView()"))
         // sau khi lắc, nút hành động được cuộn vào vùng nhìn; vòng đồng hồ thu nhỏ trên màn thấp/chữ lớn
         assertTrue(src("TimerScreen.kt").contains("buttonsRequester.bringIntoView()") && src("TimerScreen.kt").contains("compactOrb"))
@@ -175,9 +178,8 @@ class V1011UiPolishContractTest {
     @Test
     fun `labels that can be wider than their slot wrap instead of being clipped on narrow screens`() {
         val ov = src("OverviewScreen.kt")
-        // ô thao tác nhanh: tối đa 2 dòng, không ép một dòng không xuống dòng
-        val tile = ov.substring(ov.indexOf("private fun QuickActionTile("))
-        assertTrue(tile.contains("maxLines = 2") && !tile.contains("softWrap = false"))
+        // tiêu đề hoạt động gần đây và phân bổ theo danh mục dùng Component chung thay cho QuickActionTile cũ; không ép softWrap=false lên nội dung dài
+        assertTrue(ov.contains("Phân bổ theo danh mục") && ov.contains("Hoạt động gần đây"))
         // chip tóm tắt của thẻ đề xuất nằm trong FlowRow
         val chat = src("ChatScreen.kt")
         val card = chat.substring(chat.indexOf("private fun CompactProposalBatchCard("))

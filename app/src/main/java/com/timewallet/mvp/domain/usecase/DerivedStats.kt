@@ -5,7 +5,9 @@ import com.timewallet.mvp.domain.model.ActivityReviewNote
 import com.timewallet.mvp.domain.model.CategoryTimeBudget
 import com.timewallet.mvp.domain.model.DailyReviewRecord
 import com.timewallet.mvp.domain.model.DailyReviewSnapshot
+import com.timewallet.mvp.domain.model.Goal
 import com.timewallet.mvp.domain.model.LedgerRecord
+import com.timewallet.mvp.domain.model.Tag
 import com.timewallet.mvp.domain.model.TimeBudgetProgress
 import com.timewallet.mvp.domain.model.TimeCategory
 import java.time.Instant
@@ -21,6 +23,7 @@ class DerivedStats(
     val targetReviewDate: String,
     val dayStats: DayLedgerStats,
     val weekly: WeeklyInsightsSummary,
+    val weeklyEfficiency: WeeklyEfficiencySummary,
     val budgetProgress: List<TimeBudgetProgress>,
     val priorityBudgets: List<TimeBudgetProgress>,
     val reviewSnapshot: DailyReviewSnapshot,
@@ -41,7 +44,9 @@ object DerivedStatsCalculator {
         preferredFocusCategory: TimeCategory,
         consecutiveBreakRolls: Int,
         zone: ZoneId,
-        nowMs: Long
+        nowMs: Long,
+        goals: List<Goal> = emptyList(),
+        tags: List<Tag> = emptyList()
     ): DerivedStats {
         val todayStr = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate().toString()
         val dayStats = LedgerAnalyticsCalculator.computeDayStats(
@@ -50,6 +55,17 @@ object DerivedStatsCalculator {
         val weekly = LedgerAnalyticsCalculator.computeWeeklyInsights(
             endDateLocal = todayStr, records = records, zoneId = zone, nowEpochMs = nowMs,
             activeTimer = activeTimer, budgets = budgets
+        )
+        val weeklyEfficiency = LedgerAnalyticsCalculator.computeWeeklyEfficiency(
+            endDateLocal = todayStr,
+            records = records,
+            goals = goals,
+            budgets = budgets,
+            tags = tags,
+            zoneId = zone,
+            nowEpochMs = nowMs,
+            activeTimer = activeTimer,
+            weeklyInsights = weekly
         )
         val targetReviewDate = reviewDateOverride ?: selectedReviewDate.ifBlank { todayStr }
         val reviewSnapshot = DailyReviewAssistant.buildSnapshotForDate(
@@ -75,6 +91,7 @@ object DerivedStatsCalculator {
             targetReviewDate = targetReviewDate,
             dayStats = dayStats,
             weekly = weekly,
+            weeklyEfficiency = weeklyEfficiency,
             budgetProgress = weekly.budgetProgressList,
             priorityBudgets = BudgetPolicy.dashboardBudgets(weekly.budgetProgressList),
             reviewSnapshot = reviewSnapshot,

@@ -13,7 +13,9 @@ import com.timewallet.mvp.domain.model.TimeLayer
         Index(value = ["idempotencyKey"], unique = true),
         Index(value = ["date"]),
         Index(value = ["startedAt", "endedAt"]),
-        Index(value = ["tagId"])
+        Index(value = ["tagId"]),
+        Index(value = ["taskId"]),
+        Index(value = ["habitId"])
     ]
 )
 data class LedgerRecordEntity(
@@ -38,7 +40,10 @@ data class LedgerRecordEntity(
     val plannedDurationSeconds: Long? = null,
     val overlapResolution: String? = null,
     val relationGroupId: String? = null,
-    val overlapWithTitle: String? = null
+    val overlapWithTitle: String? = null,
+    val isMarkedWaste: Boolean = false,
+    val taskId: String? = null,
+    val habitId: String? = null
 ) {
     fun toDomain(): LedgerRecord {
         val parsedLayer = TimeLayer.fromStorageString(layer, startedAt, endedAt)
@@ -64,7 +69,10 @@ data class LedgerRecordEntity(
             plannedDurationSeconds = plannedDurationSeconds,
             overlapResolutionRaw = overlapResolution,
             relationGroupId = relationGroupId,
-            overlapWithTitle = overlapWithTitle
+            overlapWithTitle = overlapWithTitle,
+            isMarkedWaste = isMarkedWaste,
+            taskId = taskId,
+            habitId = habitId
         )
     }
 
@@ -92,7 +100,10 @@ data class LedgerRecordEntity(
                 plannedDurationSeconds = record.plannedDurationSeconds,
                 overlapResolution = record.overlapResolutionRaw,
                 relationGroupId = record.relationGroupId,
-                overlapWithTitle = record.overlapWithTitle
+                overlapWithTitle = record.overlapWithTitle,
+                isMarkedWaste = record.isMarkedWaste,
+                taskId = record.taskId,
+                habitId = record.habitId
             )
         }
     }

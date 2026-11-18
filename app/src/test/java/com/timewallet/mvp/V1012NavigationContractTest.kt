@@ -24,18 +24,18 @@ class V1012NavigationContractTest {
     }
 
     @Test
-    fun `with a real keyboard the bar yields only on Wally`() {
-        assertFalse(shouldShowBottomBar(AppTab.CHAT, imeBottomPx = 640))
-        assertFalse("kể cả 1px: cờ chỉ dựa trên inset thật", shouldShowBottomBar(AppTab.CHAT, imeBottomPx = 1))
-        listOf(AppTab.OVERVIEW, AppTab.TIMER, AppTab.HISTORY, AppTab.INSIGHTS).forEach {
-            assertTrue("${it.name}: bàn phím không ẩn thanh tab", shouldShowBottomBar(it, imeBottomPx = 640))
+    fun `with or without a keyboard the bottom bar stays shown on all 4 main tabs while Wally lives in overlay`() {
+        assertEquals(4, AppTab.entries.size)
+        listOf(AppTab.SCHEDULE, AppTab.TASKS, AppTab.FOCUS, AppTab.MORE).forEach {
+            assertTrue("${it.name}: bàn phím không ẩn thanh tab chính", shouldShowBottomBar(it, imeBottomPx = 640))
+            assertTrue("${it.name}: không có bàn phím phải hiện thanh tab", shouldShowBottomBar(it, imeBottomPx = 0))
         }
     }
 
     @Test
-    fun `closing the keyboard brings the bar back`() {
-        val sequence = listOf(0, 120, 640, 640, 300, 0).map { shouldShowBottomBar(AppTab.CHAT, it) }
-        assertEquals(listOf(true, false, false, false, false, true), sequence)
+    fun `closing or opening keyboard keeps 4 main tabs consistent`() {
+        val sequence = listOf(0, 120, 640, 640, 300, 0).map { shouldShowBottomBar(AppTab.SCHEDULE, it) }
+        assertEquals(listOf(true, true, true, true, true, true), sequence)
     }
 
     @Test

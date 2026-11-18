@@ -68,14 +68,24 @@ import com.timewallet.mvp.domain.usecase.TimeRange
 import com.timewallet.mvp.ui.CoachUiState
 import com.timewallet.mvp.ui.GoalEditorState
 import com.timewallet.mvp.ui.TagManagerState
+import com.timewallet.mvp.ui.theme.WalletCardBg
+import com.timewallet.mvp.ui.theme.WalletClarificationBg
+import com.timewallet.mvp.ui.theme.WalletDangerText
+import com.timewallet.mvp.ui.theme.WalletDivider
 import com.timewallet.mvp.ui.theme.WalletInk
 import com.timewallet.mvp.ui.theme.WalletMint
+import com.timewallet.mvp.ui.theme.WalletMintAccent
 import com.timewallet.mvp.ui.theme.WalletMintDark
+import com.timewallet.mvp.ui.theme.WalletMintSoft
 import com.timewallet.mvp.ui.theme.WalletMintTint
 import com.timewallet.mvp.ui.theme.WalletMuted
+import com.timewallet.mvp.ui.theme.WalletSoftNeutral
 import com.timewallet.mvp.ui.theme.WalletStroke
+import com.timewallet.mvp.ui.theme.WalletUntrackedBar
+import com.timewallet.mvp.ui.theme.WalletWarningBorder
+import com.timewallet.mvp.ui.theme.WalletWarningText
 
-private val ErrorRed = Color(0xFFB3261E)
+private val ErrorRed: Color @Composable get() = WalletDangerText
 
 /** Chip chọn có vùng chạm >= 48dp, biểu tượng vector danh mục/hành động tùy chọn và trạng thái chọn cho TalkBack. */
 @Composable
@@ -91,7 +101,7 @@ fun ChoiceChip(
         modifier = Modifier
             .minimumInteractiveComponentSize()
             .clip(RoundedCornerShape(14.dp))
-            .background(if (selected) WalletMint else Color(0xFFF3F6F3))
+            .background(if (selected) WalletMint else WalletCardBg)
             .border(BorderStroke(1.dp, if (selected) WalletMint else WalletStroke), RoundedCornerShape(14.dp))
             .semantics {
                 contentDescription = description
@@ -220,8 +230,8 @@ fun GoalProgressRow(summary: GoalRules.Summary) {
                 progress = { p.fraction },
                 modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp))
                     .semantics { contentDescription = "${summary.name}: $used trên $tgt. $status" },
-                color = if (g.kind == GoalKind.MAX && !p.met) Color(0xFFD97706) else WalletMint,
-                trackColor = Color(0xFFE6EEE9)
+                color = if (g.kind == GoalKind.MAX && !p.met) Color(0xFFD97706) else WalletMintAccent,
+                trackColor = WalletUntrackedBar
             )
             Text("$used / $tgt · $status", fontSize = 12.sp, color = WalletMuted)
         } else {
@@ -250,7 +260,7 @@ fun PersonalHubCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                GlyphIcon(WalletGlyph.GOAL, color = WalletMint, size = 18.dp)
+                GlyphIcon(WalletGlyph.GOAL, color = WalletMintAccent, size = 18.dp)
                 Box(modifier = Modifier.weight(1f)) {
                     SectionTitle(text = "Mục tiêu của bạn", actionText = "Quản lý", onAction = onOpenGoals)
                 }
@@ -263,7 +273,7 @@ fun PersonalHubCard(
                 Button(
                     onClick = onOpenGoals,
                     shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
+                    colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
                     modifier = Modifier.heightIn(min = 48.dp)
                 ) { Text("＋ Tạo mục tiêu", fontWeight = FontWeight.Bold) }
             } else {
@@ -275,8 +285,8 @@ fun PersonalHubCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(18.dp))
-                    .background(Brush.linearGradient(listOf(Color(0xFFECF7F1), Color(0xFFF9FCFA))))
-                    .border(BorderStroke(1.2.dp, Color(0xFFAAD8C1)), RoundedCornerShape(18.dp))
+                    .background(WalletMintTint)
+                    .border(BorderStroke(1.2.dp, WalletStroke), RoundedCornerShape(18.dp))
                     .padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -303,7 +313,7 @@ fun PersonalHubCard(
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(100.dp))
-                                    .background(if (aiEnabled) WalletMintDark else Color(0xFFE2EBE6))
+                                    .background(if (aiEnabled) WalletMintDark else WalletSoftNeutral)
                                     .padding(horizontal = 8.dp, vertical = 2.dp)
                             ) {
                                 Text(
@@ -329,17 +339,17 @@ fun PersonalHubCard(
                         onClick = { onAskCoach(1) },
                         enabled = !coach.loading,
                         shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
+                        colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
                         modifier = Modifier.heightIn(min = 48.dp)
                     ) { Text("✦ Hôm nay", fontWeight = FontWeight.Bold) }
                     OutlinedButton(
                         onClick = { onAskCoach(7) },
                         enabled = !coach.loading,
                         shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, WalletMint.copy(alpha = 0.6f)),
+                        border = BorderStroke(1.dp, WalletMintAccent.copy(alpha = 0.55f)),
                         colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = Color.White,
-                            contentColor = WalletMintDark
+                            containerColor = WalletCardBg,
+                            contentColor = WalletMintAccent
                         ),
                         modifier = Modifier.heightIn(min = 48.dp)
                     ) { Text("✦ 7 ngày qua", fontWeight = FontWeight.Bold) }
@@ -394,8 +404,8 @@ fun CoachPanel(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(Color.White)
-            .border(BorderStroke(1.dp, Color(0xFFC5DFD1)), RoundedCornerShape(16.dp))
+            .background(WalletCardBg)
+            .border(BorderStroke(1.dp, WalletStroke), RoundedCornerShape(16.dp))
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -415,7 +425,7 @@ fun CoachPanel(
                     text = if (coach.rangeDays == 1) "✦ WALLY AI · HÔM NAY" else "✦ WALLY AI · ${coach.rangeDays} NGÀY QUA",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = WalletMintDark,
+                    color = WalletMintAccent,
                     maxLines = 1,
                     softWrap = false
                 )
@@ -438,7 +448,7 @@ fun CoachPanel(
                 text = "✦ Wally đang tóm tắt dữ liệu và chọn gợi ý hành động…",
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = WalletMintDark
+                color = WalletMintAccent
             )
         }
 
@@ -448,8 +458,8 @@ fun CoachPanel(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
-                    .background(Color(0xFFF6FBF8))
-                    .border(BorderStroke(1.dp, Color(0xFFD6EDE1)), RoundedCornerShape(14.dp))
+                    .background(WalletSoftNeutral)
+                    .border(BorderStroke(1.dp, WalletStroke), RoundedCornerShape(14.dp))
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -507,8 +517,8 @@ fun CoachPanel(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xFFFFF8EC))
-                            .border(BorderStroke(1.dp, Color(0xFFF2DFBD)), RoundedCornerShape(10.dp))
+                            .background(WalletClarificationBg)
+                            .border(BorderStroke(1.dp, WalletWarningBorder), RoundedCornerShape(10.dp))
                             .padding(horizontal = 10.dp, vertical = 7.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.Top
@@ -517,12 +527,12 @@ fun CoachPanel(
                             text = "Lưu ý:",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = Color(0xFF9C540B)
+                            color = WalletWarningText
                         )
                         Text(
                             text = noteLine,
                             fontSize = 12.5.sp,
-                            color = Color(0xFF6B4211),
+                            color = WalletInk,
                             lineHeight = 17.5.sp,
                             modifier = Modifier.weight(1f)
                         )
@@ -536,7 +546,7 @@ fun CoachPanel(
                         text = "◆ ACTION ITEMS · BẠN TỰ QUYẾT ĐỊNH",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        color = WalletMintDark
+                        color = WalletMintAccent
                     )
                     activeBrief.actionItems.forEachIndexed { idx, action ->
                         val isDone = checkedActions[idx] == true
@@ -558,7 +568,7 @@ fun CoachPanel(
         }
 
         if (coach.facts.isNotEmpty()) {
-            HorizontalDivider(color = Color(0xFFEAF0EC))
+            HorizontalDivider(color = WalletDivider)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -580,7 +590,7 @@ fun CoachPanel(
                     text = if (factsExpanded) "Thu gọn ▴" else "Đối chiếu ▾",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = WalletMint
+                    color = WalletMintAccent
                 )
             }
             if (factsExpanded) {
@@ -604,9 +614,9 @@ private fun ActionItemCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(if (checked) Color(0xFFF3F6F4) else Color(0xFFFAFCFB))
+            .background(if (checked) WalletSoftNeutral else WalletCardBg)
             .border(
-                BorderStroke(1.dp, if (checked) WalletStroke else Color(0xFFCDE4D8)),
+                BorderStroke(1.dp, WalletStroke),
                 RoundedCornerShape(12.dp)
             )
             .padding(horizontal = 8.dp, vertical = 6.dp),
@@ -623,8 +633,8 @@ private fun ActionItemCard(
                 modifier = Modifier
                     .size(22.dp)
                     .clip(CircleShape)
-                    .background(if (checked) WalletMint else Color.White)
-                    .border(BorderStroke(1.5.dp, if (checked) WalletMint else Color(0xFF8FBFA6)), CircleShape),
+                    .background(if (checked) WalletMint else WalletCardBg)
+                    .border(BorderStroke(1.5.dp, if (checked) WalletMint else WalletStroke), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 if (checked) {
@@ -659,7 +669,7 @@ private fun ActionItemCard(
                                 text = tagText,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = WalletMintDark,
+                                color = WalletMintAccent,
                                 maxLines = 1,
                                 softWrap = false
                             )
@@ -681,7 +691,7 @@ private fun ActionItemCard(
                 text = "${action.kind.ctaLabelVi} →",
                 fontSize = 11.5.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = WalletMintDark,
+                color = WalletMintAccent,
                 maxLines = 1,
                 softWrap = false
             )
@@ -697,15 +707,15 @@ private fun SuggestionCard(s: CoachSuggestion, onConfirm: () -> Unit, onDismiss:
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(Color(0xFFF9FCFA))
-            .border(BorderStroke(1.dp, Color(0xFFCCE3D7)), RoundedCornerShape(14.dp))
+            .background(WalletSoftNeutral)
+            .border(BorderStroke(1.dp, WalletStroke), RoundedCornerShape(14.dp))
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text("✦ Gợi ý mục tiêu (chưa tạo)", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = WalletMintDark)
+        Text("✦ Gợi ý mục tiêu (chưa tạo)", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = WalletMintAccent)
         Text("${s.targetLabel}: $kind ${TimeRange.formatDuration((s.targetSeconds / 60).toInt())}/$per", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = WalletInk)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onConfirm, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = WalletMint), modifier = Modifier.heightIn(min = 48.dp)) { Text("✓ Tạo mục tiêu") }
+            Button(onClick = onConfirm, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White), modifier = Modifier.heightIn(min = 48.dp)) { Text("✓ Tạo mục tiêu") }
             TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp)) { Text("Bỏ qua") }
         }
     }
@@ -729,7 +739,7 @@ fun TagManagerDialog(
     val archived = tags.filter { it.isArchived }.sortedBy { it.nameKey }
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color.White,
+        containerColor = WalletCardBg,
         title = { Text("Tag của bạn", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -749,7 +759,7 @@ fun TagManagerDialog(
                 Button(
                     onClick = onCreate,
                     shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
+                    colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
                     modifier = Modifier.heightIn(min = 48.dp)
                 ) { Text("Tạo Tag", fontWeight = FontWeight.Bold) }
                 state.error?.let { Text(it, color = ErrorRed, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.semantics { contentDescription = "Lỗi: $it" }) }
@@ -758,11 +768,11 @@ fun TagManagerDialog(
                 if (active.isEmpty()) Text("Chưa có Tag nào.", fontSize = 12.5.sp, color = WalletMuted)
                 active.forEach { t ->
                     Column(
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color(0xFFF3F7F4)).padding(10.dp),
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(WalletSoftNeutral).padding(10.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            CategoryIcon(category = t.category, size = 16.dp, tint = WalletMint)
+                            CategoryIcon(category = t.category, size = 16.dp, tint = WalletMintAccent)
                             Text(t.name, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = WalletInk)
                         }
                         Text("Nhóm: ${t.category.displayName}", fontSize = 11.5.sp, color = WalletMuted)
@@ -775,7 +785,7 @@ fun TagManagerDialog(
                                 modifier = Modifier.fillMaxWidth()
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { onRename(t.id) }, shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = WalletMint), modifier = Modifier.heightIn(min = 48.dp)) { Text("Lưu tên") }
+                                Button(onClick = { onRename(t.id) }, shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White), modifier = Modifier.heightIn(min = 48.dp)) { Text("Lưu tên") }
                                 TextButton(onClick = { onChange { it.copy(renamingId = null) } }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Hủy") }
                             }
                         } else if (state.recategorizingId == t.id) {
@@ -830,19 +840,19 @@ fun GoalsDialog(
     confirmEnd?.let { gid ->
         AlertDialog(
             onDismissRequest = { confirmEnd = null },
-            containerColor = Color.White,
+            containerColor = WalletCardBg,
             title = { Text("Kết thúc mục tiêu?", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
             text = { Text("Mục tiêu sẽ dừng từ hôm nay. Dữ liệu hoạt động và tiến độ trước đó được giữ nguyên.", fontSize = 12.sp, color = WalletMuted) },
-            confirmButton = { Button(onClick = { onEnd(gid); confirmEnd = null }) { Text("Kết thúc", fontWeight = FontWeight.Bold) } },
+            confirmButton = { Button(onClick = { onEnd(gid); confirmEnd = null }, colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White)) { Text("Kết thúc", fontWeight = FontWeight.Bold) } },
             dismissButton = { TextButton(onClick = { confirmEnd = null }) { Text("Hủy") } }
         )
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color.White,
+        containerColor = WalletCardBg,
         title = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                GlyphIcon(WalletGlyph.GOAL, color = WalletMint, size = 20.dp)
+                GlyphIcon(WalletGlyph.GOAL, color = WalletMintAccent, size = 20.dp)
                 Text("Mục tiêu thời gian", fontWeight = FontWeight.ExtraBold, color = WalletInk)
             }
         },
@@ -850,14 +860,14 @@ fun GoalsDialog(
             Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (summaries.isEmpty()) Text("Chưa có mục tiêu nào.", fontSize = 13.sp, color = WalletMuted)
                 summaries.forEach { s ->
-                    Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color(0xFFF3F7F4)).padding(10.dp)) {
+                    Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(WalletSoftNeutral).padding(10.dp)) {
                         GoalProgressRow(s)
                         Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                             TextButton(onClick = { onEdit(s.groupId) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Sửa", fontSize = 12.5.sp) }
                             if (s.state == GoalGroupState.PAUSED) TextButton(onClick = { onResume(s.groupId) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Tiếp tục", fontSize = 12.5.sp) }
                             else TextButton(onClick = { onPause(s.groupId) }, modifier = Modifier.heightIn(min = 48.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    GlyphIcon(WalletGlyph.PAUSE, color = WalletMint, size = 14.dp)
+                                    GlyphIcon(WalletGlyph.PAUSE, color = WalletMintAccent, size = 14.dp)
                                     Text("Tạm dừng", fontSize = 12.5.sp)
                                 }
                             }
@@ -868,7 +878,7 @@ fun GoalsDialog(
                 Button(
                     onClick = onCreate,
                     shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
+                    colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
                     modifier = Modifier.heightIn(min = 48.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -894,7 +904,7 @@ fun GoalEditorDialog(
     val editing = state.editingGroupId != null
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color.White,
+        containerColor = WalletCardBg,
         title = { Text(if (editing) "Sửa mục tiêu" else "Mục tiêu mới", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -945,7 +955,7 @@ fun GoalEditorDialog(
                 state.error?.let { Text(it, color = ErrorRed, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.semantics { contentDescription = "Lỗi: $it" }) }
             }
         },
-        confirmButton = { Button(onClick = onSave, colors = ButtonDefaults.buttonColors(containerColor = WalletMint)) { Text("Lưu", fontWeight = FontWeight.Bold) } },
+        confirmButton = { Button(onClick = onSave, colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White)) { Text("Lưu", fontWeight = FontWeight.Bold) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Hủy") } }
     )
 }

@@ -22,10 +22,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.timewallet.mvp.ui.theme.WalletCardBg
 import com.timewallet.mvp.ui.theme.WalletDangerBg
+import com.timewallet.mvp.ui.theme.WalletDangerSolid
 import com.timewallet.mvp.ui.theme.WalletDangerText
 import com.timewallet.mvp.ui.theme.WalletInk
 import com.timewallet.mvp.ui.theme.WalletMuted
+import com.timewallet.mvp.ui.theme.WalletSoftNeutral
 
 /**
  * v1.0.11: quản lý dữ liệu (xuất JSON, nạp dữ liệu mẫu, xóa toàn bộ) chuyển từ màn Nhật ký sang menu phụ.
@@ -44,7 +47,7 @@ fun DataManagementDialog(
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
-            containerColor = Color.White,
+            containerColor = WalletCardBg,
             title = { Text("Xóa toàn bộ bản ghi?", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
             text = {
                 Text(
@@ -60,7 +63,7 @@ fun DataManagementDialog(
                         onDismiss()
                         onClearAllData()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = WalletDangerText)
+                    colors = ButtonDefaults.buttonColors(containerColor = WalletDangerSolid, contentColor = Color.White)
                 ) {
                     Text("Xóa toàn bộ", fontWeight = FontWeight.Bold)
                 }
@@ -74,7 +77,7 @@ fun DataManagementDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color.White,
+        containerColor = WalletCardBg,
         title = { Text("Dữ liệu & sao lưu", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -109,7 +112,7 @@ private fun DataActionRow(title: String, subtitle: String, danger: Boolean = fal
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(if (danger) WalletDangerBg else Color(0xFFF3F7F4))
+            .background(if (danger) WalletDangerBg else WalletSoftNeutral)
             .walletClickable(onClickLabel = title, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {

@@ -5,6 +5,7 @@ docs/screenshots/**
 feedback/**
 out/**
 tmp/**
+reference/**
 .gradle/**
 .kotlin/**
 .idea/**
@@ -13,9 +14,25 @@ build/**
 app/build/**
 gradle/wrapper/gradle-wrapper.jar
 Biểu tượng ứng dụng Ví Thời Gian.png
+Robot vui vẻ với biểu tượng lịch và đồng hồ.png
+Wally_Vector.svg
+Wally_Vector_Detailed.svg
+TimeWallet_Wally_Icon_Style_Guide.svg
+TimeWallet_Wally_Icon_Style_Guide_v2.svg
+TimeWallet_Wally_Icon_Style_Guide_v3.svg
 app/src/main/res/drawable-nodpi/app_logo.png
 **/*.png
 **/*.jpg
+**/*.webp
+**/*.woff2
+**/*.wav
+**/*.mp3
+**/*.mp4
+promo-video/.hyperframes/**
+promo-video/.media/**
+promo-video/.thumbnails/**
+promo-video/.waveform-cache/**
+promo-video/renders/**
 gradlew
 gradlew.bat
 local.properties

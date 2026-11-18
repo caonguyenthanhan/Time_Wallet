@@ -78,5 +78,8 @@ data class Goal(
     val validFrom: String,
     val validTo: String?,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    /** v2.0: Hợp nhất Ngân sách danh mục (1.x) với Mục tiêu (MAX/MIN) và sắp xếp ưu tiên. */
+    val isPriority: Boolean = false,
+    val priorityOrder: Int = 0
 )

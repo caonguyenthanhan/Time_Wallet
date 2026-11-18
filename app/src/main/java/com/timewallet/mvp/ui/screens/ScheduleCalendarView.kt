@@ -26,11 +26,18 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -71,17 +78,26 @@ import com.timewallet.mvp.domain.usecase.ScheduleBlockVisualState
 import com.timewallet.mvp.domain.usecase.ScheduleGridBlock
 import com.timewallet.mvp.domain.usecase.ScheduleGridEngine
 import com.timewallet.mvp.domain.usecase.ScheduleViewMode
+import com.timewallet.mvp.domain.usecase.SelectedSlotGroup
+import com.timewallet.mvp.domain.usecase.SelectedTimeSlot
 import com.timewallet.mvp.domain.usecase.TimeRange
 import com.timewallet.mvp.ui.theme.WalletBg
+import com.timewallet.mvp.ui.theme.WalletCardBg
+import com.timewallet.mvp.ui.theme.WalletDivider
+import com.timewallet.mvp.ui.theme.WalletInfoBg
+import com.timewallet.mvp.ui.theme.WalletInfoText
 import com.timewallet.mvp.ui.theme.WalletInk
 import com.timewallet.mvp.ui.theme.WalletMint
+import com.timewallet.mvp.ui.theme.WalletMintAccent
 import com.timewallet.mvp.ui.theme.WalletMintBright
 import com.timewallet.mvp.ui.theme.WalletMintDark
 import com.timewallet.mvp.ui.theme.WalletMintMid
 import com.timewallet.mvp.ui.theme.WalletMintSoft
 import com.timewallet.mvp.ui.theme.WalletMintTint
 import com.timewallet.mvp.ui.theme.WalletMuted
+import com.timewallet.mvp.ui.theme.WalletSoftNeutral
 import com.timewallet.mvp.ui.theme.WalletStroke
+import com.timewallet.mvp.ui.theme.WalletWarningBg
 import com.timewallet.mvp.ui.theme.WalletWarningText
 import java.time.DayOfWeek
 import java.time.Instant
@@ -107,7 +123,7 @@ private val UnconfirmedAmber = Color(0xFFD97706)
  * - Nhấn giữ kéo thân khối để đổi giờ, kéo cạnh đáy để chỉnh thời lượng (±15p)
  * - Phân tách rõ 4 trạng thái (Đã thực hiện, Dự kiến, Đang diễn ra, Chưa xác nhận) + giữ riêng mục Chưa gắn giờ
  */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ScheduleCalendarView(
     todayDateLocal: String,
@@ -124,7 +140,14 @@ fun ScheduleCalendarView(
     onNavigateToTimer: () -> Unit = {},
     showBackButton: Boolean = false,
     onBackClick: () -> Unit = {},
-    embeddedInScrollContainer: Boolean = false
+    embeddedInScrollContainer: Boolean = false,
+    onAddForSlots: (List<SelectedSlotGroup>) -> Unit = { groups ->
+        groups.firstOrNull()?.let { g ->
+            val todayCheck = runCatching { LocalDate.parse(todayDateLocal) }.getOrDefault(LocalDate.now())
+            val slotDate = runCatching { LocalDate.parse(g.dateLocal) }.getOrDefault(todayCheck)
+            onAddForSlot(g.dateLocal, g.startHm, g.endHm, slotDate.isAfter(todayCheck))
+        }
+    }
 ) {
     val zone = remember { ZoneId.systemDefault() }
     val today = remember(todayDateLocal) { runCatching { LocalDate.parse(todayDateLocal) }.getOrDefault(LocalDate.now(zone)) }
@@ -134,8 +157,26 @@ fun ScheduleCalendarView(
     val nowMinute = nowLocalTime.hour * 60 + nowLocalTime.minute
 
     var showSearchAndFilter by rememberSaveable { mutableStateOf(false) }
+    var showLegend by rememberSaveable { mutableStateOf(false) }
+    var showCalendarMenu by remember { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var categoryFilter by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedEmptySlots by remember { mutableStateOf<List<SelectedTimeSlot>>(emptyList()) }
+    LaunchedEffect(records) {
+        if (selectedEmptySlots.isNotEmpty()) {
+            val byDate = selectedEmptySlots.groupBy { it.dateLocal }.mapValues { (dStr, _) ->
+                val d = runCatching { LocalDate.parse(dStr) }.getOrDefault(today)
+                ScheduleGridEngine.buildDayScheduleModel(d, records, activeTimer, nowMs, zone).timedBlocks
+            }
+            selectedEmptySlots = selectedEmptySlots.filter { slot ->
+                val occupied = byDate[slot.dateLocal].orEmpty()
+                ScheduleGridEngine.computeFreeSlotInHour(slot.dateLocal, slot.startMinute / 60, occupied) != null
+            }
+        }
+    }
+    val mergedSelectedGroups = remember(selectedEmptySlots) {
+        ScheduleGridEngine.mergeSelectedEmptySlots(selectedEmptySlots)
+    }
 
     val multiDayModels = remember(selectedDate, viewMode, records, activeTimer, nowMs / 30_000L, categoryFilter, searchQuery) {
         when (viewMode) {
@@ -228,16 +269,16 @@ fun ScheduleCalendarView(
         } else {
             Modifier.fillMaxSize()
         },
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // Header xanh đặc trưng (theo concept Lịch trình xanh của Owner)
+        // Header xanh đặc trưng gọn tối đa (~74dp) để Timeline 24h chiếm vị trí trung tâm.
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(if (showBackButton) 22.dp else 20.dp))
+                .clip(RoundedCornerShape(if (showBackButton) 20.dp else 18.dp))
                 .background(Brush.linearGradient(listOf(WalletMintDark, WalletMintMid, WalletMintBright)))
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -251,104 +292,12 @@ fun ScheduleCalendarView(
                             .background(Color.White.copy(alpha = 0.16f))
                             .semantics { contentDescription = "Đóng lịch trình" }
                             .walletClickable(onClickLabel = "Đóng lịch trình", onClick = onBackClick)
-                            .padding(10.dp),
+                            .padding(8.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        GlyphIcon(WalletGlyph.BACK, color = Color.White, size = 18.dp)
+                        GlyphIcon(WalletGlyph.BACK, color = Color.White, size = 16.dp)
                     }
                 }
-                Text(
-                    text = "Lịch trình",
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color.White,
-                    maxLines = 1,
-                    softWrap = false,
-                    modifier = Modifier.weight(1f)
-                )
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(100.dp))
-                        .background(if (showSearchAndFilter) Color.White else Color.White.copy(alpha = 0.16f))
-                        .walletClickable(onClickLabel = "Lọc danh mục và tìm hoạt động") {
-                            showSearchAndFilter = !showSearchAndFilter
-                        }
-                        .padding(horizontal = 10.dp, vertical = 7.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = if (!categoryFilter.isNullOrBlank() || searchQuery.isNotBlank()) "Lọc ●" else "Lọc",
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (showSearchAndFilter) WalletMintDark else Color.White,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(100.dp))
-                        .background(Color.White)
-                        .walletClickable(onClickLabel = "Ghi mới hoạt động") {
-                            onAddForSlot(selectedDate.toString(), null, null, selectedDate.isAfter(today))
-                        }
-                        .padding(horizontal = 12.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    GlyphIcon(WalletGlyph.PLUS, color = WalletMintDark, size = 14.dp)
-                    Text(
-                        text = "Ghi mới",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = WalletMintDark,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
-            }
-
-            // Chuyển đổi 4 chế độ xem Google Calendar: Ngày / 3 ngày / Tuần / Tháng
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Color.White.copy(alpha = 0.15f))
-                    .padding(3.dp),
-                horizontalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                ScheduleViewMode.entries.forEach { mode ->
-                    val isSelected = mode == viewMode
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(11.dp))
-                            .background(if (isSelected) Color.White else Color.Transparent)
-                            .semantics { this.selected = isSelected }
-                            .walletClickable(onClickLabel = "Chế độ ${mode.label}", role = Role.Tab) {
-                                onSelectViewMode(mode)
-                            }
-                            .padding(vertical = 7.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = mode.label,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
-                            color = if (isSelected) WalletMintDark else Color.White,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-                }
-            }
-
-            // Thanh điều hướng ngày + chỉ số tổng Thực tế / Dự kiến / Chưa xác nhận
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
                 Box(
                     modifier = Modifier
                         .clip(CircleShape)
@@ -357,18 +306,18 @@ fun ScheduleCalendarView(
                         .walletClickable(onClickLabel = "Lùi thời gian") {
                             onSelectDate(stepScheduleDate(selectedDate, viewMode, -1).toString())
                         }
-                        .padding(horizontal = 13.dp, vertical = 6.dp),
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("‹", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("‹", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 }
                 Column(
-                    modifier = Modifier.weight(1f).padding(horizontal = 6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.Start
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         Text(
                             text = formatScheduleRangeHeading(selectedDate, today, viewMode),
@@ -376,40 +325,34 @@ fun ScheduleCalendarView(
                             fontWeight = FontWeight.ExtraBold,
                             color = Color.White,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
                         if (selectedDate != today) {
-                            Box(
-                                modifier = Modifier
-                                    .walletClickable(onClickLabel = "Về hôm nay") { onSelectDate(today.toString()) },
-                                contentAlignment = Alignment.Center
+                            WalletPill(
+                                onClickLabel = "Về hôm nay",
+                                containerColor = Color.White.copy(alpha = 0.22f),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 7.dp, vertical = 2.dp),
+                                onClick = { onSelectDate(today.toString()) }
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(100.dp))
-                                        .background(Color.White.copy(alpha = 0.22f))
-                                        .padding(horizontal = 9.dp, vertical = 3.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "Hôm nay",
-                                        fontSize = 10.5.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = Color.White,
-                                        maxLines = 1,
-                                        softWrap = false
-                                    )
-                                }
+                                Text(
+                                    text = "Hôm nay",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
                             }
                         }
                     }
                     Text(
                         text = buildString {
-                            append("Thực tế: ${TimeRange.formatDuration(headerActualMinutes)}")
-                            append(" · Dự kiến: ${TimeRange.formatDuration(headerPlannedMinutes)}")
-                            if (headerUnconfirmed > 0) append(" · Chờ xác nhận: $headerUnconfirmed")
+                            append("TT ${TimeRange.formatDuration(headerActualMinutes)}")
+                            append(" · KH ${TimeRange.formatDuration(headerPlannedMinutes)}")
+                            if (headerUnconfirmed > 0) append(" · Chờ $headerUnconfirmed")
                         },
-                        fontSize = 11.sp,
+                        fontSize = 10.5.sp,
                         color = Color(0xFFD6EFE3),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -423,10 +366,115 @@ fun ScheduleCalendarView(
                         .walletClickable(onClickLabel = "Tiến thời gian") {
                             onSelectDate(stepScheduleDate(selectedDate, viewMode, +1).toString())
                         }
-                        .padding(horizontal = 13.dp, vertical = 6.dp),
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("›", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("›", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                }
+                Box {
+                    val hasActiveFilter = showSearchAndFilter || !categoryFilter.isNullOrBlank() || searchQuery.isNotBlank() || showLegend
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(if (hasActiveFilter) Color.White else Color.White.copy(alpha = 0.16f))
+                            .semantics { contentDescription = "Tùy chọn lịch trình" }
+                            .walletClickable(onClickLabel = "Tùy chọn lịch trình") {
+                                showCalendarMenu = true
+                            }
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (!categoryFilter.isNullOrBlank() || searchQuery.isNotBlank()) "⋮●" else "⋮",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = if (hasActiveFilter) WalletMintDark else Color.White,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showCalendarMenu,
+                        onDismissRequest = { showCalendarMenu = false },
+                        containerColor = WalletCardBg,
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "＋ Ghi mới hoạt động",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = WalletMintAccent
+                                )
+                            },
+                            onClick = {
+                                showCalendarMenu = false
+                                onAddForSlot(selectedDate.toString(), null, null, selectedDate.isAfter(today))
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = if (showSearchAndFilter) "✓ Ẩn tìm & lọc" else "Tìm & lọc danh mục",
+                                    fontSize = 13.sp,
+                                    color = WalletInk
+                                )
+                            },
+                            onClick = {
+                                showSearchAndFilter = !showSearchAndFilter
+                                showCalendarMenu = false
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = if (showLegend) "✓ Ẩn chú giải màu" else "Hiện chú giải 4 trạng thái",
+                                    fontSize = 13.sp,
+                                    color = WalletInk
+                                )
+                            },
+                            onClick = {
+                                showLegend = !showLegend
+                                showCalendarMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            // Chuyển đổi 4 chế độ xem Google Calendar: Ngày / 3 ngày / Tuần / Tháng
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White.copy(alpha = 0.15f))
+                    .padding(2.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                ScheduleViewMode.entries.forEach { mode ->
+                    val isSelected = mode == viewMode
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isSelected) Color.White else Color.Transparent)
+                            .semantics { this.selected = isSelected }
+                            .walletClickable(onClickLabel = "Chế độ ${mode.label}", role = Role.Tab) {
+                                onSelectViewMode(mode)
+                            }
+                            .padding(vertical = 5.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = mode.label,
+                            fontSize = 11.5.sp,
+                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                            color = if (isSelected) WalletMintDark else Color.White,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
                 }
             }
         }
@@ -435,7 +483,7 @@ fun ScheduleCalendarView(
         if (showSearchAndFilter) {
             Surface(
                 shape = RoundedCornerShape(16.dp),
-                color = Color.White,
+                color = WalletCardBg,
                 border = BorderStroke(1.dp, WalletStroke),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -479,18 +527,20 @@ fun ScheduleCalendarView(
             }
         }
 
-        // Chú giải 4 trạng thái Kế hoạch vs Thực tế
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            LegendStateChip(color = WalletMint, label = "Đã thực hiện", solid = true)
-            LegendStateChip(color = PlannedAccentBlue, label = "Dự kiến", solid = false)
-            LegendStateChip(color = ActiveAccentCyan, label = "Đang diễn ra", solid = true, pulse = true)
-            LegendStateChip(color = UnconfirmedAmber, label = "Chưa xác nhận", solid = false)
+        // Chú giải 4 trạng thái Kế hoạch vs Thực tế (mở qua menu ⋮ để ưu tiên không gian lịch)
+        if (showLegend) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                LegendStateChip(color = WalletMintAccent, label = "Đã thực hiện", solid = true)
+                LegendStateChip(color = PlannedAccentBlue, label = "Dự kiến", solid = false)
+                LegendStateChip(color = ActiveAccentCyan, label = "Đang diễn ra", solid = true, pulse = true)
+                LegendStateChip(color = UnconfirmedAmber, label = "Chưa xác nhận", solid = false)
+            }
         }
 
         val gridModifier = if (embeddedInScrollContainer) {
@@ -506,15 +556,21 @@ fun ScheduleCalendarView(
                     dayModel = dayModel,
                     isToday = selectedDate == today,
                     nowMinute = nowMinute,
+                    selectedSlots = selectedEmptySlots,
                     modifier = gridModifier,
-                    onTapEmptyMinute = { minute ->
-                        val (sMin, eMin) = ScheduleGridEngine.prefillGapRange(minute, dayModel.timedBlocks)
-                        onAddForSlot(
-                            dayModel.dateLocal,
-                            TimeRange.formatHm(sMin),
-                            if (eMin >= 1440) "00:00" else TimeRange.formatHm(eMin),
-                            selectedDate.isAfter(today)
-                        )
+                    onToggleEmptyHour = { hour ->
+                        val freeSlot = ScheduleGridEngine.computeFreeSlotInHour(dayModel.dateLocal, hour, dayModel.timedBlocks)
+                        if (freeSlot != null) {
+                            selectedEmptySlots = ScheduleGridEngine.toggleSelectedSlot(selectedEmptySlots, freeSlot)
+                        } else {
+                            val (sMin, eMin) = ScheduleGridEngine.prefillGapRange(hour * 60, dayModel.timedBlocks)
+                            onAddForSlot(
+                                dayModel.dateLocal,
+                                TimeRange.formatHm(sMin),
+                                if (eMin >= 1440) "00:00" else TimeRange.formatHm(eMin),
+                                selectedDate.isAfter(today)
+                            )
+                        }
                     },
                     onTapBlock = { block ->
                         when {
@@ -532,20 +588,17 @@ fun ScheduleCalendarView(
                     todayStr = today.toString(),
                     nowMinute = nowMinute,
                     hourHeight = 56.dp,
+                    selectedSlots = selectedEmptySlots,
                     modifier = gridModifier,
                     onSelectDay = { dateStr ->
                         onSelectDate(dateStr)
                         onSelectViewMode(ScheduleViewMode.DAY)
                     },
-                    onTapCell = { dayModel, minute ->
-                        val (sMin, eMin) = ScheduleGridEngine.prefillGapRange(minute, dayModel.timedBlocks)
-                        val targetDate = runCatching { LocalDate.parse(dayModel.dateLocal) }.getOrDefault(today)
-                        onAddForSlot(
-                            dayModel.dateLocal,
-                            TimeRange.formatHm(sMin),
-                            if (eMin >= 1440) "00:00" else TimeRange.formatHm(eMin),
-                            targetDate.isAfter(today)
-                        )
+                    onToggleCell = { dayModel, minute ->
+                        val freeSlot = ScheduleGridEngine.computeFreeSlotInHour(dayModel.dateLocal, minute / 60, dayModel.timedBlocks)
+                        if (freeSlot != null) {
+                            selectedEmptySlots = ScheduleGridEngine.toggleSelectedSlot(selectedEmptySlots, freeSlot)
+                        }
                     },
                     onTapBlock = { block ->
                         when {
@@ -562,20 +615,17 @@ fun ScheduleCalendarView(
                     nowMinute = nowMinute,
                     hourHeight = 48.dp,
                     compactColumns = true,
+                    selectedSlots = selectedEmptySlots,
                     modifier = gridModifier,
                     onSelectDay = { dateStr ->
                         onSelectDate(dateStr)
                         onSelectViewMode(ScheduleViewMode.DAY)
                     },
-                    onTapCell = { dayModel, minute ->
-                        val (sMin, eMin) = ScheduleGridEngine.prefillGapRange(minute, dayModel.timedBlocks)
-                        val targetDate = runCatching { LocalDate.parse(dayModel.dateLocal) }.getOrDefault(today)
-                        onAddForSlot(
-                            dayModel.dateLocal,
-                            TimeRange.formatHm(sMin),
-                            if (eMin >= 1440) "00:00" else TimeRange.formatHm(eMin),
-                            targetDate.isAfter(today)
-                        )
+                    onToggleCell = { dayModel, minute ->
+                        val freeSlot = ScheduleGridEngine.computeFreeSlotInHour(dayModel.dateLocal, minute / 60, dayModel.timedBlocks)
+                        if (freeSlot != null) {
+                            selectedEmptySlots = ScheduleGridEngine.toggleSelectedSlot(selectedEmptySlots, freeSlot)
+                        }
                     },
                     onTapBlock = { block ->
                         when {
@@ -607,7 +657,20 @@ fun ScheduleCalendarView(
             }
         }
 
-        // Khối riêng bảo toàn bản ghi chỉ có thời lượng (không bao giờ tự gán mốc giờ giả)
+        if (mergedSelectedGroups.isNotEmpty() && viewMode != ScheduleViewMode.MONTH) {
+            SelectedSlotsActionBar(
+                slotCount = selectedEmptySlots.size,
+                summaryText = ScheduleGridEngine.summarizeSelectedSlotGroups(mergedSelectedGroups),
+                onClear = { selectedEmptySlots = emptyList() },
+                onCreate = {
+                    val groups = mergedSelectedGroups
+                    selectedEmptySlots = emptyList()
+                    onAddForSlots(groups)
+                }
+            )
+        }
+
+        // Thanh pill ghim đáy gọn 1 dòng giữ riêng mục Chưa gắn giờ (bấm để mở sheet, không tốn 150dp chiều cao)
         val untimedItems = remember(multiDayModels, selectedDayModel, viewMode) {
             if (viewMode == ScheduleViewMode.MONTH) {
                 selectedDayModel.untimedRecords
@@ -626,12 +689,74 @@ fun ScheduleCalendarView(
 }
 
 @Composable
+private fun SelectedSlotsActionBar(
+    slotCount: Int,
+    summaryText: String,
+    onClear: () -> Unit,
+    onCreate: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = WalletMintTint,
+        border = BorderStroke(1.5.dp, WalletMint),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Đã chọn $slotCount khối giờ trống",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = WalletMintAccent,
+                    maxLines = 1
+                )
+                Text(
+                    text = summaryText,
+                    fontSize = 11.sp,
+                    color = WalletInk,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(WalletCardBg)
+                    .border(1.dp, WalletStroke, RoundedCornerShape(10.dp))
+                    .walletClickable(onClickLabel = "Bỏ chọn các khung giờ", onClick = onClear)
+                    .padding(horizontal = 9.dp, vertical = 7.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Bỏ", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = WalletInk)
+            }
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(WalletMint)
+                    .walletClickable(onClickLabel = "Tạo sự kiện từ các khối giờ đã chọn", onClick = onCreate)
+                    .padding(horizontal = 11.dp, vertical = 7.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("+ Tạo sự kiện", fontSize = 11.5.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, maxLines = 1)
+            }
+        }
+    }
+}
+
+@Composable
 private fun DayTimelineGrid(
     dayModel: DayScheduleModel,
     isToday: Boolean,
     nowMinute: Int,
+    selectedSlots: List<SelectedTimeSlot>,
     modifier: Modifier = Modifier,
-    onTapEmptyMinute: (Int) -> Unit,
+    onToggleEmptyHour: (Int) -> Unit,
     onTapBlock: (ScheduleGridBlock) -> Unit,
     onConfirmUnconfirmed: (LedgerRecord) -> Unit,
     onMoveOrResize: (recordId: String, dateLocal: String, startHm: String, endHm: String) -> Unit
@@ -657,7 +782,7 @@ private fun DayTimelineGrid(
 
     Surface(
         shape = RoundedCornerShape(18.dp),
-        color = Color.White,
+        color = WalletCardBg,
         border = BorderStroke(1.dp, WalletStroke),
         modifier = modifier
     ) {
@@ -695,37 +820,73 @@ private fun DayTimelineGrid(
             ) {
                 val canvasWidthDp = maxWidth
 
-                // 1. Các ô giờ trống có thể chạm trực tiếp để thêm hoạt động
+                // 1. Các ô giờ trống có thể chạm trực tiếp để chọn nhiều khung giờ tạo sự kiện
                 Column(modifier = Modifier.fillMaxSize()) {
                     for (h in 0 until 24) {
+                        val freeInHour = ScheduleGridEngine.computeFreeSlotInHour(dayModel.dateLocal, h, dayModel.timedBlocks)
+                        val isHourSelected = freeInHour != null && selectedSlots.any {
+                            it.dateLocal == freeInHour.dateLocal &&
+                                it.startMinute == freeInHour.startMinute &&
+                                it.endMinute == freeInHour.endMinute
+                        }
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(hourHeight)
+                                .then(
+                                    if (isHourSelected) {
+                                        Modifier
+                                            .padding(horizontal = 2.dp, vertical = 1.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(WalletMintSoft)
+                                            .border(1.5.dp, WalletMint, RoundedCornerShape(8.dp))
+                                    } else Modifier
+                                )
                                 .semantics {
-                                    contentDescription = "Chỗ trống lúc %02d:00, chạm để thêm hoạt động".format(h)
+                                    contentDescription = if (isHourSelected) {
+                                        "Đã chọn khung giờ %02d:00, chạm để bỏ chọn".format(h)
+                                    } else {
+                                        "Chỗ trống lúc %02d:00, chạm để chọn khung giờ".format(h)
+                                    }
+                                    selected = isHourSelected
                                 }
-                                .walletClickable(onClickLabel = "Chỗ trống lúc %02d:00".format(h)) {
-                                    onTapEmptyMinute(h * 60)
+                                .walletClickable(onClickLabel = "Chọn ô trống lúc %02d:00".format(h)) {
+                                    onToggleEmptyHour(h)
                                 }
                         ) {
-                            HorizontalDivider(color = Color(0xFFE9F0EC), thickness = 1.dp)
-                            HorizontalDivider(
-                                color = Color(0xFFF3F7F5),
-                                thickness = 0.75.dp,
-                                modifier = Modifier.align(Alignment.Center)
-                            )
+                            if (!isHourSelected) {
+                                HorizontalDivider(color = WalletDivider, thickness = 1.dp)
+                                HorizontalDivider(
+                                    color = WalletDivider.copy(alpha = 0.55f),
+                                    thickness = 0.75.dp,
+                                    modifier = Modifier.align(Alignment.Center)
+                                )
+                            } else {
+                                val slotEndLabel = if (freeInHour!!.endMinute >= 1440) "24:00" else TimeRange.formatHm(freeInHour.endMinute)
+                                Text(
+                                    text = "✓ Đã chọn ${TimeRange.formatHm(freeInHour.startMinute)}–$slotEndLabel",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = WalletMintAccent,
+                                    modifier = Modifier
+                                        .align(Alignment.CenterStart)
+                                        .padding(horizontal = 10.dp)
+                                )
+                            }
                         }
                     }
                 }
 
-                // 2. Gợi ý khoảng trống nổi bật (ban ngày 06:00-22:30, >= 60 phút)
+                // 2. Gợi ý khoảng trống nổi bật (ban ngày 06:00-22:30, >= 60 phút) khi chưa có slot nào chọn trong vùng đó
                 dayModel.freeGaps
                     .filter { it.durationMinutes >= 60 && it.endMinute > 6 * 60 && it.startMinute < 22 * 60 }
                     .forEach { gap ->
                         val visStart = max(gap.startMinute, 6 * 60)
                         val visEnd = kotlin.math.min(gap.endMinute, 22 * 60)
-                        if (visEnd - visStart >= 60) {
+                        val overlapsSelected = selectedSlots.any {
+                            it.dateLocal == dayModel.dateLocal && it.startMinute < visStart + 60 && it.endMinute > visStart
+                        }
+                        if (visEnd - visStart >= 60 && !overlapsSelected) {
                             val topDp = (visStart / 60f) * hourHeight.value
                             val heightDp = ((visEnd - visStart) / 60f) * hourHeight.value
                             if (heightDp >= 52f) {
@@ -736,16 +897,15 @@ private fun DayTimelineGrid(
                                         .height(48.dp)
                                         .clip(RoundedCornerShape(10.dp))
                                         .walletClickable(
-                                            onClickLabel = "Thêm vào chỗ trống ${TimeRange.formatHm(visStart)} đến ${TimeRange.formatHm(visEnd)}"
+                                            onClickLabel = "Chọn chỗ trống từ ${TimeRange.formatHm(visStart)}"
                                         ) {
-                                            val (sMin, _) = ScheduleGridEngine.prefillGapRange(visStart, dayModel.timedBlocks)
-                                            onTapEmptyMinute(sMin)
+                                            onToggleEmptyHour(visStart / 60)
                                         }
                                         .padding(horizontal = 8.dp, vertical = 4.dp),
                                     contentAlignment = Alignment.CenterStart
                                 ) {
                                     Text(
-                                        text = "+ Trống ${TimeRange.formatHm(visStart)}–${TimeRange.formatHm(visEnd)} · chạm để ghi",
+                                        text = "+ Trống ${TimeRange.formatHm(visStart)}–${TimeRange.formatHm(visEnd)} · chạm chọn 1 hoặc nhiều giờ",
                                         fontSize = 10.5.sp,
                                         color = WalletMuted.copy(alpha = 0.72f),
                                         maxLines = 1,
@@ -925,11 +1085,15 @@ private fun ScheduleEventCard(
     val catColor = Color(block.category.colorHex)
     val (bgColor, accentColor, isDashed) = when (block.visualState) {
         ScheduleBlockVisualState.COMPLETED -> Triple(catColor.copy(alpha = 0.14f), catColor, false)
-        ScheduleBlockVisualState.PLANNED -> Triple(Color(0xFFEEF4FF), PlannedAccentBlue, true)
+        ScheduleBlockVisualState.PLANNED -> Triple(WalletInfoBg, WalletInfoText, true)
         ScheduleBlockVisualState.ACTIVE -> Triple(WalletMintSoft, ActiveAccentCyan, false)
-        ScheduleBlockVisualState.UNCONFIRMED -> Triple(Color(0xFFFFF4E0), UnconfirmedAmber, true)
+        ScheduleBlockVisualState.UNCONFIRMED -> Triple(WalletWarningBg, WalletWarningText, true)
     }
 
+    val blockTitleInk = WalletInk
+    val blockSubInk = WalletMuted
+    val blockDragInk = WalletMintAccent
+    val dragStrokeColor = if (isDragging) WalletMintAccent else accentColor.copy(alpha = 0.72f)
     val borderStrokePx = with(LocalDensity.current) { (if (isDragging) 2.dp else 1.3.dp).toPx() }
     val cornerPx = with(LocalDensity.current) { 10.dp.toPx() }
     val compact = blockHeightDp < 44.dp
@@ -954,7 +1118,7 @@ private fun ScheduleEventCard(
                     )
                 } else {
                     drawRoundRect(
-                        color = if (isDragging) WalletMintDark else accentColor.copy(alpha = 0.72f),
+                        color = dragStrokeColor,
                         cornerRadius = CornerRadius(cornerPx, cornerPx),
                         style = Stroke(width = borderStrokePx)
                     )
@@ -997,7 +1161,7 @@ private fun ScheduleEventCard(
                         fontSize = if (compact) 11.sp else 12.sp,
                         lineHeight = if (compact) 13.sp else 15.sp,
                         fontWeight = FontWeight.Bold,
-                        color = WalletInk,
+                        color = blockTitleInk,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
@@ -1035,7 +1199,7 @@ private fun ScheduleEventCard(
                             fontSize = 10.sp,
                             lineHeight = 12.sp,
                             fontWeight = if (block.planComparisonText != null || isDragging) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isDragging) WalletMintDark else WalletMuted,
+                            color = if (isDragging) blockDragInk else blockSubInk,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -1045,7 +1209,7 @@ private fun ScheduleEventCard(
                             fontSize = 10.5.sp,
                             lineHeight = 13.sp,
                             fontWeight = if (block.planComparisonText != null || isDragging) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isDragging) WalletMintDark else WalletMuted,
+                            color = if (isDragging) blockDragInk else blockSubInk,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -1121,9 +1285,10 @@ private fun MultiDayTimelineGrid(
     nowMinute: Int,
     hourHeight: Dp,
     compactColumns: Boolean = false,
+    selectedSlots: List<SelectedTimeSlot> = emptyList(),
     modifier: Modifier = Modifier,
     onSelectDay: (String) -> Unit,
-    onTapCell: (DayScheduleModel, Int) -> Unit,
+    onToggleCell: (DayScheduleModel, Int) -> Unit,
     onTapBlock: (ScheduleGridBlock) -> Unit
 ) {
     val scrollState = rememberScrollState()
@@ -1135,7 +1300,7 @@ private fun MultiDayTimelineGrid(
 
     Surface(
         shape = RoundedCornerShape(18.dp),
-        color = Color.White,
+        color = WalletCardBg,
         border = BorderStroke(1.dp, WalletStroke),
         modifier = modifier
     ) {
@@ -1187,7 +1352,7 @@ private fun MultiDayTimelineGrid(
                                 },
                                 fontSize = if (compactColumns) 9.sp else 9.5.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = if (isToday) Color.White else WalletMint,
+                                color = if (isToday) Color.White else WalletMintAccent,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -1232,20 +1397,43 @@ private fun MultiDayTimelineGrid(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
-                                .border(0.5.dp, Color(0xFFE8EFEA))
+                                .border(0.5.dp, WalletDivider)
                         ) {
                             val colW = maxWidth
                             Column(modifier = Modifier.fillMaxSize()) {
                                 for (h in 0 until 24) {
+                                    val freeCell = ScheduleGridEngine.computeFreeSlotInHour(day.dateLocal, h, day.timedBlocks)
+                                    val cellSelected = freeCell != null && selectedSlots.any {
+                                        it.dateLocal == freeCell.dateLocal &&
+                                            it.startMinute == freeCell.startMinute &&
+                                            it.endMinute == freeCell.endMinute
+                                    }
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .height(hourHeight)
-                                            .walletClickable(onClickLabel = "Thêm hoạt động ngày ${day.dateLocal} lúc %02d:00".format(h)) {
-                                                onTapCell(day, h * 60)
+                                            .then(
+                                                if (cellSelected) {
+                                                    Modifier
+                                                        .background(WalletMintSoft)
+                                                        .border(1.dp, WalletMint)
+                                                } else Modifier
+                                            )
+                                            .walletClickable(onClickLabel = "Chọn giờ trống ngày ${day.dateLocal} lúc %02d:00".format(h)) {
+                                                onToggleCell(day, h * 60)
                                             }
                                     ) {
-                                        HorizontalDivider(color = Color(0xFFEDF3F0), thickness = 0.8.dp)
+                                        if (!cellSelected) {
+                                            HorizontalDivider(color = WalletDivider, thickness = 0.8.dp)
+                                        } else {
+                                            Text(
+                                                text = "✓",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = WalletMintAccent,
+                                                modifier = Modifier.align(Alignment.Center)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1269,8 +1457,8 @@ private fun MultiDayTimelineGrid(
                                         .clip(RoundedCornerShape(6.dp))
                                         .background(
                                             when (block.visualState) {
-                                                ScheduleBlockVisualState.PLANNED -> Color(0xFFE9F0FF)
-                                                ScheduleBlockVisualState.UNCONFIRMED -> Color(0xFFFFF3DC)
+                                                ScheduleBlockVisualState.PLANNED -> WalletInfoBg
+                                                ScheduleBlockVisualState.UNCONFIRMED -> WalletWarningBg
                                                 ScheduleBlockVisualState.ACTIVE -> WalletMintSoft
                                                 ScheduleBlockVisualState.COMPLETED -> accentColor.copy(alpha = 0.22f)
                                             }
@@ -1333,7 +1521,7 @@ private fun MonthOverviewGrid(
     ) {
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = Color.White,
+            color = WalletCardBg,
             border = BorderStroke(1.dp, WalletStroke),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -1353,7 +1541,7 @@ private fun MonthOverviewGrid(
                         )
                     }
                 }
-                HorizontalDivider(color = Color(0xFFEDF3F0))
+                HorizontalDivider(color = WalletDivider)
                 cells.chunked(7).forEach { weekRow ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1363,14 +1551,14 @@ private fun MonthOverviewGrid(
                             val isSelected = cell.dateLocal == selectedDateLocal
                             val cellBg = when {
                                 isSelected -> WalletMintTint
-                                cell.isToday -> Color(0xFFE7F5ED)
-                                !cell.inCurrentMonth -> Color(0xFFF9FAF9)
-                                else -> Color.White
+                                cell.isToday -> WalletMintSoft
+                                !cell.inCurrentMonth -> WalletSoftNeutral.copy(alpha = 0.5f)
+                                else -> WalletCardBg
                             }
                             val borderColor = when {
                                 isSelected -> WalletMint
                                 cell.isToday -> WalletMintMid
-                                else -> Color(0xFFE9F0EC)
+                                else -> WalletStroke
                             }
                             Column(
                                 modifier = Modifier
@@ -1406,7 +1594,7 @@ private fun MonthOverviewGrid(
                                             text = TimeRange.formatDuration(cell.actualMinutes),
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = WalletMintDark,
+                                            color = WalletMintAccent,
                                             maxLines = 1,
                                             softWrap = false
                                         )
@@ -1416,7 +1604,7 @@ private fun MonthOverviewGrid(
                                             text = "KH ${TimeRange.formatDuration(cell.plannedMinutes).replace(" ", "")}",
                                             fontSize = 8.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = PlannedAccentBlue,
+                                            color = WalletInfoText,
                                             maxLines = 1,
                                             softWrap = false
                                         )
@@ -1452,7 +1640,7 @@ private fun MonthOverviewGrid(
         // Thẻ chi tiết nhanh cho ngày đang chọn trong Tháng
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = Color.White,
+            color = WalletCardBg,
             border = BorderStroke(1.dp, WalletStroke),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -1551,77 +1739,138 @@ private fun MonthOverviewGrid(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun UntimedRecordsTray(
     records: List<LedgerRecord>,
     onEditRecord: (LedgerRecord) -> Unit,
     onQuickLogDuration: () -> Unit
 ) {
+    var showSheet by remember { mutableStateOf(false) }
+
     Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = Color.White,
+        shape = RoundedCornerShape(14.dp),
+        color = WalletCardBg,
         border = BorderStroke(1.dp, WalletStroke),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .walletClickable(onClickLabel = "Mở danh sách chưa gắn giờ") { showSheet = true }
     ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(if (records.isEmpty()) WalletMuted.copy(alpha = 0.4f) else WalletMint)
+            )
+            Text(
+                text = "Chưa gắn giờ · Chỉ thời lượng (${records.size})",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = WalletInk,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = "+ Nhanh",
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Bold,
+                color = WalletMintAccent,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(WalletMintTint)
+                    .walletClickable(onClickLabel = "Ghi nhanh chỉ thời lượng", onClick = onQuickLogDuration)
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            )
+            Text("›", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = WalletMuted)
+        }
+    }
+
+    if (showSheet) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { showSheet = false },
+            sheetState = sheetState,
+            containerColor = WalletCardBg
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = "Chưa gắn giờ · Chỉ thời lượng (${records.size})",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = WalletInk
-                )
-                Text(
-                    text = "+ Ghi nhanh thời lượng",
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = WalletMint,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .walletClickable(onClickLabel = "Ghi nhanh chỉ thời lượng", onClick = onQuickLogDuration)
-                        .padding(horizontal = 6.dp, vertical = 3.dp)
-                )
-            }
-            if (records.isEmpty()) {
-                Text(
-                    text = "Chạm ô giờ trống trên lịch để lên giờ, hoặc dùng '+ Ghi nhanh thời lượng' cho các việc không nhớ mốc giờ.",
-                    fontSize = 11.5.sp,
-                    color = WalletMuted,
-                    lineHeight = 16.sp
-                )
-            } else {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    records.forEach { rec ->
-                        Row(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(WalletMintTint)
-                                .border(1.dp, WalletStroke, RoundedCornerShape(12.dp))
-                                .walletClickable(onClickLabel = "Sửa ${rec.title}") { onEditRecord(rec) }
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            CategoryIcon(rec.category, size = 14.dp, tint = WalletMintDark)
-                            Text(
-                                text = "${rec.title} · ${TimeRange.formatDuration(rec.durationMinutes)} (${rec.date.substring(5)})",
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = WalletInk,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Chưa gắn giờ · Chỉ thời lượng (${records.size})",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = WalletInk
+                        )
+                        Text(
+                            text = "Những việc chỉ biết thời lượng nằm riêng tại đây, không tự suy đoán mốc giờ lên lịch.",
+                            fontSize = 12.sp,
+                            color = WalletMuted,
+                            lineHeight = 16.sp
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            showSheet = false
+                            onQuickLogDuration()
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White)
+                    ) {
+                        Text("+ Ghi nhanh", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                if (records.isEmpty()) {
+                    Text(
+                        text = "Chưa có hoạt động nào chỉ lưu thời lượng. Chạm '+ Ghi nhanh' để nhập kiểu \"Đọc sách 30 phút\".",
+                        fontSize = 12.5.sp,
+                        color = WalletMuted,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+                } else {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(bottom = 20.dp)
+                    ) {
+                        records.forEach { rec ->
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(WalletMintTint)
+                                    .border(1.dp, WalletStroke, RoundedCornerShape(12.dp))
+                                    .walletClickable(onClickLabel = "Sửa ${rec.title}") {
+                                        showSheet = false
+                                        onEditRecord(rec)
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                CategoryIcon(rec.category, size = 15.dp, tint = WalletMintAccent)
+                                Text(
+                                    text = "${rec.title} · ${TimeRange.formatDuration(rec.durationMinutes)} (${rec.date.substring(5)})",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = WalletInk
+                                )
+                            }
                         }
                     }
                 }
@@ -1633,10 +1882,10 @@ private fun UntimedRecordsTray(
 @Composable
 private fun StateMicroPill(state: ScheduleBlockVisualState) {
     val (bg, fg) = when (state) {
-        ScheduleBlockVisualState.COMPLETED -> WalletMintSoft to WalletMintDark
-        ScheduleBlockVisualState.PLANNED -> Color(0xFFE1EAFF) to PlannedAccentBlue
-        ScheduleBlockVisualState.ACTIVE -> Color(0xFFD5F5EA) to ActiveAccentCyan
-        ScheduleBlockVisualState.UNCONFIRMED -> Color(0xFFFFECCC) to WalletWarningText
+        ScheduleBlockVisualState.COMPLETED -> WalletMintSoft to WalletMintAccent
+        ScheduleBlockVisualState.PLANNED -> WalletInfoBg to WalletInfoText
+        ScheduleBlockVisualState.ACTIVE -> WalletMintTint to ActiveAccentCyan
+        ScheduleBlockVisualState.UNCONFIRMED -> WalletWarningBg to WalletWarningText
     }
     Box(
         modifier = Modifier
@@ -1743,9 +1992,9 @@ private fun formatScheduleRangeHeading(
     val ddMm = DateTimeFormatter.ofPattern("dd/MM")
     return when (mode) {
         ScheduleViewMode.DAY -> when (selectedDate) {
-            today -> "Hôm nay · ${shortWeekdayVi(selectedDate.dayOfWeek)}, ${selectedDate.format(ddMm)}"
-            today.minusDays(1) -> "Hôm qua · ${shortWeekdayVi(selectedDate.dayOfWeek)}, ${selectedDate.format(ddMm)}"
-            today.plusDays(1) -> "Ngày mai · ${shortWeekdayVi(selectedDate.dayOfWeek)}, ${selectedDate.format(ddMm)}"
+            today -> "Hôm nay · ${selectedDate.format(ddMm)}"
+            today.minusDays(1) -> "Hôm qua · ${selectedDate.format(ddMm)}"
+            today.plusDays(1) -> "Ngày mai · ${selectedDate.format(ddMm)}"
             else -> "${shortWeekdayVi(selectedDate.dayOfWeek)}, ${selectedDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))}"
         }
         ScheduleViewMode.THREE_DAYS -> {

@@ -30,7 +30,9 @@ sealed class ManualEntryValidation {
         val startHm: String? = null,
         val endHm: String? = null,
         /** Lưu dạng Dự kiến (PLANNED) khi người dùng chọn trước/ngày tương lai. */
-        val saveAsPlanned: Boolean = false
+        val saveAsPlanned: Boolean = false,
+        /** Người dùng chủ động đánh dấu bản ghi là lãng phí. */
+        val isMarkedWaste: Boolean = false
     ) : ManualEntryValidation()
 
     data class Invalid(val message: String) : ManualEntryValidation()
@@ -72,7 +74,70 @@ object ManualEntry {
             endHm = valid.endHm,
             idempotencyKey = key,
             convertFutureToPlanned = valid.saveAsPlanned,
-            tagId = valid.tagId
+            tagId = valid.tagId,
+            isMarkedWaste = valid.isMarkedWaste
+        )
+    }
+
+    /** Kiểm tra chung và tạo danh sách bản ghi độc lập từ nhiều khối giờ trống đã chọn trên Lịch trình. */
+    fun validateMultiSlot(
+        slots: List<SelectedSlotGroup>,
+        categoryKey: String?,
+        tagId: String?,
+        tagName: String?,
+        note: String,
+        today: LocalDate,
+        saveAsPlanned: Boolean = false,
+        isMarkedWaste: Boolean = false
+    ): Result<List<ManualEntryValidation.Valid>> {
+        if (slots.isEmpty()) {
+            return Result.failure(IllegalArgumentException("Hãy chọn ít nhất một khung giờ trống."))
+        }
+        val category = TimeCategory.fromKeyOrNull(categoryKey)
+            ?: return Result.failure(IllegalArgumentException("Hãy chọn hoạt động hoặc một danh mục."))
+        val title = note.trim().take(MAX_NOTE_LENGTH).ifBlank { tagName?.trim().orEmpty().ifBlank { category.displayName } }
+        val validated = slots.map { slot ->
+            val date = try {
+                LocalDate.parse(slot.dateLocal.trim())
+            } catch (_: DateTimeParseException) {
+                return Result.failure(IllegalArgumentException("Ngày không hợp lệ."))
+            }
+            if (slot.durationMinutes <= 0 || slot.durationMinutes > MAX_MINUTES) {
+                return Result.failure(IllegalArgumentException("Khoảng giờ ${slot.startHm}–${slot.endHm} không hợp lệ."))
+            }
+            ManualEntryValidation.Valid(
+                category = category,
+                durationMinutes = slot.durationMinutes,
+                dateLocal = date.toString(),
+                title = title,
+                tagId = tagId,
+                startHm = slot.startHm,
+                endHm = slot.endHm,
+                saveAsPlanned = saveAsPlanned || date.isAfter(today),
+                isMarkedWaste = isMarkedWaste
+            )
+        }
+        return Result.success(validated)
+    }
+
+    fun toMultiSlotBatchInputs(
+        items: List<ManualEntryValidation.Valid>,
+        sessionId: String
+    ): List<BatchRecordInput> = items.mapIndexed { idx, valid ->
+        val key = "manual_${sessionId}_$idx"
+        BatchRecordInput(
+            id = key,
+            source = "manual",
+            rawTitle = valid.title,
+            rawCategory = valid.category.key,
+            dateLocal = valid.dateLocal,
+            durationMinutes = valid.durationMinutes,
+            startHm = valid.startHm,
+            endHm = valid.endHm,
+            idempotencyKey = key,
+            convertFutureToPlanned = valid.saveAsPlanned,
+            tagId = valid.tagId,
+            isMarkedWaste = valid.isMarkedWaste
         )
     }
 
@@ -92,7 +157,8 @@ object ManualEntry {
         note: String,
         today: LocalDate,
         nowHm: String,
-        saveAsPlanned: Boolean = false
+        saveAsPlanned: Boolean = false,
+        isMarkedWaste: Boolean = false
     ): ManualEntryValidation {
         val category = TimeCategory.fromKeyOrNull(categoryKey)
             ?: return ManualEntryValidation.Invalid("Hãy chọn hoạt động hoặc một danh mục.")
@@ -124,7 +190,8 @@ object ManualEntry {
             tagId = tagId,
             startHm = ok.startHm,
             endHm = ok.endHm,
-            saveAsPlanned = saveAsPlanned || date.isAfter(today)
+            saveAsPlanned = saveAsPlanned || date.isAfter(today),
+            isMarkedWaste = isMarkedWaste
         )
     }
 
@@ -137,7 +204,8 @@ object ManualEntry {
         today: LocalDate,
         tagId: String? = null,
         tagName: String? = null,
-        saveAsPlanned: Boolean = false
+        saveAsPlanned: Boolean = false,
+        isMarkedWaste: Boolean = false
     ): ManualEntryValidation {
         val category = TimeCategory.fromKeyOrNull(categoryKey)
             ?: return ManualEntryValidation.Invalid("Hãy chọn một danh mục.")
@@ -165,7 +233,8 @@ object ManualEntry {
             dateLocal = date.toString(),
             title = title,
             tagId = tagId,
-            saveAsPlanned = saveAsPlanned || date.isAfter(today)
+            saveAsPlanned = saveAsPlanned || date.isAfter(today),
+            isMarkedWaste = isMarkedWaste
         )
     }
 

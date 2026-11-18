@@ -60,9 +60,13 @@ import com.timewallet.mvp.domain.usecase.ManualEntry
 import com.timewallet.mvp.domain.usecase.TimeRange
 import com.timewallet.mvp.ui.ManualEntryState
 import com.timewallet.mvp.ui.ManualMode
+import com.timewallet.mvp.ui.theme.WalletCardBg
+import com.timewallet.mvp.ui.theme.WalletDangerSolid
+import com.timewallet.mvp.ui.theme.WalletDangerText
+import com.timewallet.mvp.ui.theme.WalletDivider
 import com.timewallet.mvp.ui.theme.WalletInk
 import com.timewallet.mvp.ui.theme.WalletMint
-import com.timewallet.mvp.ui.theme.WalletMintDark
+import com.timewallet.mvp.ui.theme.WalletMintAccent
 import com.timewallet.mvp.ui.theme.WalletMintSoft
 import com.timewallet.mvp.ui.theme.WalletMintTint
 import com.timewallet.mvp.ui.theme.WalletMuted
@@ -97,7 +101,8 @@ fun ManualEntrySheet(
     var showCategories by remember(state.sessionId) { mutableStateOf(false) }
     var showCleanConfirm by remember(state.sessionId) { mutableStateOf(false) }
     val today = LocalDate.now()
-    val hasDraftData = state.hasUserData(today.toString())
+    val isBatchMultiSlot = state.batchSlots.isNotEmpty()
+    val hasDraftData = !isBatchMultiSlot && state.hasUserData(today.toString())
     val selectedDate = runCatching { LocalDate.parse(state.dateLocal) }.getOrDefault(today)
     val isToday = selectedDate == today
     val isYesterday = selectedDate == today.minusDays(1)
@@ -113,7 +118,7 @@ fun ManualEntrySheet(
         )
     } else null
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = Color.White) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = WalletCardBg) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -147,7 +152,7 @@ fun ManualEntrySheet(
                             text = "+ Ghi mới",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = WalletMintDark
+                            color = WalletMintAccent
                         )
                     }
                     Text("Bạn đã làm gì?", fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk)
@@ -157,7 +162,7 @@ fun ManualEntrySheet(
                         "Tự động lưu nháp",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = WalletMint
+                        color = WalletMintAccent
                     )
                 }
             }
@@ -219,7 +224,7 @@ fun ManualEntrySheet(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            qCat?.let { CategoryIcon(it, size = 16.dp, tint = WalletMintDark) }
+                            qCat?.let { CategoryIcon(it, size = 16.dp, tint = WalletMintAccent) }
                             val rangeDesc = if (quickSuggestion.startHm != null && quickSuggestion.endHm != null) {
                                 "${quickSuggestion.startHm}–${quickSuggestion.endHm} (${TimeRange.formatDuration(mins)})"
                             } else {
@@ -229,10 +234,10 @@ fun ManualEntrySheet(
                                 text = "Áp nhanh: ${quickSuggestion.cleanTitle} · $rangeDesc",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = WalletMintDark,
+                                color = WalletMintAccent,
                                 modifier = Modifier.weight(1f)
                             )
-                            Text("Áp", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = WalletMint)
+                            Text("Áp", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = WalletMintAccent)
                         }
                     }
                 }
@@ -259,7 +264,7 @@ fun ManualEntrySheet(
                     Button(
                         onClick = onCreateTag,
                         shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
+                        colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
                         modifier = Modifier.heightIn(min = 56.dp)
                     ) { Text("Tạo") }
                 }
@@ -274,13 +279,50 @@ fun ManualEntrySheet(
             } else {
                 TextButton(onClick = { showCategories = true }, modifier = Modifier.heightIn(min = 48.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                        CategoryIcon(category = cat, size = 15.dp, tint = WalletMint)
+                        CategoryIcon(category = cat, size = 15.dp, tint = WalletMintAccent)
                         Text("Nhóm: ${cat.displayName} · đổi", fontSize = 12.5.sp)
                     }
                 }
             }
 
-            SmallLabel("Bạn nhớ theo cách nào?")
+            SmallLabel(if (isBatchMultiSlot) "Khung giờ đã chọn (${state.batchSlots.size} khoảng độc lập)" else "Bạn nhớ theo cách nào?")
+            if (isBatchMultiSlot) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = WalletMintTint,
+                    border = BorderStroke(1.dp, WalletStroke),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            state.batchSlots.forEach { slot ->
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(WalletCardBg)
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = "${slot.dateLocal.substring(5)} · ${slot.startHm}–${if (slot.endMinute >= 1440) "24:00" else slot.endHm}",
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = WalletMintAccent
+                                    )
+                                }
+                            }
+                        }
+                        val batchMins = state.batchSlots.sumOf { it.durationMinutes }
+                        Text(
+                            text = "Tạo ${state.batchSlots.size} bản ghi riêng cùng tiêu đề/danh mục · Tổng ${TimeRange.formatDuration(batchMins)}",
+                            fontSize = 11.5.sp,
+                            color = WalletMuted
+                        )
+                    }
+                }
+            } else {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 ChoiceChip("Khoảng giờ", state.mode == ManualMode.RANGE, "Nhập giờ bắt đầu và kết thúc") { onChange { it.copy(mode = ManualMode.RANGE) } }
                 ChoiceChip("Thời lượng", state.mode == ManualMode.DURATION, "Chỉ nhập số phút đã dùng") { onChange { it.copy(mode = ManualMode.DURATION) } }
@@ -382,29 +424,37 @@ fun ManualEntrySheet(
                     )
                 }
             }
-
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                ChoiceChip("Hôm nay", selectedDate == today, "Ngày hôm nay") { onChange { it.copy(dateLocal = today.toString(), endIsNow = it.endIsNow) } }
-                ChoiceChip("Hôm qua", selectedDate == today.minusDays(1), "Ngày hôm qua") { onChange { it.copy(dateLocal = today.minusDays(1).toString(), endIsNow = it.endIsNow) } }
-                ChoiceChip("Ngày mai", selectedDate == today.plusDays(1), "Ngày mai (Dự kiến)") { onChange { it.copy(dateLocal = today.plusDays(1).toString(), endIsNow = false) } }
-                ChoiceChip(
-                    text = "Ngày khác: " + selectedDate.format(DateTimeFormatter.ofPattern("dd/MM")),
-                    selected = selectedDate != today && selectedDate != today.minusDays(1) && selectedDate != today.plusDays(1),
-                    description = "Chọn ngày khác",
-                    onClick = { showDatePicker = true }
-                )
             }
-            if (!selectedDate.isAfter(today)) {
+
+            if (!isBatchMultiSlot) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    ChoiceChip("Hôm nay", selectedDate == today, "Ngày hôm nay") { onChange { it.copy(dateLocal = today.toString(), endIsNow = it.endIsNow) } }
+                    ChoiceChip("Hôm qua", selectedDate == today.minusDays(1), "Ngày hôm qua") { onChange { it.copy(dateLocal = today.minusDays(1).toString(), endIsNow = it.endIsNow) } }
+                    ChoiceChip("Ngày mai", selectedDate == today.plusDays(1), "Ngày mai (Dự kiến)") { onChange { it.copy(dateLocal = today.plusDays(1).toString(), endIsNow = false) } }
+                    ChoiceChip(
+                        text = "Ngày khác: " + selectedDate.format(DateTimeFormatter.ofPattern("dd/MM")),
+                        selected = selectedDate != today && selectedDate != today.minusDays(1) && selectedDate != today.plusDays(1),
+                        description = "Chọn ngày khác",
+                        onClick = { showDatePicker = true }
+                    )
+                }
+            }
+            if (isBatchMultiSlot || !selectedDate.isAfter(today)) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     ChoiceChip("Lưu làm Dự kiến", state.saveAsPlanned, "Lưu ở trạng thái Dự kiến, chưa tính vào thực tế") {
                         onChange { it.copy(saveAsPlanned = !it.saveAsPlanned) }
+                    }
+                    if (!state.saveAsPlanned && !selectedDate.isAfter(today)) {
+                        ChoiceChip("Đánh dấu lãng phí", state.isMarkedWaste, "Đưa vào tầng Lãng phí trên biểu đồ 24h") {
+                            onChange { it.copy(isMarkedWaste = !it.isMarkedWaste) }
+                        }
                     }
                 }
             }
                 Spacer(modifier = Modifier.height(6.dp))
             }
 
-            HorizontalDivider(color = Color(0xFFEFF2EE))
+            HorizontalDivider(color = WalletDivider)
             if (state.error != null) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(
@@ -412,10 +462,10 @@ fun ManualEntrySheet(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    GlyphIcon(WalletGlyph.ERROR, color = Color(0xFFB63F37), size = 15.dp)
+                    GlyphIcon(WalletGlyph.ERROR, color = WalletDangerText, size = 15.dp)
                     Text(
                         text = state.error,
-                        color = Color(0xFFB63F37),
+                        color = WalletDangerText,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -441,8 +491,8 @@ fun ManualEntrySheet(
                         .semantics { contentDescription = "Clean · Xóa nhập liệu" }
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        GlyphIcon(WalletGlyph.ERASER, color = Color(0xFFB63F37), size = 15.dp)
-                        Text("Clean · Xóa nhập liệu", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB63F37))
+                        GlyphIcon(WalletGlyph.ERASER, color = WalletDangerText, size = 15.dp)
+                        Text("Clean · Xóa nhập liệu", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = WalletDangerText)
                     }
                 }
             }
@@ -461,7 +511,7 @@ fun ManualEntrySheet(
                     onClick = onSave,
                     enabled = !state.saving,
                     shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
+                    colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
                     modifier = Modifier.weight(1f).heightIn(min = 52.dp)
                 ) { Text(if (state.saving) "Đang lưu…" else "Lưu", fontWeight = FontWeight.Bold) }
             }
@@ -472,7 +522,7 @@ fun ManualEntrySheet(
     if (showCleanConfirm) {
         AlertDialog(
             onDismissRequest = { showCleanConfirm = false },
-            containerColor = Color.White,
+            containerColor = WalletCardBg,
             title = { Text("Xóa nhập liệu đang có?", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
             text = {
                 Text(
@@ -487,7 +537,7 @@ fun ManualEntrySheet(
                         showCleanConfirm = false
                         onClean()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB3261E))
+                    colors = ButtonDefaults.buttonColors(containerColor = WalletDangerSolid, contentColor = Color.White)
                 ) {
                     Text("Xóa nhập liệu", fontWeight = FontWeight.Bold)
                 }

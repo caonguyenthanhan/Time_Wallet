@@ -5,14 +5,23 @@ import com.timewallet.mvp.domain.model.ActivityReviewNote
 import com.timewallet.mvp.domain.model.BudgetPeriod
 import com.timewallet.mvp.domain.model.CategoryTimeBudget
 import com.timewallet.mvp.domain.model.DailyReviewRecord
+import com.timewallet.mvp.domain.model.EisenhowerQuad
 import com.timewallet.mvp.domain.model.Goal
 import com.timewallet.mvp.domain.model.GoalKind
 import com.timewallet.mvp.domain.model.GoalPeriod
 import com.timewallet.mvp.domain.model.GoalTargetType
 import com.timewallet.mvp.domain.model.GoalVersionStatus
+import com.timewallet.mvp.domain.model.Habit
+import com.timewallet.mvp.domain.model.HabitFrequency
+import com.timewallet.mvp.domain.model.HabitLog
 import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.model.OverlapResolution
+import com.timewallet.mvp.domain.model.Project
+import com.timewallet.mvp.domain.model.SubtaskItem
 import com.timewallet.mvp.domain.model.Tag
+import com.timewallet.mvp.domain.model.TaskItem
+import com.timewallet.mvp.domain.model.TaskPriority
+import com.timewallet.mvp.domain.model.TaskStatus
 import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.model.TimeLayer
 import com.timewallet.mvp.domain.usecase.TagRules
@@ -37,7 +46,11 @@ data class ParsedBackupPayload(
     val dailyReviews: List<DailyReviewRecord>,
     val activityNotes: List<ActivityReviewNote>,
     val tags: List<Tag>,
-    val goals: List<Goal>
+    val goals: List<Goal>,
+    val projects: List<Project> = emptyList(),
+    val tasks: List<TaskItem> = emptyList(),
+    val habits: List<Habit> = emptyList(),
+    val habitLogs: List<HabitLog> = emptyList()
 )
 
 sealed class BackupParseResult {
@@ -55,7 +68,11 @@ data class BackupRestoreSummary(
     val goalsRestored: Int = 0,
     val budgetsRestored: Int = 0,
     val dailyReviewsRestored: Int = 0,
-    val activityNotesRestored: Int = 0
+    val activityNotesRestored: Int = 0,
+    val projectsRestored: Int = 0,
+    val tasksRestored: Int = 0,
+    val habitsRestored: Int = 0,
+    val habitLogsRestored: Int = 0
 ) {
     fun toUserMessage(): String = buildString {
         append(
@@ -69,6 +86,8 @@ data class BackupRestoreSummary(
         if (tagsInserted > 0) append(", $tagsInserted tag")
         if (goalsRestored > 0) append(", $goalsRestored mục tiêu")
         if (budgetsRestored > 0) append(", $budgetsRestored ngân sách")
+        if (tasksRestored > 0) append(", $tasksRestored việc")
+        if (habitsRestored > 0) append(", $habitsRestored thói quen")
         if (dailyReviewsRestored > 0) append(", $dailyReviewsRestored phản tư")
         val skipped = recordsSkippedDuplicate + recordsSkippedOverlap
         if (skipped > 0) {
@@ -100,6 +119,21 @@ interface BackupDatabaseBackend {
     suspend fun getAllActivityNotes(): List<ActivityReviewNoteEntity>
     suspend fun upsertActivityNotes(entities: List<ActivityReviewNoteEntity>)
     suspend fun deleteAllActivityNotes()
+    // v2.0 defaults giữ tương thích mọi mock/test cũ
+    suspend fun getAllProjects(): List<ProjectEntity> = emptyList()
+    suspend fun upsertProject(entity: ProjectEntity) {}
+    suspend fun deleteAllProjects() {}
+    suspend fun getAllTasks(): List<TaskEntity> = emptyList()
+    suspend fun upsertTask(entity: TaskEntity) {}
+    suspend fun deleteAllTasks() {}
+    suspend fun upsertSubtasks(entities: List<SubtaskEntity>) {}
+    suspend fun deleteAllSubtasks() {}
+    suspend fun getAllHabits(): List<HabitEntity> = emptyList()
+    suspend fun upsertHabit(entity: HabitEntity) {}
+    suspend fun deleteAllHabits() {}
+    suspend fun getAllHabitLogs(): List<HabitLogEntity> = emptyList()
+    suspend fun upsertHabitLog(entity: HabitLogEntity) {}
+    suspend fun deleteAllHabitLogs() {}
 }
 
 private class RoomBackupDatabaseBackend(
@@ -110,6 +144,9 @@ private class RoomBackupDatabaseBackend(
     private val goalDao = database.goalDao()
     private val budgetDao = database.budgetDao()
     private val dailyReviewDao = database.dailyReviewDao()
+    private val projectDao = database.projectDao()
+    private val taskDao = database.taskDao()
+    private val habitDao = database.habitDao()
 
     override suspend fun <T> runInTransaction(block: suspend () -> T): T =
         database.withTransaction { block() }
@@ -132,6 +169,20 @@ private class RoomBackupDatabaseBackend(
     override suspend fun getAllActivityNotes(): List<ActivityReviewNoteEntity> = dailyReviewDao.getAllActivityNotesSnapshot()
     override suspend fun upsertActivityNotes(entities: List<ActivityReviewNoteEntity>) = dailyReviewDao.upsertActivityNotes(entities)
     override suspend fun deleteAllActivityNotes() = dailyReviewDao.deleteAllActivityNotes()
+    override suspend fun getAllProjects(): List<ProjectEntity> = projectDao.getAllSnapshot()
+    override suspend fun upsertProject(entity: ProjectEntity) = projectDao.upsert(entity)
+    override suspend fun deleteAllProjects() = projectDao.deleteAll()
+    override suspend fun getAllTasks(): List<TaskEntity> = taskDao.getAllTasksSnapshot()
+    override suspend fun upsertTask(entity: TaskEntity) = taskDao.upsertTask(entity)
+    override suspend fun deleteAllTasks() = taskDao.deleteAllTasks()
+    override suspend fun upsertSubtasks(entities: List<SubtaskEntity>) = taskDao.upsertSubtasks(entities)
+    override suspend fun deleteAllSubtasks() = taskDao.deleteAllSubtasks()
+    override suspend fun getAllHabits(): List<HabitEntity> = habitDao.getAllHabitsSnapshot()
+    override suspend fun upsertHabit(entity: HabitEntity) = habitDao.upsertHabit(entity)
+    override suspend fun deleteAllHabits() = habitDao.deleteAllHabits()
+    override suspend fun getAllHabitLogs(): List<HabitLogEntity> = habitDao.getAllLogsSnapshot()
+    override suspend fun upsertHabitLog(entity: HabitLogEntity) = habitDao.upsertLog(entity)
+    override suspend fun deleteAllHabitLogs() = habitDao.deleteAllLogs()
 }
 
 object LedgerJsonBackupParser {
@@ -193,6 +244,11 @@ object LedgerJsonBackupParser {
         val recordsAndNotes = parseRecords(itemsArray, exportedAtMs, tagsResult.idRemap)
         if (recordsAndNotes.error != null) return BackupParseResult.Invalid(recordsAndNotes.error)
 
+        val projects = parseProjects(root, exportedAtMs)
+        val tasks = parseTasks(root, exportedAtMs, tagsResult.idRemap)
+        val habits = parseHabits(root, exportedAtMs, tagsResult.idRemap)
+        val habitLogs = parseHabitLogs(root, exportedAtMs)
+
         return BackupParseResult.Valid(
             ParsedBackupPayload(
                 schemaVersion = schemaVersion,
@@ -202,9 +258,136 @@ object LedgerJsonBackupParser {
                 dailyReviews = reviewsResult.reviews,
                 activityNotes = recordsAndNotes.notes,
                 tags = tagsResult.tags,
-                goals = goalsResult.goals
+                goals = goalsResult.goals,
+                projects = projects,
+                tasks = tasks,
+                habits = habits,
+                habitLogs = habitLogs
             )
         )
+    }
+
+    private fun parseProjects(root: JSONObject, fallbackNowMs: Long): List<Project> {
+        val arr = root.optJSONArray("projects") ?: return emptyList()
+        return buildList {
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val id = o.optNonBlankString("id") ?: continue
+                val name = o.optNonBlankString("name") ?: continue
+                add(
+                    Project(
+                        id = id,
+                        name = name,
+                        colorHex = o.optNullableLong("colorHex") ?: TimeCategory.WORK.colorHex,
+                        archivedAt = o.optNullableLong("archivedAt"),
+                        createdAt = o.optNullableLong("createdAt") ?: fallbackNowMs,
+                        updatedAt = o.optNullableLong("updatedAt") ?: fallbackNowMs
+                    )
+                )
+            }
+        }
+    }
+
+    private fun parseTasks(root: JSONObject, fallbackNowMs: Long, tagIdRemap: Map<String, String>): List<TaskItem> {
+        val arr = root.optJSONArray("tasks") ?: return emptyList()
+        return buildList {
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val id = o.optNonBlankString("id") ?: continue
+                val title = o.optNonBlankString("title") ?: continue
+                val rawTag = o.optNonBlankString("tagId")
+                val subsArr = o.optJSONArray("subtasks")
+                val subs = if (subsArr != null) {
+                    buildList {
+                        for (j in 0 until subsArr.length()) {
+                            val so = subsArr.optJSONObject(j) ?: continue
+                            val sid = so.optNonBlankString("id") ?: continue
+                            val stitle = so.optNonBlankString("title") ?: continue
+                            add(
+                                SubtaskItem(
+                                    id = sid,
+                                    taskId = id,
+                                    title = stitle,
+                                    isDone = so.optBoolean("isDone", false),
+                                    sortOrder = so.optNullableInt("sortOrder") ?: j
+                                )
+                            )
+                        }
+                    }
+                } else emptyList()
+                add(
+                    TaskItem(
+                        id = id,
+                        title = title,
+                        notes = o.optNullableString("notes").orEmpty(),
+                        projectId = o.optNonBlankString("projectId"),
+                        tagId = rawTag?.let { tagIdRemap[it] ?: it },
+                        category = TimeCategory.fromKeyOrDefault(o.optNonBlankString("category")),
+                        priority = TaskPriority.fromStorage(o.optNonBlankString("priority")),
+                        estimatedMinutes = o.optNullableInt("estimatedMinutes"),
+                        dueDateLocal = o.optNonBlankString("dueDateLocal"),
+                        dueTimeLocal = o.optNonBlankString("dueTimeLocal"),
+                        status = TaskStatus.fromStorage(o.optNonBlankString("status")),
+                        eisenhowerQuad = EisenhowerQuad.fromStorageOrNull(o.optNonBlankString("eisenhowerQuad")),
+                        goalId = o.optNonBlankString("goalId"),
+                        createdAt = o.optNullableLong("createdAt") ?: fallbackNowMs,
+                        updatedAt = o.optNullableLong("updatedAt") ?: fallbackNowMs,
+                        completedAt = o.optNullableLong("completedAt"),
+                        subtasks = subs
+                    )
+                )
+            }
+        }
+    }
+
+    private fun parseHabits(root: JSONObject, fallbackNowMs: Long, tagIdRemap: Map<String, String>): List<Habit> {
+        val arr = root.optJSONArray("habits") ?: return emptyList()
+        return buildList {
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val id = o.optNonBlankString("id") ?: continue
+                val title = o.optNonBlankString("title") ?: continue
+                val rawTag = o.optNonBlankString("tagId")
+                add(
+                    Habit(
+                        id = id,
+                        title = title,
+                        tagId = rawTag?.let { tagIdRemap[it] ?: it },
+                        category = TimeCategory.fromKeyOrDefault(o.optNonBlankString("category")),
+                        frequency = HabitFrequency.fromStorage(o.optNonBlankString("frequency")),
+                        daysMask = o.optNullableInt("daysMask") ?: 0b1111111,
+                        targetPerPeriod = o.optNullableInt("targetPerPeriod") ?: 1,
+                        minSessionMinutes = o.optNullableInt("minSessionMinutes") ?: 15,
+                        goalId = o.optNonBlankString("goalId"),
+                        archivedAt = o.optNullableLong("archivedAt"),
+                        createdAt = o.optNullableLong("createdAt") ?: fallbackNowMs,
+                        updatedAt = o.optNullableLong("updatedAt") ?: fallbackNowMs
+                    )
+                )
+            }
+        }
+    }
+
+    private fun parseHabitLogs(root: JSONObject, fallbackNowMs: Long): List<HabitLog> {
+        val arr = root.optJSONArray("habitLogs") ?: return emptyList()
+        return buildList {
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val id = o.optNonBlankString("id") ?: continue
+                val habitId = o.optNonBlankString("habitId") ?: continue
+                val dateLocal = o.optNonBlankString("dateLocal") ?: continue
+                add(
+                    HabitLog(
+                        id = id,
+                        habitId = habitId,
+                        dateLocal = dateLocal,
+                        completed = o.optBoolean("completed", true),
+                        linkedLedgerId = o.optNonBlankString("linkedLedgerId"),
+                        updatedAt = o.optNullableLong("updatedAt") ?: fallbackNowMs
+                    )
+                )
+            }
+        }
     }
 
     private data class TagParseResult(
@@ -306,7 +489,9 @@ object LedgerJsonBackupParser {
                 validFrom = validFrom,
                 validTo = validTo,
                 createdAt = createdAt,
-                updatedAt = updatedAt
+                updatedAt = updatedAt,
+                isPriority = obj.optBoolean("isPriority", false),
+                priorityOrder = obj.optNullableInt("priorityOrder") ?: 0
             )
         }
         return GoalParseResult(goals = goals)
@@ -449,7 +634,10 @@ object LedgerJsonBackupParser {
                 plannedDurationSeconds = obj.optNullableLong("plannedDurationSeconds"),
                 overlapResolutionRaw = obj.optNonBlankString("overlapResolution"),
                 relationGroupId = obj.optNonBlankString("relationGroupId"),
-                overlapWithTitle = obj.optNonBlankString("overlapWithTitle")
+                overlapWithTitle = obj.optNonBlankString("overlapWithTitle"),
+                isMarkedWaste = obj.optBoolean("isMarkedWaste", false),
+                taskId = obj.optNonBlankString("taskId"),
+                habitId = obj.optNonBlankString("habitId")
             )
             records += record
 
@@ -520,11 +708,25 @@ object LedgerBackupRestorer {
         backend.deleteAllGoals()
         backend.deleteAllTags()
         backend.deleteAllRecords()
+        backend.deleteAllHabitLogs()
+        backend.deleteAllHabits()
+        backend.deleteAllSubtasks()
+        backend.deleteAllTasks()
+        backend.deleteAllProjects()
 
         payload.tags.forEach { backend.insertTag(TagEntity.fromDomain(it)) }
         payload.goals.forEach { backend.upsertGoal(GoalEntity.fromDomain(it)) }
         payload.budgets.forEach { backend.upsertBudget(CategoryBudgetEntity.fromDomain(it)) }
         payload.dailyReviews.forEach { backend.upsertDailyReview(DailyReviewEntity.fromDomain(it)) }
+        payload.projects.forEach { backend.upsertProject(ProjectEntity.fromDomain(it)) }
+        payload.tasks.forEach { task ->
+            backend.upsertTask(TaskEntity.fromDomain(task))
+            if (task.subtasks.isNotEmpty()) {
+                backend.upsertSubtasks(task.subtasks.map { SubtaskEntity.fromDomain(it) })
+            }
+        }
+        payload.habits.forEach { backend.upsertHabit(HabitEntity.fromDomain(it)) }
+        payload.habitLogs.forEach { backend.upsertHabitLog(HabitLogEntity.fromDomain(it)) }
         payload.records.forEach { backend.upsertRecord(LedgerRecordEntity.fromDomain(it)) }
         if (payload.activityNotes.isNotEmpty()) {
             backend.upsertActivityNotes(payload.activityNotes.map { ActivityReviewNoteEntity.fromDomain(it) })
@@ -537,7 +739,11 @@ object LedgerBackupRestorer {
             goalsRestored = payload.goals.size,
             budgetsRestored = payload.budgets.size,
             dailyReviewsRestored = payload.dailyReviews.size,
-            activityNotesRestored = payload.activityNotes.size
+            activityNotesRestored = payload.activityNotes.size,
+            projectsRestored = payload.projects.size,
+            tasksRestored = payload.tasks.size,
+            habitsRestored = payload.habits.size,
+            habitLogsRestored = payload.habitLogs.size
         )
     }
 
@@ -638,6 +844,46 @@ object LedgerBackupRestorer {
             backend.upsertActivityNotes(notesToInsert)
         }
 
+        val existingProjectIds = backend.getAllProjects().mapTo(HashSet()) { it.id }
+        var projectsRestored = 0
+        for (p in payload.projects) {
+            if (p.id in existingProjectIds) continue
+            backend.upsertProject(ProjectEntity.fromDomain(p))
+            existingProjectIds += p.id
+            projectsRestored++
+        }
+
+        val existingTaskIds = backend.getAllTasks().mapTo(HashSet()) { it.id }
+        var tasksRestored = 0
+        for (t in payload.tasks) {
+            if (t.id in existingTaskIds) continue
+            val mappedTask = t.copy(tagId = t.tagId?.let { tagIdRemap[it] ?: it })
+            backend.upsertTask(TaskEntity.fromDomain(mappedTask))
+            if (mappedTask.subtasks.isNotEmpty()) {
+                backend.upsertSubtasks(mappedTask.subtasks.map { SubtaskEntity.fromDomain(it) })
+            }
+            existingTaskIds += mappedTask.id
+            tasksRestored++
+        }
+
+        val existingHabitIds = backend.getAllHabits().mapTo(HashSet()) { it.id }
+        var habitsRestored = 0
+        for (h in payload.habits) {
+            if (h.id in existingHabitIds) continue
+            val mappedHabit = h.copy(tagId = h.tagId?.let { tagIdRemap[it] ?: it })
+            backend.upsertHabit(HabitEntity.fromDomain(mappedHabit))
+            existingHabitIds += mappedHabit.id
+            habitsRestored++
+        }
+
+        val existingLogPairs = backend.getAllHabitLogs().mapTo(HashSet()) { "${it.habitId}|${it.dateLocal}" }
+        var habitLogsRestored = 0
+        for (l in payload.habitLogs) {
+            if (!existingLogPairs.add("${l.habitId}|${l.dateLocal}")) continue
+            backend.upsertHabitLog(HabitLogEntity.fromDomain(l))
+            habitLogsRestored++
+        }
+
         return BackupRestoreSummary(
             mode = BackupRestoreMode.MERGE_SAFE,
             recordsInserted = recordsInserted,
@@ -648,7 +894,11 @@ object LedgerBackupRestorer {
             goalsRestored = goalsRestored,
             budgetsRestored = budgetsRestored,
             dailyReviewsRestored = reviewsRestored,
-            activityNotesRestored = notesToInsert.size
+            activityNotesRestored = notesToInsert.size,
+            projectsRestored = projectsRestored,
+            tasksRestored = tasksRestored,
+            habitsRestored = habitsRestored,
+            habitLogsRestored = habitLogsRestored
         )
     }
 

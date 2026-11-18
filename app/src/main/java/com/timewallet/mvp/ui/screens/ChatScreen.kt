@@ -1,5 +1,12 @@
 package com.timewallet.mvp.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.contentDescription
@@ -17,12 +24,17 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.timewallet.mvp.domain.model.AiReadPermissions
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -58,13 +70,26 @@ import com.timewallet.mvp.domain.usecase.ChatHistoryEntry
 import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
 import com.timewallet.mvp.domain.usecase.LedgerValidator
 import com.timewallet.mvp.ui.EditableProposalDraft
+import com.timewallet.mvp.ui.theme.WalletBg
+import com.timewallet.mvp.ui.theme.WalletCardBg
+import com.timewallet.mvp.ui.theme.WalletClarificationBg
+import com.timewallet.mvp.ui.theme.WalletDangerBg
+import com.timewallet.mvp.ui.theme.WalletDangerSolid
+import com.timewallet.mvp.ui.theme.WalletDangerText
+import com.timewallet.mvp.ui.theme.WalletDivider
 import com.timewallet.mvp.ui.theme.WalletInk
 import com.timewallet.mvp.ui.theme.WalletMicroBg
 import com.timewallet.mvp.ui.theme.WalletMicroText
 import com.timewallet.mvp.ui.theme.WalletMint
+import com.timewallet.mvp.ui.theme.WalletMintAccent
+import com.timewallet.mvp.ui.theme.WalletMintDark
+import com.timewallet.mvp.ui.theme.WalletMintSoft
 import com.timewallet.mvp.ui.theme.WalletMintTint
 import com.timewallet.mvp.ui.theme.WalletMuted
+import com.timewallet.mvp.ui.theme.WalletSoftNeutral
 import com.timewallet.mvp.ui.theme.WalletStroke
+import com.timewallet.mvp.ui.theme.WalletWarningBg
+import com.timewallet.mvp.ui.theme.WalletWarningText
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -89,7 +114,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
-import com.timewallet.mvp.ui.theme.WalletMintDark
+import com.timewallet.mvp.ui.theme.WalletBg
+import com.timewallet.mvp.ui.theme.WalletCardBg
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
@@ -133,7 +159,14 @@ fun ChatScreen(
     onLastUserMessageChange: (String?) -> Unit,
     chatHistory: List<ChatHistoryEntry> = emptyList(),
     onClearChatHistory: () -> Unit = {},
-    onCleanChatInput: () -> Unit = {}
+    onCleanChatInput: () -> Unit = {},
+    onCopyPromptToast: () -> Unit = {},
+    onEditAndResubmitPrompt: (String) -> Unit = { edited ->
+        onChatInputChange(edited)
+        onAnalyzeClick()
+    },
+    onOpenAppIntro: () -> Unit = {},
+    embeddedInOverlay: Boolean = false
 ) {
     // v1.0.11: ba gợi ý ngắn thay cho năm chip; câu đầy đủ vẫn được điền vào ô nhập để người dùng xem/sửa trước khi gửi.
     val examples = listOf(
@@ -141,6 +174,7 @@ fun ChatScreen(
         "Hôm nay dùng bao nhiêu?" to "Hôm nay tôi đã dùng bao nhiêu giờ?",
         "So với tuần trước" to "So sánh tuần này với tuần trước"
     )
+    val context = LocalContext.current
 
     // Tin nhắn vừa gửi chỉ để hiển thị bong bóng (do MainActivity giữ); lịch sử đã hoàn tất được lưu bền vững qua chatHistory.
     val scroll = rememberScrollState()
@@ -192,26 +226,28 @@ fun ChatScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         if (!compactHeight) {
-        // Đầu trang: Wally + xóa lịch sử (nếu có) + trạng thái AI (chạm để cấu hình). FlowRow: khi hẹp/chữ lớn, nhãn trạng thái tự xuống dòng thay vì bóp tên.
+        // Đầu trang: tránh lặp lại avatar/tiêu đề Wally khi nằm trong overlay Pop-on.
         FlowRow(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 6.dp, bottom = 8.dp),
+                .padding(top = if (embeddedInOverlay) 0.dp else 6.dp, bottom = if (embeddedInOverlay) 6.dp else 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Row(
-                modifier = Modifier.padding(end = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                WallyMascotAvatar(
-                    size = 44.dp,
-                    contentDescription = "Wally"
-                )
-                Column {
-                    Text(text = "Wally", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk, maxLines = 1, softWrap = false)
-                    Text(text = "Trợ lý thời gian", fontSize = 12.5.sp, color = WalletMuted, maxLines = 1, softWrap = false)
+            if (!embeddedInOverlay) {
+                Row(
+                    modifier = Modifier.padding(end = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    WallyMascotAvatar(
+                        size = 44.dp,
+                        contentDescription = "Wally"
+                    )
+                    Column {
+                        Text(text = "Wally", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk, maxLines = 1, softWrap = false)
+                        Text(text = "Trợ lý thời gian", fontSize = 12.5.sp, color = WalletMuted, maxLines = 1, softWrap = false)
+                    }
                 }
             }
             Row(
@@ -222,7 +258,7 @@ fun ChatScreen(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(16.dp))
-                            .background(Color(0xFFFCECEC))
+                            .background(WalletDangerBg)
                             .walletClickable(onClickLabel = "Xóa lịch sử trò chuyện") {
                                 showClearHistoryConfirm = true
                             }
@@ -232,7 +268,7 @@ fun ChatScreen(
                             text = "Xóa lịch sử",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFB3261E),
+                            color = WalletDangerText,
                             maxLines = 1
                         )
                     }
@@ -246,7 +282,7 @@ fun ChatScreen(
                     modifier = Modifier
                         .widthIn(max = 190.dp)
                         .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFFEFF3EE))
+                        .background(WalletSoftNeutral)
                         .walletClickable(onClickLabel = "Mở cấu hình AI", onClick = onOpenAiSettings)
                         .padding(horizontal = 11.dp, vertical = 6.dp)
                 ) {
@@ -258,11 +294,28 @@ fun ChatScreen(
                             text = modeText,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF5D7064),
+                            color = WalletMuted,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        GlyphIcon(WalletGlyph.SETTINGS, color = Color(0xFF5D7064), size = 13.dp)
+                        GlyphIcon(WalletGlyph.SETTINGS, color = WalletMuted, size = 13.dp)
+                    }
+                }
+                if (embeddedInOverlay && !hasReply) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(WalletMintTint)
+                            .walletClickable(onClickLabel = "Xem giới thiệu Time Wallet") { onOpenAppIntro() }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "Hướng dẫn",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = WalletMintAccent,
+                            maxLines = 1
+                        )
                     }
                 }
             }
@@ -279,32 +332,80 @@ fun ChatScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             if (!hasReply) {
-                // Màn chào: Wally lớn ở giữa, lời hỏi ngắn; gợi ý nhanh nằm ngay phía dưới.
+                // Trạng thái trống tự nhiên: lời chào ngắn gọn + một hàng gợi ý nhẹ, nhường chỗ cho trò chuyện.
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 20.dp),
+                        .padding(top = 20.dp, bottom = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     WallyMascotAvatar(
-                        size = 104.dp,
+                        size = 64.dp,
                         contentDescription = null
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = "Hôm nay của bạn thế nào?",
-                        fontSize = 20.sp,
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = WalletInk,
                         textAlign = TextAlign.Center
                     )
                     Text(
-                        text = "Kể tôi nghe, tôi sẽ giúp bạn ghi lại.",
-                        fontSize = 14.sp,
+                        text = "Nhắn tự nhiên để hỏi lịch, nhờ gợi ý hoặc ghi hoạt động — bạn luôn duyệt trước khi lưu.",
+                        fontSize = 12.5.sp,
                         color = WalletMuted,
-                        textAlign = TextAlign.Center
+                        textAlign = TextAlign.Center,
+                        lineHeight = 18.sp,
+                        modifier = Modifier.padding(horizontal = 18.dp)
                     )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        examples.forEach { (shortTitle, fullPrompt) ->
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(100.dp))
+                                    .background(WalletMintTint)
+                                    .border(1.dp, WalletStroke, RoundedCornerShape(100.dp))
+                                    .walletClickable(onClickLabel = "Dùng mẫu $shortTitle") {
+                                        suppressedInFlightRaw = null
+                                        onApplyExample(fullPrompt)
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 7.dp)
+                            ) {
+                                Text(
+                                    text = shortTitle,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = WalletMintAccent,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(100.dp))
+                                .background(WalletCardBg)
+                                .border(1.dp, WalletStroke, RoundedCornerShape(100.dp))
+                                .walletClickable(onClickLabel = "Ghi thủ công", onClick = onManualEntry)
+                                .padding(horizontal = 12.dp, vertical = 7.dp)
+                        ) {
+                            Text(
+                                text = "+ Ghi thủ công",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = WalletInk,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
                 }
             } else {
                 val activeAnswerHeadline = chatAnswer?.takeUnless { it.isTransactionStatus }?.headline
@@ -316,15 +417,29 @@ fun ChatScreen(
                     if (!duplicatedByLiveAnswer) {
                         if (entry.isUser) {
                             UserBubble(
+                                bubbleKey = "hist_${entry.id}",
                                 text = entry.headline,
                                 maxWidth = maxBubbleWidth,
                                 timeText = entry.timeText.ifBlank { null },
                                 statusText = entry.label ?: "Wally đã xem ✓✓",
-                                isRead = true
+                                isRead = true,
+                                canResubmit = !isAnalyzing,
+                                onCopy = { textToCopy ->
+                                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    cm.setPrimaryClip(ClipData.newPlainText("wally-prompt", textToCopy))
+                                    onCopyPromptToast()
+                                },
+                                onSubmitEdited = { edited ->
+                                    onLastUserMessageChange(edited)
+                                    if (chatAnswer != null) onDismissAnswer()
+                                    suppressedInFlightRaw = edited
+                                    keyboardController?.hide()
+                                    onEditAndResubmitPrompt(edited)
+                                }
                             )
                         } else {
                             WallyBubble(
-                                tint = if (entry.isClarification) Color(0xFFFFF8E8) else Color.White,
+                                tint = if (entry.isClarification) WalletClarificationBg else WalletCardBg,
                                 maxWidth = maxBubbleWidth
                             ) {
                                 Text(
@@ -375,11 +490,25 @@ fun ChatScreen(
                             else -> "Đã gửi ✓"
                         }
                         UserBubble(
+                            bubbleKey = "live_${sentText.hashCode()}",
                             text = sentText,
                             maxWidth = maxBubbleWidth,
                             timeText = lastUserTimeText.ifBlank { null },
                             statusText = statusLabel,
-                            isRead = !isAnalyzing && (chatAnswer != null || proposals.isNotEmpty())
+                            isRead = !isAnalyzing && (chatAnswer != null || proposals.isNotEmpty()),
+                            canResubmit = !isAnalyzing,
+                            onCopy = { textToCopy ->
+                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                cm.setPrimaryClip(ClipData.newPlainText("wally-prompt", textToCopy))
+                                onCopyPromptToast()
+                            },
+                            onSubmitEdited = { edited ->
+                                onLastUserMessageChange(edited)
+                                if (chatAnswer != null) onDismissAnswer()
+                                suppressedInFlightRaw = edited
+                                keyboardController?.hide()
+                                onEditAndResubmitPrompt(edited)
+                            }
                         )
                     }
                 }
@@ -404,7 +533,7 @@ fun ChatScreen(
 
             // WALLY: lỗi AI không được im lặng; luôn có Thử lại và đường ghi thủ công. Nội dung đã nhập được giữ.
             if (chatFault != null) {
-                WallyBubble(tint = Color(0xFFFFF8E8), maxWidth = maxBubbleWidth) {
+                WallyBubble(tint = WalletClarificationBg, maxWidth = maxBubbleWidth) {
                     val needsSetup = chatFault == AiFault.NOT_CONFIGURED ||
                         chatFault == AiFault.CONFIG ||
                         chatFault == AiFault.AUTH ||
@@ -418,7 +547,7 @@ fun ChatScreen(
                     ) {
                         GlyphIcon(
                             glyph = if (isSetupWarn) WalletGlyph.WARNING else WalletGlyph.ERROR,
-                            color = if (isSetupWarn) Color(0xFFA24C18) else Color(0xFFB63F37),
+                            color = if (isSetupWarn) WalletWarningText else WalletDangerText,
                             size = 16.dp
                         )
                         Text(
@@ -468,7 +597,7 @@ fun ChatScreen(
             }
 
             if (aiPreferences.keyUnavailable) {
-                WallyBubble(tint = Color(0xFFFFF8E8), maxWidth = maxBubbleWidth) {
+                WallyBubble(tint = WalletClarificationBg, maxWidth = maxBubbleWidth) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -486,7 +615,7 @@ fun ChatScreen(
             // AI-01: câu trả lời số liệu (chỉ-đọc, tính cục bộ)
             if (chatAnswer != null) {
                 WallyBubble(
-                    tint = if (chatAnswer.isClarification) Color(0xFFFFF8E8) else Color.White,
+                    tint = if (chatAnswer.isClarification) WalletClarificationBg else WalletCardBg,
                     maxWidth = maxBubbleWidth
                 ) {
                     ChatAnswerContent(
@@ -515,8 +644,8 @@ fun ChatScreen(
             Spacer(modifier = Modifier.height(4.dp))
         }
 
-        // Gợi ý nhanh + ô nhập gọn ghim dưới đáy. Khi đang có đề xuất chờ xác nhận thì ẩn gợi ý để nhường chỗ cho thẻ đề xuất.
-        if (proposals.isEmpty() && !compactHeight) {
+        // Gợi ý nhanh khi đang trò chuyện (khi trống đã hiển thị ngay dưới lời chào để tránh lặp nút).
+        if (hasReply && proposals.isEmpty() && !compactHeight) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -614,7 +743,7 @@ fun ChatScreen(
         if (showClearHistoryConfirm) {
             AlertDialog(
                 onDismissRequest = { showClearHistoryConfirm = false },
-                containerColor = Color.White,
+                containerColor = WalletCardBg,
                 title = { Text("Xóa lịch sử trò chuyện?", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
                 text = {
                     Text(
@@ -629,7 +758,7 @@ fun ChatScreen(
                             showClearHistoryConfirm = false
                             onClearChatHistory()
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB3261E))
+                        colors = ButtonDefaults.buttonColors(containerColor = WalletDangerSolid, contentColor = Color.White)
                     ) {
                         Text("Xóa lịch sử", fontWeight = FontWeight.Bold)
                     }
@@ -644,7 +773,7 @@ fun ChatScreen(
         if (showCleanChatConfirm) {
             AlertDialog(
                 onDismissRequest = { showCleanChatConfirm = false },
-                containerColor = Color.White,
+                containerColor = WalletCardBg,
                 title = { Text("Xóa nội dung đang nhập?", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
                 text = {
                     Text(
@@ -659,7 +788,7 @@ fun ChatScreen(
                             showCleanChatConfirm = false
                             onCleanChatInput()
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB3261E))
+                        colors = ButtonDefaults.buttonColors(containerColor = WalletDangerSolid, contentColor = Color.White)
                     ) { Text("Xóa nhập liệu", fontWeight = FontWeight.Bold) }
                 },
                 dismissButton = {
@@ -675,7 +804,7 @@ fun ChatScreen(
 /** Bong bóng của Wally (chat-start): avatar + nội dung bo rộng với đuôi góc dưới-trái, rộng tối đa ~75% cột. */
 @Composable
 private fun WallyBubble(
-    tint: Color = Color.White,
+    tint: Color = WalletCardBg,
     maxWidth: androidx.compose.ui.unit.Dp = 300.dp,
     content: @Composable () -> Unit
 ) {
@@ -734,37 +863,139 @@ private fun WallyTypingDots(modifier: Modifier = Modifier) {
     }
 }
 
-/** Bong bóng của người dùng (chat-end): căn phải, màu thương hiệu, đuôi góc dưới-phải, tối đa ~75% cột + dòng metadata dưới cùng. */
+/** Bong bóng của người dùng (chat-end): căn phải, kèm Copy & Sửa prompt (có Revert changes). */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun UserBubble(
+    bubbleKey: String,
     text: String,
     maxWidth: androidx.compose.ui.unit.Dp = 300.dp,
     timeText: String? = null,
     statusText: String? = null,
-    isRead: Boolean = false
+    isRead: Boolean = false,
+    canResubmit: Boolean = true,
+    onCopy: (String) -> Unit = {},
+    onSubmitEdited: (String) -> Unit = {}
 ) {
+    var editing by remember(bubbleKey, text) { mutableStateOf(false) }
+    var draftText by remember(bubbleKey, text) { mutableStateOf(text) }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.End
     ) {
-        Box(
-            modifier = Modifier
-                .widthIn(max = maxWidth)
-                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomEnd = 5.dp, bottomStart = 20.dp))
-                .background(WalletMint)
-                .padding(horizontal = 14.dp, vertical = 10.dp)
-        ) {
-            Text(text = text, fontSize = 14.sp, color = Color.White, lineHeight = 20.sp)
-        }
-        val meta = listOfNotNull(timeText?.takeIf { it.isNotBlank() }, statusText?.takeIf { it.isNotBlank() }).joinToString(" · ")
-        if (meta.isNotEmpty()) {
-            Text(
-                text = meta,
-                fontSize = 11.sp,
-                fontWeight = if (isRead) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (isRead) WalletMintDark else WalletMuted,
-                modifier = Modifier.padding(top = 3.dp, end = 4.dp)
-            )
+        if (!editing) {
+            Box(
+                modifier = Modifier
+                    .widthIn(max = maxWidth)
+                    .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomEnd = 5.dp, bottomStart = 20.dp))
+                    .background(WalletMint)
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+            ) {
+                Text(text = text, fontSize = 14.sp, color = Color.White, lineHeight = 20.sp)
+            }
+            Row(
+                modifier = Modifier.padding(top = 2.dp, end = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                val meta = listOfNotNull(timeText?.takeIf { it.isNotBlank() }, statusText?.takeIf { it.isNotBlank() }).joinToString(" · ")
+                if (meta.isNotEmpty()) {
+                    Text(
+                        text = meta,
+                        fontSize = 11.sp,
+                        fontWeight = if (isRead) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (isRead) WalletMintAccent else WalletMuted
+                    )
+                }
+                Text(
+                    text = "Copy",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = WalletMuted,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .semantics { contentDescription = "Sao chép prompt" }
+                        .walletClickable(onClickLabel = "Sao chép prompt") { onCopy(text) }
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                )
+                if (canResubmit) {
+                    Text(
+                        text = "Sửa",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = WalletMintAccent,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .semantics { contentDescription = "Chỉnh sửa prompt" }
+                            .walletClickable(onClickLabel = "Chỉnh sửa prompt") {
+                                draftText = text
+                                editing = true
+                            }
+                            .padding(horizontal = 6.dp, vertical = 4.dp)
+                    )
+                }
+            }
+        } else {
+            Card(
+                modifier = Modifier.widthIn(max = maxWidth),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = WalletCardBg),
+                border = BorderStroke(1.2.dp, WalletMint)
+            ) {
+                Column(
+                    modifier = Modifier.padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = draftText,
+                        onValueChange = { draftText = it },
+                        label = { Text("Sửa prompt", fontSize = 11.5.sp) },
+                        minLines = 2,
+                        maxLines = 4,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (draftText != text) {
+                            OutlinedButton(
+                                onClick = { draftText = text },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text("Revert changes", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = WalletMuted)
+                            }
+                        }
+                        TextButton(
+                            onClick = {
+                                draftText = text
+                                editing = false
+                            },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text("Hủy", fontSize = 11.5.sp, color = WalletMuted)
+                        }
+                        Button(
+                            onClick = {
+                                val next = draftText.trim()
+                                if (next.isNotEmpty()) {
+                                    editing = false
+                                    onSubmitEdited(next)
+                                }
+                            },
+                            enabled = draftText.isNotBlank() && canResubmit,
+                            colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Phân tích lại", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -775,7 +1006,7 @@ private fun SuggestionChip(text: String, onClick: () -> Unit) {
         modifier = Modifier
             .clip(RoundedCornerShape(100.dp))
             .background(WalletMintTint)
-            .border(1.dp, Color(0xFFBBDCCB), RoundedCornerShape(100.dp))
+            .border(1.dp, WalletStroke, RoundedCornerShape(100.dp))
             .walletClickable(onClick = onClick)
             .padding(horizontal = 13.dp, vertical = 7.dp)
     ) {
@@ -783,7 +1014,7 @@ private fun SuggestionChip(text: String, onClick: () -> Unit) {
             text = "→ $text",
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
-            color = WalletMintDark,
+            color = WalletMintAccent,
             maxLines = 1,
             softWrap = false
         )
@@ -816,8 +1047,8 @@ private fun CompactProposalBatchCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, Color(0xFFBCD9CA)),
+        colors = CardDefaults.cardColors(containerColor = WalletCardBg),
+        border = BorderStroke(1.dp, WalletStroke),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(13.dp)) {
@@ -866,7 +1097,7 @@ private fun CompactProposalBatchCard(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(7.dp))
-                            .background(Color(0xFFE8F5EE))
+                            .background(WalletMintSoft)
                             .padding(horizontal = 7.dp, vertical = 2.5.dp)
                     ) {
                         Text(
@@ -881,14 +1112,14 @@ private fun CompactProposalBatchCard(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(7.dp))
-                            .background(Color(0xFFEDF1EE))
+                            .background(WalletSoftNeutral)
                             .padding(horizontal = 7.dp, vertical = 2.5.dp)
                     ) {
                         Text(
                             text = "Chưa gắn giờ: ${LedgerAnalyticsCalculator.formatCompactDurationSeconds(untimedMinutes * 60L)}",
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF5A6B62)
+                            color = WalletMuted
                         )
                     }
                 }
@@ -896,14 +1127,14 @@ private fun CompactProposalBatchCard(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(7.dp))
-                            .background(Color(0xFFFFF3DF))
+                            .background(WalletWarningBg)
                             .padding(horizontal = 7.dp, vertical = 2.5.dp)
                     ) {
                         Text(
                             text = "Dự kiến: ${LedgerAnalyticsCalculator.formatCompactDurationSeconds(plannedMinutes * 60L)}",
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF9C5D16)
+                            color = WalletWarningText
                         )
                     }
                 }
@@ -917,77 +1148,103 @@ private fun CompactProposalBatchCard(
             proposals.forEachIndexed { index, item ->
                 val isExpanded = expandedProposalId == item.id
                 val cat = TimeCategory.fromKeyOrDefault(item.categoryKey)
-                val catColor = Color(cat.colorHex)
                 val hasTime = item.startLocal.isNotBlank() && item.endLocal.isNotBlank()
-                val timeBadgeText = when {
-                    item.isFuturePlanned && hasTime -> "${item.startLocal}–${item.endLocal} · Dự kiến"
-                    item.isFuturePlanned -> "Dự kiến (${item.dateLocal})"
-                    hasTime -> "${item.startLocal}–${item.endLocal}"
+                val durationStr = LedgerAnalyticsCalculator.formatCompactDurationSeconds(item.durationMinutes * 60L)
+                // Thông tin tĩnh ("thông tin chết") đặt liền sau thời lượng, tách bạch khỏi cụm 3 nút icon hành động.
+                val deadStatusLabel = when {
+                    item.isFuturePlanned -> "Đã nhận dự kiến"
+                    hasTime -> "Đã nhận có giờ"
                     else -> "Chưa gắn giờ"
+                }
+                val timeWindowText = when {
+                    hasTime -> "${item.startLocal}–${item.endLocal}"
+                    item.isFuturePlanned -> item.dateLocal
+                    else -> null
                 }
 
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    // Hàng đề xuất 2 tầng (hợp với màn hẹp/chữ lớn): tầng 1 = biểu tượng + tên + thời lượng; tầng 2 = chi tiết + sửa/bỏ.
-                    Column(
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .semantics { role = Role.Button }
-                            .heightIn(min = 48.dp)
-                            .clickable { onToggleExpand(item.id) }
-                            .padding(top = 8.dp)
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.Top,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        CategoryBadge(category = cat, size = 34.dp)
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
-                            CategoryBadge(category = cat, size = 34.dp)
                             Text(
                                 text = item.title,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = WalletInk,
                                 maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(top = 6.dp)
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = LedgerAnalyticsCalculator.formatCompactDurationSeconds(item.durationMinutes * 60L),
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = WalletInk,
+                                text = buildAnnotatedString {
+                                    withStyle(SpanStyle(fontWeight = FontWeight.ExtraBold, color = WalletInk)) {
+                                        append(durationStr)
+                                    }
+                                    withStyle(
+                                        SpanStyle(
+                                            fontWeight = FontWeight.Medium,
+                                            color = if (item.isFuturePlanned) WalletWarningText else WalletMuted
+                                        )
+                                    ) {
+                                        append(" · $deadStatusLabel")
+                                    }
+                                },
+                                fontSize = 12.sp,
                                 maxLines = 1,
-                                softWrap = false,
-                                modifier = Modifier.padding(top = 6.dp)
+                                overflow = TextOverflow.Ellipsis
                             )
-                        }
-                        Row(
-                            modifier = Modifier.padding(start = 44.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
                             Text(
                                 // v1.1.0: 🏷 = đề xuất đã khớp một Tag của bạn (khớp xác định theo tên, không do AI); nhóm theo Tag.
-                                text = "${cat.displayName}${if (item.tagId != null) " 🏷" else ""} · $timeBadgeText",
-                                fontSize = 12.sp,
-                                color = if (hasTime) Color(0xFF287356) else WalletMuted,
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
+                                text = buildString {
+                                    append(cat.displayName)
+                                    if (item.tagId != null) append(" 🏷")
+                                    if (timeWindowText != null) append(" · $timeWindowText")
+                                    if (item.isMarkedWaste) append(" · Lãng phí")
+                                },
+                                fontSize = 11.5.sp,
+                                color = if (hasTime) WalletMintAccent else WalletMuted,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
                             )
+                        }
+                        // Cụm 3 nút icon hành động: Xác nhận (✓) | Sửa (✎) | Từ chối (✕)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(WalletMintSoft)
+                                    .semantics { contentDescription = "Xác nhận đề xuất này"; role = Role.Button }
+                                    .clickable { onConfirmSingle(item.id) }
+                                    .padding(7.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                GlyphIcon(WalletGlyph.CONFIRM, color = WalletMintAccent, size = 18.dp)
+                            }
                             Box(
                                 modifier = Modifier
                                     .minimumInteractiveComponentSize()
                                     .clip(RoundedCornerShape(10.dp))
                                     .semantics { contentDescription = "Chỉnh sửa hoặc thu gọn đề xuất"; role = Role.Button }
-                                    .clickable { onToggleExpand(item.id) },
+                                    .clickable { onToggleExpand(item.id) }
+                                    .padding(7.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (isExpanded) {
                                     Text(text = "▲", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = WalletMint)
                                 } else {
-                                    GlyphIcon(WalletGlyph.EDIT, color = WalletMint, size = 20.dp)
+                                    GlyphIcon(WalletGlyph.EDIT, color = WalletMint, size = 18.dp)
                                 }
                             }
                             Box(
@@ -995,10 +1252,11 @@ private fun CompactProposalBatchCard(
                                     .minimumInteractiveComponentSize()
                                     .clip(RoundedCornerShape(10.dp))
                                     .semantics { contentDescription = "Bỏ đề xuất này"; role = Role.Button }
-                                    .clickable { onDiscardProposal(item.id) },
+                                    .clickable { onDiscardProposal(item.id) }
+                                    .padding(7.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                GlyphIcon(WalletGlyph.CLOSE, color = Color(0xFF8E9A93), size = 20.dp)
+                                GlyphIcon(WalletGlyph.CLOSE, color = Color(0xFF8E9A93), size = 18.dp)
                             }
                         }
                     }
@@ -1009,7 +1267,7 @@ private fun CompactProposalBatchCard(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(11.dp))
-                                .background(Color(0xFFF6F9F6))
+                                .background(WalletSoftNeutral)
                                 .border(1.dp, WalletStroke, RoundedCornerShape(11.dp))
                                 .padding(10.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -1111,16 +1369,41 @@ private fun CompactProposalBatchCard(
                                 Switch(
                                     checked = item.isFuturePlanned,
                                     onCheckedChange = { checked ->
-                                        onUpdateProposal(item.id) { it.copy(isFuturePlanned = checked) }
+                                        onUpdateProposal(item.id) {
+                                            it.copy(
+                                                isFuturePlanned = checked,
+                                                isMarkedWaste = if (checked) false else it.isMarkedWaste
+                                            )
+                                        }
                                     }
                                 )
+                            }
+
+                            if (!item.isFuturePlanned) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "Đánh dấu lãng phí (biểu đồ 24h)",
+                                        fontSize = 11.sp,
+                                        color = WalletInk
+                                    )
+                                    Switch(
+                                        checked = item.isMarkedWaste,
+                                        onCheckedChange = { checked ->
+                                            onUpdateProposal(item.id) { it.copy(isMarkedWaste = checked) }
+                                        }
+                                    )
+                                }
                             }
 
                             Button(
                                 onClick = { onConfirmSingle(item.id) },
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
+                                colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
                                 contentPadding = PaddingValues(vertical = 8.dp)
                             ) {
                                 Text("✓ Lưu riêng mục này", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
@@ -1130,7 +1413,7 @@ private fun CompactProposalBatchCard(
                     }
 
                     if (index < proposals.lastIndex) {
-                        HorizontalDivider(color = Color(0xFFEFF2EE))
+                        HorizontalDivider(color = WalletDivider)
                     }
                 }
             }
@@ -1142,7 +1425,7 @@ private fun CompactProposalBatchCard(
                 onClick = onConfirmAll,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
+                colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
                 contentPadding = PaddingValues(vertical = 14.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1174,7 +1457,7 @@ private fun ChatAnswerContent(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(100.dp))
-                    .background(if (answer.isClarification) Color(0xFFFFECCC) else WalletMintTint)
+                    .background(if (answer.isClarification) WalletWarningBg else WalletMintTint)
                     .padding(horizontal = 9.dp, vertical = 3.dp)
             ) {
                 Row(
@@ -1185,13 +1468,13 @@ private fun ChatAnswerContent(
                         text = "✦",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        color = if (answer.isClarification) Color(0xFF9C540B) else WalletMintDark
+                        color = if (answer.isClarification) WalletWarningText else WalletMintAccent
                     )
                     Text(
                         text = answer.label ?: if (answer.isClarification) "Cần hỏi lại" else "Wally",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        color = if (answer.isClarification) Color(0xFF9C540B) else WalletMintDark
+                        color = if (answer.isClarification) WalletWarningText else WalletMintAccent
                     )
                 }
             }
@@ -1262,7 +1545,7 @@ private fun ChatAnswerContent(
                     text = "◆ BƯỚC TIẾP THEO",
                     fontSize = 10.5.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = WalletMintDark
+                    color = WalletMintAccent
                 )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1271,6 +1554,175 @@ private fun ChatAnswerContent(
                     answer.suggestions.forEach { suggestion ->
                         SuggestionChip(text = suggestion) { onUseSuggestion(suggestion) }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun WallyAiOverlay(
+    aiReadPermissions: AiReadPermissions,
+    overlayHint: String?,
+    inboxTaskCount: Int,
+    onRequestReplanInbox: () -> Unit,
+    onDismiss: () -> Unit,
+    chatInputText: String,
+    isAnalyzing: Boolean,
+    chatFault: AiFault?,
+    lastAnalysisSource: OutcomeSource?,
+    onCancelAnalysis: () -> Unit,
+    onDismissError: () -> Unit,
+    onManualEntry: () -> Unit,
+    chatAnswer: ChatAnswer?,
+    onDismissAnswer: () -> Unit,
+    proposals: List<EditableProposalDraft>,
+    expandedProposalId: String?,
+    aiPreferences: AiPreferences,
+    onChatInputChange: (String) -> Unit,
+    onApplyExample: (String) -> Unit,
+    onAnalyzeClick: () -> Unit,
+    onOpenAiSettings: () -> Unit,
+    onToggleExpandProposal: (String) -> Unit,
+    onUpdateProposal: (String, (EditableProposalDraft) -> EditableProposalDraft) -> Unit,
+    onDiscardProposal: (String) -> Unit,
+    onClearAllProposals: () -> Unit,
+    onConfirmSingleProposal: (String) -> Unit,
+    onConfirmAllProposals: () -> Unit,
+    lastUserMessage: String?,
+    onLastUserMessageChange: (String?) -> Unit,
+    chatHistory: List<ChatHistoryEntry> = emptyList(),
+    onClearChatHistory: () -> Unit = {},
+    onCleanChatInput: () -> Unit = {},
+    onCopyPromptToast: () -> Unit = {},
+    onEditAndResubmitPrompt: (String) -> Unit,
+    onOpenAppIntro: () -> Unit = {}
+) {
+    val activeScopes = remember(aiReadPermissions) {
+        buildList {
+            if (aiReadPermissions.readLedger) add("Sổ cái")
+            if (aiReadPermissions.readTasks) add("Việc")
+            if (aiReadPermissions.readHabits) add("Thói quen")
+            if (aiReadPermissions.readGoals) add("Mục tiêu")
+        }
+    }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .fillMaxHeight(0.9f),
+            shape = RoundedCornerShape(24.dp),
+            color = WalletBg
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "✦ Trợ lý Wally",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = WalletInk
+                        )
+                        Text(
+                            text = if (activeScopes.isEmpty()) "Quyền đọc AI: Đang tắt toàn bộ" else "Quyền đọc: ${activeScopes.joinToString(" · ")}",
+                            fontSize = 11.sp,
+                            color = if (activeScopes.isEmpty()) WalletDangerText else WalletMuted
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (inboxTaskCount > 0) {
+                            WalletPill(
+                                onClickLabel = "Gợi ý xếp lịch Inbox",
+                                containerColor = WalletMintTint,
+                                borderColor = WalletStroke,
+                                onClick = onRequestReplanInbox
+                            ) {
+                                Text(
+                                    text = "Xếp Inbox ($inboxTaskCount)",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = WalletMintAccent,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(WalletCardBg)
+                                .border(1.dp, WalletStroke, CircleShape)
+                                .semantics { contentDescription = "Đóng trợ lý Wally" }
+                                .walletClickable(onClickLabel = "Đóng trợ lý Wally") { onDismiss() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            GlyphIcon(WalletGlyph.CLOSE, color = WalletInk, size = 16.dp)
+                        }
+                    }
+                }
+                if (!overlayHint.isNullOrBlank()) {
+                    Text(
+                        text = overlayHint,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = WalletMintAccent,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(WalletMintTint)
+                            .padding(horizontal = 10.dp, vertical = 7.dp)
+                    )
+                }
+                Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                    ChatScreen(
+                        chatInputText = chatInputText,
+                        isAnalyzing = isAnalyzing,
+                        chatFault = chatFault,
+                        lastAnalysisSource = lastAnalysisSource,
+                        onCancelAnalysis = onCancelAnalysis,
+                        onDismissError = onDismissError,
+                        onManualEntry = {
+                            onDismiss()
+                            onManualEntry()
+                        },
+                        chatAnswer = chatAnswer,
+                        onDismissAnswer = onDismissAnswer,
+                        proposals = proposals,
+                        expandedProposalId = expandedProposalId,
+                        aiPreferences = aiPreferences,
+                        onChatInputChange = onChatInputChange,
+                        onApplyExample = onApplyExample,
+                        onAnalyzeClick = onAnalyzeClick,
+                        onOpenAiSettings = onOpenAiSettings,
+                        onToggleExpandProposal = onToggleExpandProposal,
+                        onUpdateProposal = onUpdateProposal,
+                        onDiscardProposal = onDiscardProposal,
+                        onClearAllProposals = onClearAllProposals,
+                        onConfirmSingleProposal = onConfirmSingleProposal,
+                        onConfirmAllProposals = onConfirmAllProposals,
+                        lastUserMessage = lastUserMessage,
+                        onLastUserMessageChange = onLastUserMessageChange,
+                        chatHistory = chatHistory,
+                        onClearChatHistory = onClearChatHistory,
+                        onCleanChatInput = onCleanChatInput,
+                        onCopyPromptToast = onCopyPromptToast,
+                        onEditAndResubmitPrompt = onEditAndResubmitPrompt,
+                        onOpenAppIntro = onOpenAppIntro,
+                        embeddedInOverlay = true
+                    )
                 }
             }
         }

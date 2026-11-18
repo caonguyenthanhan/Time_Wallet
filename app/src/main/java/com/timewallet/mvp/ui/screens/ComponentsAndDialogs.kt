@@ -79,23 +79,43 @@ import com.timewallet.mvp.domain.model.BudgetPeriod
 import com.timewallet.mvp.domain.model.CategoryTimeBudget
 import com.timewallet.mvp.domain.model.ConfirmationState
 import com.timewallet.mvp.domain.model.LedgerRecord
+import com.timewallet.mvp.domain.model.LocalCategoryRule
 import com.timewallet.mvp.domain.model.OverlapResolution
+import com.timewallet.mvp.domain.model.Tag
 import com.timewallet.mvp.domain.model.TimeBudgetProgress
 import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.model.TimeLayer
 import com.timewallet.mvp.domain.usecase.ApiKeyHygiene
+import com.timewallet.mvp.domain.usecase.CaptureIntentKind
 import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
+import com.timewallet.mvp.domain.usecase.TaskHabitEngine
 import com.timewallet.mvp.ui.AppTab
 import com.timewallet.mvp.ui.ImportBackupUiState
+import com.timewallet.mvp.ui.TaskCompletionPrompt
+import com.timewallet.mvp.ui.theme.WalletBg
+import com.timewallet.mvp.ui.theme.WalletCardBg
 import com.timewallet.mvp.ui.theme.WalletCardBg
 import com.timewallet.mvp.ui.theme.WalletDangerBg
 import com.timewallet.mvp.ui.theme.WalletDangerBorder
+import com.timewallet.mvp.ui.theme.WalletDangerSolid
 import com.timewallet.mvp.ui.theme.WalletDangerText
+import com.timewallet.mvp.ui.theme.WalletInfoBg
+import com.timewallet.mvp.ui.theme.WalletInfoText
 import com.timewallet.mvp.ui.theme.WalletInk
+import com.timewallet.mvp.ui.theme.WalletIsDark
 import com.timewallet.mvp.ui.theme.WalletMicroBg
 import com.timewallet.mvp.ui.theme.WalletMicroText
 import com.timewallet.mvp.ui.theme.WalletMint
+import com.timewallet.mvp.ui.theme.WalletMintAccent
+import com.timewallet.mvp.ui.theme.WalletMintDark
 import com.timewallet.mvp.ui.theme.WalletMintSoft
+import com.timewallet.mvp.ui.theme.WalletMintTint
+import com.timewallet.mvp.ui.theme.WalletMuted
+import com.timewallet.mvp.ui.theme.WalletSoftNeutral
+import com.timewallet.mvp.ui.theme.WalletStroke
+import com.timewallet.mvp.ui.theme.WalletUntrackedBar
+import com.timewallet.mvp.ui.theme.WalletWarningBg
+import com.timewallet.mvp.ui.theme.WalletWarningText
 import com.timewallet.mvp.ui.theme.WalletMuted
 import com.timewallet.mvp.ui.theme.WalletStroke
 import java.time.Instant
@@ -109,21 +129,28 @@ fun TimeWalletTopBar(
     onTimerBadgeClick: () -> Unit,
     onDataClick: () -> Unit,
     onAiSettingsClick: () -> Unit,
-    onInfoClick: () -> Unit
+    onInfoClick: () -> Unit,
+    onOpenProfileSettings: (() -> Unit)? = null,
+    onOpenWallyOverlay: (() -> Unit)? = null,
+    onOpenQuickCapture: (() -> Unit)? = null,
+    wallyHasDrafts: Boolean = false
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFFF5F7F3))
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .background(WalletBg)
+            .padding(horizontal = 16.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // v1.0.11: header gọn một dòng (bỏ dòng khẩu hiệu).
+        // v1.0.11: header gọn một dòng, co giãn phần nhãn để nút bên phải không bao giờ tràn trên màn hẹp.
         Row(
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .padding(end = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(9.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // Icon-only vector (không chứa chữ nhỏ bên trong logo)
             Image(
@@ -131,19 +158,21 @@ fun TimeWalletTopBar(
                 contentDescription = "Biểu tượng Time Wallet",
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
-                    .size(32.dp)
+                    .size(30.dp)
                     .clip(RoundedCornerShape(10.dp))
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "time wallet",
-                    fontSize = 17.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = WalletInk
+                    color = WalletInk,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = ".",
-                    fontSize = 20.sp,
+                    fontSize = 19.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = WalletMint
                 )
@@ -152,7 +181,7 @@ fun TimeWalletTopBar(
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             if (isTimerRunning) {
                 Box(
@@ -168,34 +197,95 @@ fun TimeWalletTopBar(
                     val s = (timerSeconds % 60).toString().padStart(2, '0')
                     Text(
                         text = "● $m:$s",
-                        color = WalletMint,
+                        color = WalletMintAccent,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
             }
 
-            // Menu phụ: dữ liệu & sao lưu, cấu hình AI, thông tin (không còn khối quản trị dữ liệu trong Nhật ký).
-            Box {
-                TopBarCircleButton(glyph = WalletGlyph.MORE, contentDescription = "Menu", onClick = { menuOpen = true })
-                DropdownMenu(
-                    expanded = menuOpen,
-                    onDismissRequest = { menuOpen = false },
-                    containerColor = Color.White,
-                    shape = RoundedCornerShape(16.dp)
+            // Nút + Ghi nhanh, ✦ Wally AI Overlay và Cài đặt.
+            if (onOpenQuickCapture != null) {
+                Box(
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .semantics { contentDescription = "Thu thập nhanh" }
+                        .walletClickable(onClickLabel = "Mở thu thập nhanh") { onOpenQuickCapture() },
+                    contentAlignment = Alignment.Center
                 ) {
-                    DropdownMenuItem(
-                        text = { Text("Dữ liệu & sao lưu") },
-                        onClick = { menuOpen = false; onDataClick() }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(100.dp))
+                            .background(WalletMintTint)
+                            .border(1.dp, WalletStroke, RoundedCornerShape(100.dp))
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "+ Ghi",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = WalletMintAccent,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+            }
+            if (onOpenWallyOverlay != null) {
+                Box(
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .semantics { contentDescription = "Mở trợ lý Wally AI" }
+                        .walletClickable(onClickLabel = "Mở trợ lý Wally AI") { onOpenWallyOverlay() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(100.dp))
+                            .background(if (wallyHasDrafts) Color(0xFF0A2E22) else WalletMintDark)
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (wallyHasDrafts) "✦ Wally •" else "✦ Wally",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+            }
+            Box {
+                if (onOpenProfileSettings != null) {
+                    TopBarCircleButton(
+                        glyph = WalletGlyph.SETTINGS,
+                        contentDescription = "Hồ sơ và cài đặt",
+                        onClick = onOpenProfileSettings
                     )
-                    DropdownMenuItem(
-                        text = { Text("Cấu hình AI") },
-                        onClick = { menuOpen = false; onAiSettingsClick() }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Thông tin & nhật ký lỗi") },
-                        onClick = { menuOpen = false; onInfoClick() }
-                    )
+                } else {
+                    TopBarCircleButton(glyph = WalletGlyph.MORE, contentDescription = "Menu", onClick = { menuOpen = true })
+                    DropdownMenu(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false },
+                        containerColor = WalletCardBg,
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Dữ liệu & sao lưu") },
+                            onClick = { menuOpen = false; onDataClick() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Cấu hình AI") },
+                            onClick = { menuOpen = false; onAiSettingsClick() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Thông tin & nhật ký lỗi") },
+                            onClick = { menuOpen = false; onInfoClick() }
+                        )
+                    }
                 }
             }
         }
@@ -213,7 +303,7 @@ private fun TopBarCircleButton(
             .minimumInteractiveComponentSize()
             .size(36.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(Color.White)
+            .background(WalletCardBg)
             .border(1.dp, WalletStroke, RoundedCornerShape(12.dp))
             .semantics { this.contentDescription = contentDescription; role = Role.Button }
             .clickable(onClick = onClick),
@@ -232,7 +322,7 @@ fun TimeWalletBottomBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.White)
+            .background(WalletCardBg)
             .border(1.dp, WalletStroke, RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
             .padding(horizontal = 6.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceEvenly,
@@ -240,7 +330,7 @@ fun TimeWalletBottomBar(
     ) {
         AppTab.entries.forEach { tab ->
             val selected = tab == currentTab
-            val tint = if (selected) WalletMint else Color(0xFF7F9087)
+            val tint = if (selected) WalletMint else WalletMuted
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -266,7 +356,7 @@ fun TimeWalletBottomBar(
                     contentAlignment = Alignment.Center
                 ) {
                     GlyphIcon(glyph = tab.glyph(), color = tint, size = 22.dp, filled = selected)
-                    if (tab == AppTab.TIMER && isTimerRunning) {
+                    if (tab == AppTab.FOCUS && isTimerRunning) {
                         Box(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
@@ -284,7 +374,7 @@ fun TimeWalletBottomBar(
                     // trên màn hẹp (<360dp) nhãn tab giữ đúng 11dp để "Tổng quan" không bị cắt dù cỡ chữ hệ thống lớn
                     fontSize = cappedSp(11f, if (LocalConfiguration.current.screenWidthDp < 360) 1.0f else 1.1f),
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                    color = if (selected) tint else Color(0xFF5F7168),
+                    color = if (selected) tint else WalletMuted,
                     maxLines = 1,
                     softWrap = false,
                     overflow = TextOverflow.Ellipsis
@@ -455,17 +545,17 @@ fun ActivityRecordRow(
     }
 
     val (badgeBg, badgeTextColor) = when {
-        confState == ConfirmationState.CANCELLED -> Color(0xFFF0F2F1) to Color(0xFF63736B)
-        overlapRes == OverlapResolution.PENDING -> Color(0xFFFFF0D9) to Color(0xFF9C540B)
-        overlapRes == OverlapResolution.BREAK_REJECTED -> Color(0xFFFDECEC) to Color(0xFFB42318)
-        needsCompletionConfirm -> Color(0xFFFFECCC) to Color(0xFF9C540B)
-        overlapRes == OverlapResolution.PARALLEL_CONFIRMED -> Color(0xFFE6EEFF) to Color(0xFF1D4ED8)
-        confState == ConfirmationState.INTERRUPTED -> Color(0xFFFFF3E0) to Color(0xFFA15C07)
-        resolvedLayer == TimeLayer.MEASURED -> Color(0xFFDDF3E8) to Color(0xFF175C47)
-        resolvedLayer == TimeLayer.REPORTED_TIMED -> Color(0xFFE7F4EA) to Color(0xFF256B48)
-        resolvedLayer == TimeLayer.REPORTED_UNTIMED -> Color(0xFFEDF1EE) to Color(0xFF5A6B62)
-        resolvedLayer == TimeLayer.ACTIVE -> Color(0xFFE1F0FF) to Color(0xFF185FA5)
-        else -> Color(0xFFFFF3DF) to Color(0xFF9C5D16)
+        confState == ConfirmationState.CANCELLED -> WalletSoftNeutral to WalletMuted
+        overlapRes == OverlapResolution.PENDING -> WalletWarningBg to WalletWarningText
+        overlapRes == OverlapResolution.BREAK_REJECTED -> WalletDangerBg to WalletDangerText
+        needsCompletionConfirm -> WalletWarningBg to WalletWarningText
+        overlapRes == OverlapResolution.PARALLEL_CONFIRMED -> WalletInfoBg to WalletInfoText
+        confState == ConfirmationState.INTERRUPTED -> WalletWarningBg to WalletWarningText
+        resolvedLayer == TimeLayer.MEASURED -> WalletMintSoft to WalletMintAccent
+        resolvedLayer == TimeLayer.REPORTED_TIMED -> WalletMintTint to WalletMintAccent
+        resolvedLayer == TimeLayer.REPORTED_UNTIMED -> WalletSoftNeutral to WalletMuted
+        resolvedLayer == TimeLayer.ACTIVE -> WalletInfoBg to WalletInfoText
+        else -> WalletWarningBg to WalletWarningText
     }
 
     val canConfirmToActual = showEditAndDelete &&
@@ -573,7 +663,7 @@ fun ActivityRecordRow(
                                 .clickable { onEditClick(record) },
                             contentAlignment = Alignment.Center
                         ) {
-                            GlyphIcon(WalletGlyph.EDIT, color = WalletMint, size = 20.dp)
+                            GlyphIcon(WalletGlyph.EDIT, color = WalletMintAccent, size = 20.dp)
                         }
                     }
                     if (onDeleteClick != null) {
@@ -701,7 +791,7 @@ fun CategorySelectorGrid(
     ) {
         TimeCategory.entries.forEach { category ->
             val selected = category.key == selectedKey
-            val bg = if (selected) WalletMint else Color(0xFFF3F6F3)
+            val bg = if (selected) WalletMint else WalletCardBg
             val textColor = if (selected) Color.White else WalletInk
             val borderColor = if (selected) WalletMint else WalletStroke
 
@@ -748,7 +838,8 @@ fun EditRecordDialog(
         durationMinutesText: String,
         startHm: String,
         endHm: String,
-        allowFutureAsPlanned: Boolean
+        allowFutureAsPlanned: Boolean,
+        isMarkedWaste: Boolean
     ) -> Unit,
     onDelete: (() -> Unit)? = null,
     onOpenConfirmation: (() -> Unit)? = null
@@ -775,6 +866,7 @@ fun EditRecordDialog(
     var startHm by remember(record.id) { mutableStateOf(initialStart) }
     var endHm by remember(record.id) { mutableStateOf(initialEnd) }
     var allowPlanned by remember(record.id) { mutableStateOf(record.layer == TimeLayer.PLANNED) }
+    var markedWaste by remember(record.id) { mutableStateOf(record.isMarkedWaste) }
     var confirmDelete by remember(record.id) { mutableStateOf(false) }
 
     val nowMs = System.currentTimeMillis()
@@ -785,7 +877,7 @@ fun EditRecordDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color.White,
+        containerColor = WalletCardBg,
         title = {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -849,8 +941,8 @@ fun EditRecordDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xFFEDF7F1))
-                            .border(1.dp, WalletMint.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                            .background(WalletMintTint)
+                            .border(1.dp, WalletMintAccent.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
                             .walletClickable(onClickLabel = "Xác nhận kết quả thực tế") {
                                 onDismiss()
                                 onOpenConfirmation()
@@ -859,12 +951,12 @@ fun EditRecordDialog(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        GlyphIcon(WalletGlyph.CONFIRM, color = WalletMint, size = 16.dp)
+                        GlyphIcon(WalletGlyph.CONFIRM, color = WalletMintAccent, size = 16.dp)
                         Text(
                             text = "Xác nhận kết quả thực tế / kết thúc sớm / đối soát",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            color = WalletMint
+                            color = WalletMintAccent
                         )
                     }
                 }
@@ -941,6 +1033,32 @@ fun EditRecordDialog(
                         onCheckedChange = { allowPlanned = it }
                     )
                 }
+                if (!allowPlanned) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Đánh dấu lãng phí",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = WalletInk
+                            )
+                            Text(
+                                text = "Tắt = giữ ở Phi mục tiêu hoặc Mục tiêu (ngủ/nghỉ/giải trí vừa đủ không phải lãng phí).",
+                                fontSize = 10.sp,
+                                color = WalletMuted,
+                                lineHeight = 13.sp
+                            )
+                        }
+                        Switch(
+                            checked = markedWaste,
+                            onCheckedChange = { markedWaste = it }
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
@@ -953,10 +1071,11 @@ fun EditRecordDialog(
                         durationMinutesText,
                         startHm,
                         endHm,
-                        allowPlanned
+                        allowPlanned,
+                        markedWaste && !allowPlanned
                     )
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = WalletMint)
+                colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White)
             ) {
                 Text("Lưu thay đổi", fontWeight = FontWeight.Bold)
             }
@@ -971,7 +1090,7 @@ fun EditRecordDialog(
     if (confirmDelete && onDelete != null) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            containerColor = Color.White,
+            containerColor = WalletCardBg,
             title = { Text("Xóa hoạt động này?", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
             text = {
                 Text(
@@ -987,7 +1106,7 @@ fun EditRecordDialog(
                         onDismiss()
                         onDelete()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = WalletDangerText)
+                    colors = ButtonDefaults.buttonColors(containerColor = WalletDangerSolid, contentColor = Color.White)
                 ) {
                     Text("Xóa", fontWeight = FontWeight.Bold)
                 }
@@ -1012,7 +1131,7 @@ fun ExportJsonDialog(
     val context = LocalContext.current
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color.White,
+        containerColor = WalletCardBg,
         title = {
             Text(
                 text = "Xuất dữ liệu Time Wallet (JSON)",
@@ -1034,7 +1153,7 @@ fun ExportJsonDialog(
                         .fillMaxWidth()
                         .height(190.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xFFF3F6F3))
+                        .background(WalletSoftNeutral)
                         .border(1.dp, WalletStroke, RoundedCornerShape(10.dp))
                         .padding(10.dp)
                         .verticalScroll(rememberScrollState())
@@ -1092,7 +1211,7 @@ fun ExportJsonDialog(
                 onClick = {
                     onSaveToFileClick("time-wallet-$todayDateLocal.json", jsonContent)
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = WalletMint)
+                colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White)
             ) {
                 Text("Lưu tệp .JSON", fontWeight = FontWeight.Bold)
             }
@@ -1119,7 +1238,7 @@ fun ImportJsonDialog(
 
     AlertDialog(
         onDismissRequest = { if (!state.isRestoring) onDismiss() },
-        containerColor = Color.White,
+        containerColor = WalletCardBg,
         title = {
             Text(
                 text = "Nhập & khôi phục dữ liệu (JSON)",
@@ -1162,7 +1281,7 @@ fun ImportJsonDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xFFF3F6F3))
+                            .background(WalletSoftNeutral)
                             .border(1.dp, WalletStroke, RoundedCornerShape(10.dp))
                             .padding(10.dp)
                     ) {
@@ -1247,7 +1366,7 @@ fun ImportJsonDialog(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(if (active) (if (mode == BackupRestoreMode.REPLACE_ALL) WalletDangerBg else WalletMintSoft) else Color(0xFFF3F6F3))
+                                .background(if (active) (if (mode == BackupRestoreMode.REPLACE_ALL) WalletDangerBg else WalletMintSoft) else WalletSoftNeutral)
                                 .border(
                                     1.dp,
                                     if (active) (if (mode == BackupRestoreMode.REPLACE_ALL) WalletDangerText else WalletMint) else WalletStroke,
@@ -1330,7 +1449,7 @@ fun AiSettingsDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color.White,
+        containerColor = WalletCardBg,
         title = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -1424,14 +1543,14 @@ fun AiSettingsDialog(
                 if (keyProblem != null) {
                     Text(
                         text = "Khóa API có ký tự không hợp lệ ở vị trí ${keyProblem.position} (${keyProblem.kindVi}). Hãy dán lại khóa.",
-                        fontSize = 11.sp, color = Color(0xFFB3261E), lineHeight = 15.sp,
+                        fontSize = 11.sp, color = WalletDangerText, lineHeight = 15.sp,
                         modifier = Modifier.semantics { contentDescription = "Lỗi khóa API" }
                     )
                 }
                 if (initialPreferences.keyUnavailable && apiKey.isEmpty()) {
                     Text(
                         text = "Khóa đã lưu không đọc được trên thiết bị này. Hãy nhập lại. Sổ cái và nhập thủ công không bị ảnh hưởng.",
-                        fontSize = 10.5.sp, color = Color(0xFF9C540B), lineHeight = 15.sp
+                        fontSize = 10.5.sp, color = WalletWarningText, lineHeight = 15.sp
                     )
                 }
 
@@ -1456,7 +1575,7 @@ fun AiSettingsDialog(
                             modifier = Modifier
                                 .weight(1f)
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(if (selectedPreset) WalletMintSoft else Color(0xFFF3F6F3))
+                                .background(if (selectedPreset) WalletMintSoft else WalletSoftNeutral)
                                 .border(1.dp, if (selectedPreset) WalletMint else WalletStroke, RoundedCornerShape(8.dp))
                                 .walletClickable(onClickLabel = "Chọn model $preset") { modelName = preset }
                                 .padding(horizontal = 8.dp, vertical = 6.dp)
@@ -1483,7 +1602,7 @@ fun AiSettingsDialog(
                         Text(
                             text = "Gợi ý: Nếu tuyến đang chọn lỗi 503/403 hoặc 404, hãy chạm chọn \"${AiPreferences.DEFAULT_AI_MODEL}\" ở trên rồi Kiểm tra kết nối lại.",
                             fontSize = 10.sp,
-                            color = Color(0xFF9C540B),
+                            color = WalletWarningText,
                             lineHeight = 14.sp
                         )
                     }
@@ -1502,7 +1621,7 @@ fun AiSettingsDialog(
             Button(
                 onClick = { onSave(optIn, baseUrl, apiKey, modelName) },
                 enabled = (!optIn || currentValidatedHost != null) && keyProblem == null,
-                colors = ButtonDefaults.buttonColors(containerColor = WalletMint)
+                colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White)
             ) {
                 Text("Xác nhận & Lưu", fontWeight = FontWeight.Bold)
             }
@@ -1532,7 +1651,7 @@ fun ProductInfoDialog(
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color.White,
+        containerColor = WalletCardBg,
         title = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -1642,7 +1761,7 @@ fun ProductInfoDialog(
         confirmButton = {
             Button(
                 onClick = onDismiss,
-                colors = ButtonDefaults.buttonColors(containerColor = WalletMint)
+                colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White)
             ) {
                 Text("Đã hiểu", fontWeight = FontWeight.Bold)
             }
@@ -1686,18 +1805,18 @@ fun TimeBudgetItemCard(
     val cat = progress.category
     val catColor = Color(cat.colorHex)
     val barColor = if (progress.combinedIsExceeded) Color(0xFFD97706) else catColor
-    val diffBadgeBg = if (progress.combinedIsExceeded) Color(0xFFFFF3DF) else Color(0xFFE5F5EC)
-    val diffBadgeText = if (progress.combinedIsExceeded) Color(0xFF9C540B) else Color(0xFF1F6A4A)
+    val diffBadgeBg = if (progress.combinedIsExceeded) WalletWarningBg else WalletMintSoft
+    val diffBadgeText = if (progress.combinedIsExceeded) WalletWarningText else WalletMintAccent
     val percentInt = (progress.combinedProgressFraction * 100f).toInt()
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
-            .background(if (isBeingDragged) Color(0xFFF6FBF8) else Color.White)
+            .background(if (isBeingDragged) WalletMintSoft else WalletCardBg)
             .border(
                 width = if (isBeingDragged) 2.dp else 1.dp,
-                color = if (isBeingDragged) WalletMint else Color(0xFFE8EEE9),
+                color = if (isBeingDragged) WalletMint else WalletStroke,
                 shape = RoundedCornerShape(20.dp)
             )
             .semantics { role = Role.Button }
@@ -1734,7 +1853,7 @@ fun TimeBudgetItemCard(
                     .clickable { onEditClick(cat) },
                 contentAlignment = Alignment.Center
             ) {
-                GlyphIcon(WalletGlyph.EDIT, color = WalletMint, size = 20.dp)
+                GlyphIcon(WalletGlyph.EDIT, color = WalletMintAccent, size = 20.dp)
             }
 
             if (!compactMode && onDeleteClick != null) {
@@ -1761,7 +1880,7 @@ fun TimeBudgetItemCard(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFFEDF2EE))
+                    .background(WalletSoftNeutral)
                     .padding(horizontal = 8.dp, vertical = 3.dp)
             ) {
                 Text(
@@ -1777,14 +1896,14 @@ fun TimeBudgetItemCard(
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFFE7F5ED))
+                        .background(WalletMintSoft)
                         .padding(horizontal = 8.dp, vertical = 3.dp)
                 ) {
                     Text(
                         text = "★ Ưu tiên",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        color = WalletMint,
+                        color = WalletMintAccent,
                         maxLines = 1,
                         softWrap = false
                     )
@@ -1828,7 +1947,7 @@ fun TimeBudgetItemCard(
                     .weight(1f)
                     .height(10.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFFE6EDE8))
+                    .background(WalletUntrackedBar)
             ) {
                 if (progress.combinedProgressFraction > 0f) {
                     Box(
@@ -1939,7 +2058,7 @@ fun TimeBudgetEditorDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color.White,
+        containerColor = WalletCardBg,
         title = {
             Text(
                 text = if (matchedBudget != null) "Chỉnh sửa ngân sách thời gian" else "Đặt ngân sách thời gian",
@@ -1992,7 +2111,7 @@ fun TimeBudgetEditorDialog(
                                 .minimumInteractiveComponentSize()
                                 .weight(1f)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(if (selected) WalletMint else Color(0xFFF3F6F3))
+                                .background(if (selected) WalletMint else WalletSoftNeutral)
                                 .border(
                                     1.dp,
                                     if (selected) WalletMint else WalletStroke,
@@ -2036,7 +2155,7 @@ fun TimeBudgetEditorDialog(
                             modifier = Modifier
                                 .minimumInteractiveComponentSize()
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFFEDF4EF))
+                                .background(WalletMintTint)
                                 .semantics { contentDescription = "Đặt ${presetH} giờ ${selectedPeriod.labelVi.lowercase()}"; role = Role.Button }
                                 .clickable {
                                     hoursText = presetH.toString()
@@ -2083,7 +2202,7 @@ fun TimeBudgetEditorDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xFFF5F8F6))
+                        .background(WalletSoftNeutral)
                         .padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -2140,7 +2259,7 @@ fun TimeBudgetEditorDialog(
                         isPriority
                     )
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = WalletMint)
+                colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White)
             ) {
                 Text("Lưu mục tiêu", fontWeight = FontWeight.Bold)
             }
@@ -2163,7 +2282,7 @@ fun BudgetDeleteConfirmDialog(
     val name = TimeCategory.fromKeyOrDefault(categoryKey).displayName
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color.White,
+        containerColor = WalletCardBg,
         title = { Text("Xóa ngân sách?", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
         text = {
             Text(
@@ -2175,13 +2294,227 @@ fun BudgetDeleteConfirmDialog(
         confirmButton = {
             Button(
                 onClick = onConfirm,
-                colors = ButtonDefaults.buttonColors(containerColor = WalletDangerText)
+                colors = ButtonDefaults.buttonColors(containerColor = WalletDangerSolid, contentColor = Color.White)
             ) {
                 Text("Xóa", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Hủy", color = WalletMuted) }
+        }
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun UniversalQuickCaptureDialog(
+    tags: List<Tag>,
+    localRules: List<LocalCategoryRule>,
+    onSubmit: (rawInput: String, preferredKind: CaptureIntentKind?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var inputText by remember { mutableStateOf("") }
+    var preferredKind by remember { mutableStateOf<CaptureIntentKind?>(null) }
+    val preview = remember(inputText, preferredKind, tags, localRules) {
+        if (inputText.isBlank()) null
+        else TaskHabitEngine.parseQuickCaptureInput(
+            rawInput = inputText,
+            preferredKind = preferredKind,
+            tags = tags,
+            rules = localRules
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = WalletCardBg,
+        title = {
+            Text("Thu thập nhanh (Offline)", fontWeight = FontWeight.ExtraBold, color = WalletInk)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Gõ tự nhiên: ví dụ \"Đọc báo cáo P1 45p\" (tự tách công việc / thời lượng / quy tắc nhóm).",
+                    fontSize = 11.5.sp,
+                    color = WalletMuted
+                )
+                OutlinedTextField(
+                    value = inputText,
+                    onValueChange = { inputText = it },
+                    placeholder = { Text("VD: Ôn IELTS 19:30-20:30 hoặc Dọn Inbox P1") },
+                    minLines = 2,
+                    maxLines = 4,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        null to "Tự động",
+                        CaptureIntentKind.TASK_INBOX to "Việc Inbox",
+                        CaptureIntentKind.TIMED_EVENT to "Lên lịch có giờ",
+                        CaptureIntentKind.DURATION_ONLY to "Ghi thời lượng"
+                    ).forEach { (kindVal, label) ->
+                        val selected = preferredKind == kindVal
+                        Text(
+                            text = label,
+                            fontSize = 11.5.sp,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (selected) Color.White else WalletInk,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(100.dp))
+                                .background(if (selected) WalletMintDark else WalletMintTint)
+                                .walletClickable(onClickLabel = label) { preferredKind = kindVal }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+                if (preview != null) {
+                    val kindLabel = when (preview.kind) {
+                        CaptureIntentKind.TASK_INBOX -> "Tạo Việc Inbox (${preview.priority.name})"
+                        CaptureIntentKind.TIMED_EVENT -> "Ghi có giờ (${preview.startHm ?: "?"}–${preview.endHm ?: "?"})"
+                        CaptureIntentKind.DURATION_ONLY -> "Ghi thời lượng (${preview.durationMinutes ?: 30}p)"
+                    }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(WalletMintTint)
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "$kindLabel · ${preview.category.displayName}",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = WalletMintAccent
+                        )
+                        Text(
+                            text = preview.cleanTitle,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = WalletInk
+                        )
+                        if (preview.matchedRuleKeyword != null) {
+                            Text(
+                                text = "Khớp quy tắc cục bộ: \"${preview.matchedRuleKeyword}\"",
+                                fontSize = 11.sp,
+                                color = WalletMuted
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSubmit(inputText, preferredKind) },
+                enabled = inputText.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = WalletMintDark, contentColor = Color.White)
+            ) {
+                Text("Lưu nhanh", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Đóng", color = WalletMuted) }
+        }
+    )
+}
+
+@Composable
+fun TaskCompletionLogPromptDialog(
+    prompt: TaskCompletionPrompt,
+    onLogToLedger: () -> Unit,
+    onSkip: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onSkip,
+        containerColor = WalletCardBg,
+        title = { Text("Đã xong công việc!", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "\"${prompt.task.title}\" chưa có bản ghi thời gian nào trong Sổ cái hôm nay.",
+                    fontSize = 13.sp,
+                    color = WalletInk
+                )
+                Text(
+                    text = "Bạn có muốn ghi lại ~${prompt.suggestedMinutes} phút vào Sổ cái để giữ số liệu & mục tiêu chính xác?",
+                    fontSize = 12.sp,
+                    color = WalletMuted
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onLogToLedger,
+                colors = ButtonDefaults.buttonColors(containerColor = WalletMintDark, contentColor = Color.White)
+            ) {
+                Text("Ghi ~${prompt.suggestedMinutes}p vào Sổ", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onSkip) { Text("Chỉ đánh dấu xong", color = WalletMuted) }
+        }
+    )
+}
+
+@Composable
+fun MarkdownExportDialog(
+    markdownText: String,
+    onDismiss: () -> Unit,
+    onCopied: () -> Unit
+) {
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = WalletCardBg,
+        title = { Text("Xuất nhật ký Markdown (Obsidian)", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Nội dung thuần cục bộ (không chứa khóa API), sẵn sàng dán vào Obsidian hoặc kho ghi chú cá nhân.",
+                    fontSize = 11.5.sp,
+                    color = WalletMuted
+                )
+                OutlinedTextField(
+                    value = markdownText,
+                    onValueChange = {},
+                    readOnly = true,
+                    minLines = 6,
+                    maxLines = 12,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Wally Markdown", markdownText))
+                    onCopied()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = WalletMintDark, contentColor = Color.White)
+            ) {
+                Text("Sao chép Markdown", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = {
+                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/markdown"
+                        putExtra(Intent.EXTRA_TEXT, markdownText)
+                    }
+                    context.startActivity(Intent.createChooser(sendIntent, "Chia sẻ Markdown"))
+                }) {
+                    Text("Chia sẻ", color = WalletMintAccent, fontWeight = FontWeight.Bold)
+                }
+                TextButton(onClick = onDismiss) { Text("Đóng", color = WalletMuted) }
+            }
         }
     )
 }

@@ -57,7 +57,9 @@ data class GoalEntity(
     val validFrom: String,
     val validTo: String?,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val isPriority: Boolean = false,
+    val priorityOrder: Int = 0
 ) {
     fun toDomain(): Goal = Goal(
         id = id,
@@ -71,13 +73,16 @@ data class GoalEntity(
         validFrom = validFrom,
         validTo = validTo,
         createdAt = createdAt,
-        updatedAt = updatedAt
+        updatedAt = updatedAt,
+        isPriority = isPriority,
+        priorityOrder = priorityOrder
     )
 
     companion object {
         fun fromDomain(g: Goal) = GoalEntity(
             g.id, g.groupId, g.targetType.storageKey, g.targetKey, g.kind.storageKey, g.period.storageKey,
-            g.targetSeconds, g.status.storageKey, g.validFrom, g.validTo, g.createdAt, g.updatedAt
+            g.targetSeconds, g.status.storageKey, g.validFrom, g.validTo, g.createdAt, g.updatedAt,
+            g.isPriority, g.priorityOrder
         )
     }
 }

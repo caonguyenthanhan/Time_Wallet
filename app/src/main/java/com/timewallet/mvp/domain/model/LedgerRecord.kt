@@ -79,7 +79,12 @@ data class LedgerRecord(
     val plannedDurationSeconds: Long? = null,
     val overlapResolutionRaw: String? = null,
     val relationGroupId: String? = null,
-    val overlapWithTitle: String? = null
+    val overlapWithTitle: String? = null,
+    /** v1.3.0: Cờ đánh dấu lãng phí do chính người dùng chọn (mặc định false để tách Phi mục tiêu khỏi Lãng phí). */
+    val isMarkedWaste: Boolean = false,
+    /** v2.0: Liên kết tùy chọn sang Task hoặc Habit (không bao giờ tự bịa bản ghi khi thiếu xác nhận). */
+    val taskId: String? = null,
+    val habitId: String? = null
 ) {
     val overlapResolution: OverlapResolution
         get() = OverlapResolution.fromStorage(overlapResolutionRaw)

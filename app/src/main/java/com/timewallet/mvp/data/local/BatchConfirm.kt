@@ -81,7 +81,10 @@ object BatchProposalPlanner {
                 zoneId = zone,
                 idempotencyKey = effectiveKey,
                 convertFutureToPlanned = input.convertFutureToPlanned,
-                tagId = input.tagId
+                tagId = input.tagId,
+                isMarkedWaste = input.isMarkedWaste,
+                taskId = input.taskId,
+                habitId = input.habitId
             )) {
                 is ValidationResult.Invalid -> return BatchOverlapStep.Invalid(validated.message)
                 is ValidationResult.Valid -> uniqueBuilt += (input.copy(id = effectiveId, idempotencyKey = effectiveKey) to validated.record)

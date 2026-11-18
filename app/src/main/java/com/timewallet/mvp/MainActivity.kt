@@ -1,8 +1,5 @@
 package com.timewallet.mvp
 
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.Role
-import androidx.compose.material3.minimumInteractiveComponentSize
 import android.Manifest
 import android.content.Intent
 import android.net.Uri
@@ -14,75 +11,69 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
-import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.timewallet.mvp.notifications.CompletionNotificationHelper
+import com.timewallet.mvp.notifications.FocusPinNotificationManager
 import com.timewallet.mvp.ui.AppTab
 import com.timewallet.mvp.ui.TimeWalletViewModel
+import com.timewallet.mvp.domain.model.TaskStatus
+import com.timewallet.mvp.domain.model.ThemeModePreference
 import com.timewallet.mvp.ui.screens.ActivityConfirmationDialog
 import com.timewallet.mvp.ui.screens.AiSettingsDialog
 import com.timewallet.mvp.ui.screens.OverlapResolutionDialog
 import com.timewallet.mvp.ui.screens.BudgetDeleteConfirmDialog
 import com.timewallet.mvp.ui.screens.BudgetEditorDraft
-import com.timewallet.mvp.ui.screens.ChatScreen
 import com.timewallet.mvp.ui.screens.DailyReviewScreen
 import com.timewallet.mvp.ui.screens.DataManagementDialog
 import com.timewallet.mvp.ui.screens.EditRecordDialog
@@ -91,10 +82,15 @@ import com.timewallet.mvp.ui.screens.HistoryScreen
 import com.timewallet.mvp.ui.screens.ImportJsonDialog
 import com.timewallet.mvp.ui.screens.InsightsScreen
 import com.timewallet.mvp.ui.screens.ManualEntrySheet
-import com.timewallet.mvp.ui.screens.OverviewScreen
+import com.timewallet.mvp.ui.screens.MarkdownExportDialog
+import com.timewallet.mvp.ui.screens.TaskCompletionLogPromptDialog
+import com.timewallet.mvp.ui.screens.TasksHabitsScreen
+import com.timewallet.mvp.ui.screens.UniversalQuickCaptureDialog
+import com.timewallet.mvp.ui.screens.WallyAiOverlay
+import com.timewallet.mvp.ui.screens.AppIntroDialog
 import com.timewallet.mvp.ui.screens.GoalEditorDialog
 import com.timewallet.mvp.ui.screens.GoalsDialog
-import com.timewallet.mvp.ui.screens.PersonalHubCard
+import com.timewallet.mvp.ui.screens.ProfileSettingsScreen
 import com.timewallet.mvp.ui.screens.ScheduleCalendarView
 import com.timewallet.mvp.ui.screens.TagManagerDialog
 import com.timewallet.mvp.domain.usecase.GoalRules
@@ -118,17 +114,37 @@ import com.timewallet.mvp.ui.theme.WalletMintTint
 import com.timewallet.mvp.ui.theme.WalletMuted
 import com.timewallet.mvp.ui.theme.WalletStroke
 
+data class PendingFocusLaunch(
+    val title: String?,
+    val categoryKey: String?,
+    val tagId: String?
+)
+
 class MainActivity : ComponentActivity() {
     private val pendingNotificationRecordId = mutableStateOf<String?>(null)
+    private val pendingFocusLaunch = mutableStateOf<PendingFocusLaunch?>(null)
+
+    private fun captureNotificationIntent(targetIntent: Intent?) {
+        pendingNotificationRecordId.value = targetIntent?.getStringExtra(CompletionNotificationHelper.EXTRA_CONFIRM_RECORD_ID)
+        if (targetIntent?.action == FocusPinNotificationManager.ACTION_OPEN_FOCUS_PIN) {
+            pendingFocusLaunch.value = PendingFocusLaunch(
+                title = targetIntent.getStringExtra(FocusPinNotificationManager.EXTRA_FOCUS_TITLE),
+                categoryKey = targetIntent.getStringExtra(FocusPinNotificationManager.EXTRA_FOCUS_CATEGORY_KEY),
+                tagId = targetIntent.getStringExtra(FocusPinNotificationManager.EXTRA_FOCUS_TAG_ID)
+            )
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        pendingNotificationRecordId.value = intent?.getStringExtra(CompletionNotificationHelper.EXTRA_CONFIRM_RECORD_ID)
+        captureNotificationIntent(intent)
         setContent {
             TimeWalletTheme {
                 TimeWalletAppRoot(
                     pendingNotificationRecordId = pendingNotificationRecordId.value,
-                    onNotificationHandled = { pendingNotificationRecordId.value = null }
+                    onNotificationHandled = { pendingNotificationRecordId.value = null },
+                    pendingFocusLaunch = pendingFocusLaunch.value,
+                    onFocusLaunchHandled = { pendingFocusLaunch.value = null }
                 )
             }
         }
@@ -137,7 +153,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        pendingNotificationRecordId.value = intent.getStringExtra(CompletionNotificationHelper.EXTRA_CONFIRM_RECORD_ID)
+        captureNotificationIntent(intent)
     }
 }
 
@@ -146,7 +162,7 @@ class MainActivity : ComponentActivity() {
  * không chuyển inset cho Compose (Android trước 15, LDPlayer Android 9) — thanh tab luôn hiện để người dùng không bị kẹt trong Wally.
  */
 internal fun shouldShowBottomBar(currentTab: AppTab, imeBottomPx: Int): Boolean =
-    !(imeBottomPx > 0 && currentTab == AppTab.CHAT)
+    imeBottomPx >= 0 && AppTab.entries.contains(currentTab)
 
 /** Nút Lên đầu trang chỉ hiện khi cuộn vượt quá 400 px. */
 internal fun shouldShowBackToTop(scrollPx: Int): Boolean = scrollPx > 400
@@ -156,7 +172,9 @@ internal fun shouldShowBackToTop(scrollPx: Int): Boolean = scrollPx > 400
 fun TimeWalletAppRoot(
     viewModel: TimeWalletViewModel = viewModel(),
     pendingNotificationRecordId: String? = null,
-    onNotificationHandled: () -> Unit = {}
+    onNotificationHandled: () -> Unit = {},
+    pendingFocusLaunch: PendingFocusLaunch? = null,
+    onFocusLaunchHandled: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -179,6 +197,10 @@ fun TimeWalletAppRoot(
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
+    }
+
+    BackHandler(enabled = state.showProfileSettings) {
+        viewModel.closeProfileSettings()
     }
 
     BackHandler(enabled = state.showScheduleWorkspace) {
@@ -239,7 +261,11 @@ fun TimeWalletAppRoot(
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
-    ) { }
+    ) { granted ->
+        if (granted) {
+            viewModel.onNotificationPermissionGranted()
+        }
+    }
 
     LaunchedEffect(state.requestNotificationPermissionNonce) {
         if (state.requestNotificationPermissionNonce > 0 &&
@@ -254,6 +280,12 @@ fun TimeWalletAppRoot(
         val targetId = pendingNotificationRecordId ?: return@LaunchedEffect
         viewModel.openActivityConfirmationFromNotification(targetId)
         onNotificationHandled()
+    }
+
+    LaunchedEffect(pendingFocusLaunch) {
+        val launch = pendingFocusLaunch ?: return@LaunchedEffect
+        viewModel.openFocusFromNotification(launch.title, launch.categoryKey, launch.tagId)
+        onFocusLaunchHandled()
     }
 
     LaunchedEffect(state.currentTab, state.isShowingDailyReview, state.selectedReviewDateLocal) {
@@ -274,23 +306,20 @@ fun TimeWalletAppRoot(
         TagRules.suggestions(state.tags, state.records, System.currentTimeMillis(), ZoneId.systemDefault())
     }
 
-    val coroutineScope = rememberCoroutineScope()
-    var speedDialExpanded by remember { mutableStateOf(false) }
-
-    LaunchedEffect(state.currentTab, state.isShowingDailyReview) {
-        speedDialExpanded = false
+    var journalCalendarMode by rememberSaveable { mutableStateOf(true) }
+    val inboxTasks = remember(state.tasks) {
+        state.tasks.filter { it.status == TaskStatus.INBOX && !it.isDone }
+    }
+    val activeTask = remember(state.activeTimer, state.tasks) {
+        state.activeTimer?.taskId?.let { tid -> state.tasks.firstOrNull { it.id == tid } }
+    }
+    val isDark = when (state.customization.themeMode) {
+        ThemeModePreference.DARK -> true
+        ThemeModePreference.LIGHT -> false
+        ThemeModePreference.SYSTEM -> isSystemInDarkTheme()
     }
 
-    BackHandler(enabled = speedDialExpanded) {
-        speedDialExpanded = false
-    }
-
-    // Nhóm nút nổi góc dưới phải: ẩn ở Wally (đã có ô nhập ghim đáy) và màn Nhìn lại toàn trang; nội dung cuộn có khoảng đệm đáy tránh bị che.
-    val showFloatingControls = state.currentTab != AppTab.CHAT && !state.isShowingDailyReview
-    val showBackTop = showFloatingControls && shouldShowBackToTop(scrollState.value)
-    // Ở Tổng quan lúc đầu trang đã có ô "Hỏi Wally" lớn, nên chỉ hiện nút nổi "Hỏi nhanh Wally" khi cuộn qua hoặc ở các tab khác để không che chú giải Donut.
-    val showFloatingChatLauncher = showFloatingControls && (state.currentTab != AppTab.OVERVIEW || scrollState.value > 250)
-
+    TimeWalletTheme(darkTheme = isDark) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -308,44 +337,19 @@ fun TimeWalletAppRoot(
                 TimeWalletTopBar(
                     isTimerRunning = state.activeTimer != null,
                     timerSeconds = state.timerElapsedSeconds,
-                    onTimerBadgeClick = { viewModel.selectTab(AppTab.TIMER) },
+                    onTimerBadgeClick = { viewModel.selectTab(AppTab.FOCUS) },
                     onDataClick = { showDataDialog = true },
                     onAiSettingsClick = { viewModel.toggleAiSettingsDialog(true) },
-                    onInfoClick = { viewModel.toggleProductInfoDialog(true) }
+                    onInfoClick = { viewModel.toggleProductInfoDialog(true) },
+                    onOpenProfileSettings = viewModel::openProfileSettings,
+                    onOpenWallyOverlay = if (state.customization.enableAiAssistant) {
+                        { viewModel.openWallyOverlay() }
+                    } else null,
+                    onOpenQuickCapture = { viewModel.openQuickCaptureDialog() },
+                    wallyHasDrafts = state.proposals.isNotEmpty()
                 )
             },
-            floatingActionButton = {
-                if (showFloatingControls) {
-                    FloatingActionGroup(
-                        showBackTop = showBackTop,
-                        showChatLauncher = showFloatingChatLauncher,
-                        speedDialExpanded = speedDialExpanded,
-                        onBackToTop = {
-                            speedDialExpanded = false
-                            coroutineScope.launch { scrollState.animateScrollTo(0) }
-                        },
-                        onOpenWallyChat = {
-                            speedDialExpanded = false
-                            viewModel.selectTab(AppTab.CHAT)
-                        },
-                        onToggleSpeedDial = { speedDialExpanded = !speedDialExpanded },
-                        onManualEntry = {
-                            speedDialExpanded = false
-                            viewModel.openManualEntry()
-                        },
-                        onOpenTimer = {
-                            speedDialExpanded = false
-                            viewModel.selectTab(AppTab.TIMER)
-                        },
-                        onOpenDailyReview = {
-                            speedDialExpanded = false
-                            viewModel.openDailyReview(state.todayDateLocal)
-                        }
-                    )
-                }
-            },
             bottomBar = {
-                // Khi bàn phím THẬT đang hiện ở Wally, ẩn thanh tab để nhường chỗ cho hội thoại; mọi trường hợp khác thanh tab luôn hiện.
                 if (shouldShowBottomBar(state.currentTab, imeBottomPx)) {
                     TimeWalletBottomBar(
                         currentTab = state.currentTab,
@@ -355,17 +359,16 @@ fun TimeWalletAppRoot(
                 }
             }
         ) { innerPadding ->
-            // v1.0.11: Wally là màn hình hội thoại với ô nhập ghim đáy nên không nằm trong khối cuộn chung.
-            val isChatTab = state.currentTab == AppTab.CHAT
+            val lockOuterScroll = (state.currentTab == AppTab.SCHEDULE && journalCalendarMode && !state.isShowingDailyReview)
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .then(if (isChatTab) Modifier else Modifier.verticalScroll(scrollState))
+                    .then(if (lockOuterScroll) Modifier else Modifier.verticalScroll(scrollState))
                     .padding(horizontal = 16.dp, vertical = 4.dp)
             ) {
                 when (state.currentTab) {
-                    AppTab.OVERVIEW -> {
+                    AppTab.SCHEDULE -> {
                         if (state.isShowingDailyReview) {
                             DailyReviewScreen(
                                 todayDateLocal = state.todayDateLocal,
@@ -380,38 +383,40 @@ fun TimeWalletAppRoot(
                                 onExportJsonClick = viewModel::prepareExportJson
                             )
                         } else {
-                            val hasSavedTodayReview = state.dailyReviews.any { it.dateLocal == state.todayDateLocal }
-                            OverviewScreen(
+                            HistoryScreen(
                                 todayDateLocal = state.todayDateLocal,
-                                todayStats = state.todayStats,
-                                recentRecords = state.records,
-                                priorityBudgets = state.dashboardPriorityBudgets,
-                                hasSavedTodayReview = hasSavedTodayReview,
-                                onOpenDailyReview = { viewModel.openDailyReview(state.todayDateLocal) },
-                                onOpenBudgetEditor = viewModel::openBudgetEditor,
+                                records = state.records,
+                                selectedFilter = state.historyFilter,
+                                onSelectFilter = viewModel::setHistoryFilter,
+                                onConfirmPlannedOrActiveRecord = viewModel::confirmPlannedOrActiveRecord,
+                                onEditRecord = viewModel::openEditRecord,
+                                onDeleteRecord = viewModel::deleteRecord,
                                 onAddManual = { viewModel.openManualEntry() },
-                                onConfirmOrResolveRecord = viewModel::confirmPlannedOrActiveRecord,
-                                pendingManualDraft = state.pendingManualDraft,
-                                onResumeManualDraft = { viewModel.openManualEntry() },
-                                onCleanManualDraft = viewModel::discardPendingManualDraft,
-                                onNavigateToTab = { viewModel.selectTab(it) }
-                            )
-                            PersonalHubCard(
-                                goalSummaries = goalSummaries,
-                                coach = state.coach,
-                                aiEnabled = state.aiPreferences.optInEnabled && state.aiPreferences.apiKey.isNotBlank(),
-                                onOpenGoals = viewModel::openGoals,
-                                onOpenTags = viewModel::openTagManager,
-                                onAskCoach = viewModel::requestCoach,
-                                onDismissCoach = viewModel::dismissCoach,
-                                onConfirmSuggestion = viewModel::confirmCoachSuggestion,
-                                onDismissSuggestion = viewModel::dismissCoachSuggestion,
-                                onTriggerAction = viewModel::triggerCoachAction
+                                onResizePlannedRecord = viewModel::resizePlannedRecord,
+                                activeTimer = state.activeTimer,
+                                selectedScheduleDate = state.scheduleFocusDateLocal ?: state.todayDateLocal,
+                                scheduleViewMode = state.scheduleViewMode,
+                                onSelectScheduleDate = viewModel::selectScheduleFocusDate,
+                                onSelectScheduleViewMode = viewModel::selectScheduleViewMode,
+                                onAddForSlot = { dateStr, startHm, endHm, savePlanned ->
+                                    viewModel.openManualFormForSlot(dateStr, startHm, endHm, savePlanned)
+                                },
+                                onAddForSlots = viewModel::openManualFormForSlots,
+                                onMoveOrResizeBlock = viewModel::moveOrResizeScheduleRecord,
+                                onNavigateToTimer = { viewModel.selectTab(AppTab.FOCUS) },
+                                showCalendarMode = journalCalendarMode,
+                                onShowCalendarModeChange = { journalCalendarMode = it },
+                                todayStats = state.todayStats,
+                                inboxTasks = inboxTasks,
+                                onScheduleTaskOnDate = { task, date -> viewModel.scheduleTaskOnCalendar(task, date) },
+                                onOpenDailyReview = { viewModel.openDailyReview(state.todayDateLocal) },
+                                onOpenTasksTab = { viewModel.selectTab(AppTab.TASKS) },
+                                onRequestWallyReplan = viewModel::requestWallyReplanInbox
                             )
                         }
                     }
 
-                    AppTab.TIMER -> TimerScreen(
+                    AppTab.FOCUS -> TimerScreen(
                         activeTimer = state.activeTimer,
                         elapsedSeconds = state.timerElapsedSeconds,
                         clockSkewDetected = state.timerClockSkewDetected,
@@ -432,69 +437,100 @@ fun TimeWalletAppRoot(
                         tagSuggestions = tagSuggestions,
                         selectedTagId = state.timerInputTagId,
                         onSelectTag = viewModel::selectTimerTag,
-                        onCleanDraft = viewModel::cleanTimerDraft
+                        onCleanDraft = viewModel::cleanTimerDraft,
+                        focusPinEnabled = state.focusPinEnabled,
+                        focusPinPreview = state.focusPinPreview,
+                        onToggleFocusPin = viewModel::toggleFocusPin,
+                        onApplyFocusSuggestion = viewModel::openFocusFromNotification,
+                        pomodoroMode = state.pomodoroMode,
+                        pomodoroTargetMinutes = state.pomodoroTargetMinutes,
+                        enablePomodoro = state.customization.enablePomodoro,
+                        enableDice = state.customization.enableDice,
+                        onSetPomodoroMode = viewModel::setPomodoroMode,
+                        activeTask = activeTask,
+                        onToggleSubtaskDone = viewModel::toggleSubtaskDone,
+                        focusBreakNudgeVisible = state.focusBreakNudgeVisible
                     )
 
-                    AppTab.CHAT -> ChatScreen(
-                        chatInputText = state.chatInputText,
-                        isAnalyzing = state.isAnalyzingChat,
-                        chatFault = state.chatFault,
-                        lastAnalysisSource = state.lastAnalysisSource,
-                        onCancelAnalysis = viewModel::cancelAnalysis,
-                        onDismissError = viewModel::dismissChatError,
-                        onManualEntry = { viewModel.openManualEntry() },
-                        chatAnswer = state.chatAnswer,
-                        onDismissAnswer = viewModel::dismissChatAnswer,
-                        proposals = state.proposals,
-                        expandedProposalId = state.expandedProposalId,
-                        aiPreferences = state.aiPreferences,
-                        onChatInputChange = viewModel::onChatInputChange,
-                        onApplyExample = viewModel::applyChatExample,
-                        onAnalyzeClick = viewModel::analyzeChatInput,
-                        onOpenAiSettings = { viewModel.toggleAiSettingsDialog(true) },
-                        onToggleExpandProposal = viewModel::toggleExpandProposal,
-                        onUpdateProposal = viewModel::updateProposalDraft,
-                        onDiscardProposal = viewModel::discardProposal,
-                        onClearAllProposals = viewModel::clearAllProposals,
-                        onConfirmSingleProposal = viewModel::confirmSingleProposal,
-                        onConfirmAllProposals = viewModel::confirmAllProposals,
-                        lastUserMessage = lastChatUserMessage,
-                        onLastUserMessageChange = { lastChatUserMessage = it },
-                        chatHistory = state.chatHistory,
-                        onClearChatHistory = viewModel::clearChatHistory,
-                        onCleanChatInput = viewModel::cleanChatInput
-                    )
-
-                    AppTab.HISTORY -> HistoryScreen(
+                    AppTab.TASKS -> TasksHabitsScreen(
                         todayDateLocal = state.todayDateLocal,
+                        tasks = state.tasks,
+                        taskFilter = state.taskFilter,
+                        onSelectTaskFilter = viewModel::selectTaskFilter,
+                        habits = state.habits,
+                        habitLogs = state.habitLogs,
                         records = state.records,
-                        selectedFilter = state.historyFilter,
-                        onSelectFilter = viewModel::setHistoryFilter,
-                        onConfirmPlannedOrActiveRecord = viewModel::confirmPlannedOrActiveRecord,
-                        onEditRecord = viewModel::openEditRecord,
-                        onDeleteRecord = viewModel::deleteRecord,
-                        onAddManual = { viewModel.openManualEntry() },
-                        onResizePlannedRecord = viewModel::resizePlannedRecord,
-                        activeTimer = state.activeTimer,
-                        selectedScheduleDate = state.scheduleFocusDateLocal ?: state.todayDateLocal,
-                        scheduleViewMode = state.scheduleViewMode,
-                        onSelectScheduleDate = viewModel::selectScheduleFocusDate,
-                        onSelectScheduleViewMode = viewModel::selectScheduleViewMode,
-                        onAddForSlot = { dateStr, startHm, endHm, savePlanned ->
-                            viewModel.openManualFormForSlot(dateStr, startHm, endHm, savePlanned)
+                        tags = activeTags,
+                        unifiedGoals = state.unifiedGoals,
+                        customization = state.customization,
+                        onCreateTask = { title, catKey, prio, estMins, dueDate, tagId, quad, subs ->
+                            viewModel.createTask(
+                                title = title,
+                                categoryKey = catKey,
+                                priority = prio,
+                                estimatedMinutes = estMins,
+                                dueDateLocal = dueDate,
+                                tagId = tagId,
+                                eisenhowerQuad = quad,
+                                subtasksRaw = subs
+                            )
                         },
-                        onMoveOrResizeBlock = viewModel::moveOrResizeScheduleRecord,
-                        onNavigateToTimer = { viewModel.selectTab(AppTab.TIMER) }
+                        onToggleTaskDone = viewModel::toggleTaskDone,
+                        onUpdateTaskStatus = viewModel::updateTaskStatus,
+                        onSetTaskEisenhower = viewModel::setTaskEisenhowerQuad,
+                        onAddSubtask = viewModel::addSubtask,
+                        onToggleSubtaskDone = viewModel::toggleSubtaskDone,
+                        onDeleteTask = viewModel::deleteTask,
+                        onStartFocusOnTask = viewModel::startFocusOnTask,
+                        onScheduleTaskOnCalendar = { t -> viewModel.scheduleTaskOnCalendar(t, state.scheduleFocusDateLocal ?: state.todayDateLocal) },
+                        onBreakDownTaskWithWally = viewModel::breakDownTaskWithWally,
+                        onRequestWallyReplanInbox = viewModel::requestWallyReplanInbox,
+                        onCreateHabit = viewModel::createHabit,
+                        onToggleHabitForToday = { h -> viewModel.toggleHabitForDate(h, state.todayDateLocal) },
+                        onOpenGoalEditor = viewModel::openGoalEditor,
+                        onPauseGoal = viewModel::pauseGoal,
+                        onResumeGoal = viewModel::resumeGoal,
+                        onEndGoal = viewModel::endGoal,
+                        onOpenCustomization = viewModel::openProfileSettings
                     )
 
-                    AppTab.INSIGHTS -> InsightsScreen(
-                        weeklyInsights = state.weeklyInsights,
-                        onOpenBudgetEditor = viewModel::openBudgetEditor,
-                        onDeleteBudget = { pendingBudgetDelete = it },
-                        onReorderBudgetPriority = viewModel::reorderBudgetPriority
-                    )
+                    AppTab.MORE -> {
+                        val hasSavedTodayReview = state.dailyReviews.any { it.dateLocal == state.todayDateLocal }
+                        InsightsScreen(
+                            weeklyInsights = state.weeklyInsights,
+                            weeklyEfficiency = state.weeklyEfficiency,
+                            goalsCount = goalSummaries.size,
+                            tagsCount = activeTags.size,
+                            coach = state.coach,
+                            aiEnabled = state.aiPreferences.optInEnabled && state.aiPreferences.apiKey.isNotBlank(),
+                            hasSavedTodayReview = hasSavedTodayReview,
+                            onOpenBudgetEditor = viewModel::openBudgetEditor,
+                            onDeleteBudget = { pendingBudgetDelete = it },
+                            onReorderBudgetPriority = viewModel::reorderBudgetPriority,
+                            onOpenGoals = viewModel::openGoals,
+                            onOpenTags = viewModel::openTagManager,
+                            onOpenDailyReview = { viewModel.openDailyReview(state.todayDateLocal) },
+                            onOpenTimer = { viewModel.selectTab(AppTab.FOCUS) },
+                            onOpenDataDialog = { showDataDialog = true },
+                            onAskCoach = viewModel::requestCoach,
+                            onDismissCoach = viewModel::dismissCoach,
+                            onConfirmSuggestion = viewModel::confirmCoachSuggestion,
+                            onDismissSuggestion = viewModel::dismissCoachSuggestion,
+                            onTriggerAction = viewModel::triggerCoachAction,
+                            focusPinEnabled = state.focusPinEnabled,
+                            focusPinPreview = state.focusPinPreview,
+                            onToggleFocusPin = viewModel::toggleFocusPin,
+                            peakFocusWindow = state.peakFocusWindow,
+                            planAccuracySummary = state.planAccuracySummary,
+                            onOpenMarkdownExport = viewModel::prepareExportDailyMarkdown,
+                            onOpenWallyChat = { viewModel.openWallyOverlay() },
+                            onOpenProfileSettings = viewModel::openProfileSettings
+                        )
+                    }
                 }
-                if (!isChatTab) Spacer(modifier = Modifier.height(if (showFloatingControls) 176.dp else 16.dp))
+                if (!lockOuterScroll) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                }
             }
         }
         } else {
@@ -515,12 +551,13 @@ fun TimeWalletAppRoot(
                     onAddForSlot = { dateStr, startHm, endHm, savePlanned ->
                         viewModel.openManualFormForSlot(dateStr, startHm, endHm, savePlanned)
                     },
+                    onAddForSlots = viewModel::openManualFormForSlots,
                     onEditRecord = viewModel::openEditRecord,
                     onConfirmPlannedOrActiveRecord = viewModel::confirmPlannedOrActiveRecord,
                     onMoveOrResizeBlock = viewModel::moveOrResizeScheduleRecord,
                     onNavigateToTimer = {
                         viewModel.closeScheduleWorkspace()
-                        viewModel.selectTab(AppTab.TIMER)
+                        viewModel.selectTab(AppTab.FOCUS)
                     },
                     showBackButton = true,
                     onBackClick = viewModel::closeScheduleWorkspace,
@@ -587,7 +624,7 @@ fun TimeWalletAppRoot(
         EditRecordDialog(
             record = record,
             onDismiss = viewModel::closeEditRecord,
-            onSave = { title, catKey, dateLocal, durationMinsText, startHm, endHm, allowPlanned ->
+            onSave = { title, catKey, dateLocal, durationMinsText, startHm, endHm, allowPlanned, markedWaste ->
                 viewModel.saveEditedRecord(
                     existing = record,
                     newTitle = title,
@@ -596,7 +633,8 @@ fun TimeWalletAppRoot(
                     newDurationMinutesText = durationMinsText,
                     newStartHm = startHm,
                     newEndHm = endHm,
-                    allowFutureAsPlanned = allowPlanned
+                    allowFutureAsPlanned = allowPlanned,
+                    newMarkedWaste = markedWaste
                 )
             },
             onDelete = { viewModel.deleteRecord(record.id) },
@@ -710,6 +748,36 @@ fun TimeWalletAppRoot(
         )
     }
 
+    if (state.showProfileSettings) {
+        ProfileSettingsScreen(
+            aiEnabled = state.aiPreferences.optInEnabled && state.aiPreferences.apiKey.isNotBlank(),
+            hasCrashReport = !state.lastCrashReport.isNullOrBlank(),
+            tagsCount = activeTags.size,
+            goalsCount = goalSummaries.size,
+            onBack = viewModel::closeProfileSettings,
+            onOpenIntro = viewModel::openAppIntro,
+            onOpenInfo = { viewModel.toggleProductInfoDialog(true) },
+            onOpenTags = viewModel::openTagManager,
+            onOpenGoals = viewModel::openGoals,
+            onOpenData = { showDataDialog = true },
+            onOpenAiSettings = { viewModel.toggleAiSettingsDialog(true) },
+            focusPinEnabled = state.focusPinEnabled,
+            focusPinPreview = state.focusPinPreview,
+            onToggleFocusPin = viewModel::toggleFocusPin,
+            customization = state.customization,
+            aiReadPermissions = state.aiReadPermissions,
+            localRules = state.localRules,
+            onUpdateCustomization = viewModel::updateCustomizationSettings,
+            onUpdateAiPermissions = viewModel::updateAiReadPermissions,
+            onAddLocalRule = { kw, catKey, markWaste -> viewModel.addLocalCategoryRule(kw, catKey, markWaste = markWaste) },
+            onDeleteLocalRule = viewModel::deleteLocalCategoryRule
+        )
+    }
+
+    if (state.showAppIntro) {
+        AppIntroDialog(onDismiss = viewModel::dismissAppIntro)
+    }
+
     // v1.0.10: chỉ một dialog ngân sách hiển thị tại một thời điểm; hủy xác nhận quay lại đúng trạng thái sửa Budget.
     val activeDeleteKey = pendingBudgetDelete
     if (activeDeleteKey != null) {
@@ -746,150 +814,70 @@ fun TimeWalletAppRoot(
             }
         )
     }
-}
 
-/**
- * Nhóm nút nổi cố định ở góc dưới phải trên phần inset đáy:
- * Back-to-Top (chỉ hiện khi cuộn > 400 px), nút mở nhanh Wally Chat, và FAB tròn mở Speed Dial 3 hành động.
- */
-@Composable
-private fun FloatingActionGroup(
-    showBackTop: Boolean,
-    showChatLauncher: Boolean,
-    speedDialExpanded: Boolean,
-    onBackToTop: () -> Unit,
-    onOpenWallyChat: () -> Unit,
-    onToggleSpeedDial: () -> Unit,
-    onManualEntry: () -> Unit,
-    onOpenTimer: () -> Unit,
-    onOpenDailyReview: () -> Unit
-) {
-    val plusRotation by animateFloatAsState(
-        targetValue = if (speedDialExpanded) 45f else 0f,
-        animationSpec = tween(durationMillis = 180),
-        label = "fabPlusRotation"
-    )
-
-    Column(
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        AnimatedVisibility(
-            visible = showBackTop && !speedDialExpanded,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
-            SmallFloatingActionButton(
-                onClick = onBackToTop,
-                shape = CircleShape,
-                containerColor = Color.White,
-                contentColor = WalletInk,
-                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 3.dp),
-                modifier = Modifier.semantics { contentDescription = "Lên đầu trang" }
-            ) {
-                GlyphIcon(WalletGlyph.ARROW_UP, color = WalletInk, size = 18.dp)
-            }
-        }
-
-        AnimatedVisibility(
-            visible = showChatLauncher && !speedDialExpanded,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
-            SmallFloatingActionButton(
-                onClick = onOpenWallyChat,
-                shape = CircleShape,
-                containerColor = WalletMintTint,
-                contentColor = WalletMint,
-                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 3.dp),
-                modifier = Modifier.semantics { contentDescription = "Hỏi nhanh Wally" }
-            ) {
-                GlyphIcon(WalletGlyph.WALLY_BOT, color = WalletMint, size = 20.dp, filled = true)
-            }
-        }
-
-        AnimatedVisibility(
-            visible = speedDialExpanded,
-            enter = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
-            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom)
-        ) {
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                SpeedDialActionItem(
-                    label = "Nhìn lại ngày hôm nay",
-                    glyph = WalletGlyph.BOOK,
-                    onClick = onOpenDailyReview
-                )
-                SpeedDialActionItem(
-                    label = "Bắt đầu đồng hồ",
-                    glyph = WalletGlyph.CLOCK,
-                    onClick = onOpenTimer
-                )
-                SpeedDialActionItem(
-                    label = "Ghi giờ thủ công",
-                    glyph = WalletGlyph.EDIT,
-                    iconModifier = Modifier.semantics { contentDescription = "Thêm giờ thủ công" },
-                    onClick = onManualEntry
-                )
-            }
-        }
-
-        FloatingActionButton(
-            onClick = onToggleSpeedDial,
-            shape = CircleShape,
-            containerColor = WalletMint,
-            contentColor = Color.White,
-            modifier = Modifier.semantics {
-                contentDescription = if (speedDialExpanded) "Đóng bảng thao tác nhanh" else "Mở thao tác nhanh"
-            }
-        ) {
-            GlyphIcon(
-                glyph = WalletGlyph.PLUS,
-                color = Color.White,
-                size = 24.dp,
-                modifier = Modifier.rotate(plusRotation)
-            )
-        }
+    if (state.showWallyOverlay) {
+        WallyAiOverlay(
+            aiReadPermissions = state.aiReadPermissions,
+            overlayHint = state.wallyOverlayHint,
+            inboxTaskCount = inboxTasks.size,
+            onRequestReplanInbox = viewModel::requestWallyReplanInbox,
+            onDismiss = viewModel::closeWallyOverlay,
+            chatInputText = state.chatInputText,
+            isAnalyzing = state.isAnalyzingChat,
+            chatFault = state.chatFault,
+            lastAnalysisSource = state.lastAnalysisSource,
+            onCancelAnalysis = viewModel::cancelAnalysis,
+            onDismissError = viewModel::dismissChatError,
+            onManualEntry = { viewModel.openManualEntry() },
+            chatAnswer = state.chatAnswer,
+            onDismissAnswer = viewModel::dismissChatAnswer,
+            proposals = state.proposals,
+            expandedProposalId = state.expandedProposalId,
+            aiPreferences = state.aiPreferences,
+            onChatInputChange = viewModel::onChatInputChange,
+            onApplyExample = viewModel::applyChatExample,
+            onAnalyzeClick = viewModel::analyzeChatInput,
+            onOpenAiSettings = { viewModel.toggleAiSettingsDialog(true) },
+            onToggleExpandProposal = viewModel::toggleExpandProposal,
+            onUpdateProposal = viewModel::updateProposalDraft,
+            onDiscardProposal = viewModel::discardProposal,
+            onClearAllProposals = viewModel::clearAllProposals,
+            onConfirmSingleProposal = viewModel::confirmSingleProposal,
+            onConfirmAllProposals = viewModel::confirmAllProposals,
+            lastUserMessage = lastChatUserMessage,
+            onLastUserMessageChange = { lastChatUserMessage = it },
+            chatHistory = state.chatHistory,
+            onClearChatHistory = viewModel::clearChatHistory,
+            onCleanChatInput = viewModel::cleanChatInput,
+            onCopyPromptToast = { viewModel.showToast("Đã sao chép prompt.") },
+            onEditAndResubmitPrompt = viewModel::editAndResubmitChatPrompt,
+            onOpenAppIntro = viewModel::openAppIntro
+        )
     }
-}
 
-@Composable
-private fun SpeedDialActionItem(
-    label: String,
-    glyph: WalletGlyph,
-    onClick: () -> Unit,
-    iconModifier: Modifier = Modifier.semantics { contentDescription = label }
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = Color.White,
-            shadowElevation = 3.dp,
-            border = BorderStroke(1.dp, WalletStroke),
-            modifier = Modifier.walletClickable(onClickLabel = label, onClick = onClick)
-        ) {
-            Text(
-                text = label,
-                fontSize = 12.5.sp,
-                fontWeight = FontWeight.Bold,
-                color = WalletInk,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-            )
-        }
-        SmallFloatingActionButton(
-            onClick = onClick,
-            shape = CircleShape,
-            containerColor = Color.White,
-            contentColor = WalletMint,
-            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 3.dp),
-            modifier = iconModifier
-        ) {
-            GlyphIcon(glyph = glyph, color = WalletMint, size = 18.dp)
-        }
+    if (state.showQuickCaptureDialog) {
+        UniversalQuickCaptureDialog(
+            tags = activeTags,
+            localRules = state.localRules,
+            onSubmit = viewModel::submitQuickCapture,
+            onDismiss = viewModel::closeQuickCaptureDialog
+        )
+    }
+
+    state.pendingTaskLogPrompt?.let { prompt ->
+        TaskCompletionLogPromptDialog(
+            prompt = prompt,
+            onLogToLedger = { viewModel.openManualLogFromCompletedTask(prompt) },
+            onSkip = viewModel::dismissTaskLogPrompt
+        )
+    }
+
+    state.exportedMarkdownContent?.let { md ->
+        MarkdownExportDialog(
+            markdownText = md,
+            onDismiss = viewModel::closeExportMarkdownDialog,
+            onCopied = { viewModel.showToast("Đã sao chép nhật ký Markdown.") }
+        )
+    }
     }
 }

@@ -55,7 +55,10 @@ import com.timewallet.mvp.domain.usecase.TimerSegments
 import com.timewallet.mvp.data.local.TimerCommit
 import com.timewallet.mvp.data.local.TimerCommitResult
 import com.timewallet.mvp.notifications.AndroidCompletionReminderScheduler
+import com.timewallet.mvp.notifications.CompletionNotificationHelper
 import com.timewallet.mvp.notifications.ReminderScheduler
+import com.timewallet.mvp.domain.usecase.FocusPinPolicy
+import com.timewallet.mvp.domain.usecase.FocusPinState
 import com.timewallet.mvp.domain.model.ActiveTimerSession
 import com.timewallet.mvp.domain.model.ActivityProposal
 import com.timewallet.mvp.domain.model.ActivityReviewNote
@@ -103,7 +106,9 @@ import com.timewallet.mvp.domain.usecase.LedgerValidator
 import com.timewallet.mvp.domain.usecase.ManualEntry
 import com.timewallet.mvp.domain.usecase.ManualEntryValidation
 import com.timewallet.mvp.domain.usecase.ScheduleViewMode
+import com.timewallet.mvp.domain.usecase.SelectedSlotGroup
 import com.timewallet.mvp.domain.usecase.ValidationResult
+import com.timewallet.mvp.domain.usecase.WeeklyEfficiencySummary
 import com.timewallet.mvp.domain.usecase.WeeklyInsightsSummary
 import androidx.room.withTransaction
 import com.timewallet.mvp.data.diagnostics.AiDiagnostics
@@ -119,12 +124,37 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import com.timewallet.mvp.data.local.HabitEntity
+import com.timewallet.mvp.data.local.HabitLogEntity
+import com.timewallet.mvp.data.local.ProjectEntity
+import com.timewallet.mvp.data.local.SubtaskEntity
+import com.timewallet.mvp.data.local.TaskEntity
+import com.timewallet.mvp.domain.model.AiReadPermissions
+import com.timewallet.mvp.domain.model.CustomizationSettings
+import com.timewallet.mvp.domain.model.EisenhowerQuad
+import com.timewallet.mvp.domain.model.Habit
+import com.timewallet.mvp.domain.model.HabitFrequency
+import com.timewallet.mvp.domain.model.HabitLog
+import com.timewallet.mvp.domain.model.LocalCategoryRule
+import com.timewallet.mvp.domain.model.Project
+import com.timewallet.mvp.domain.model.SubtaskItem
+import com.timewallet.mvp.domain.model.TaskItem
+import com.timewallet.mvp.domain.model.TaskPriority
+import com.timewallet.mvp.domain.model.TaskStatus
+import com.timewallet.mvp.domain.model.ThemeModePreference
+import com.timewallet.mvp.domain.usecase.CaptureIntentKind
+import com.timewallet.mvp.domain.usecase.PeakFocusWindow
+import com.timewallet.mvp.domain.usecase.PlanAccuracySummary
+import com.timewallet.mvp.domain.usecase.ScheduleGridEngine
+import com.timewallet.mvp.domain.usecase.TaskHabitEngine
+import com.timewallet.mvp.domain.usecase.TaskSmartFilter
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -132,11 +162,10 @@ import java.time.ZoneId
 import java.util.UUID
 
 enum class AppTab(val routeKey: String, val label: String, val iconSymbol: String) {
-    OVERVIEW("overview", "Tổng quan", "⌂"),
-    TIMER("timer", "Đồng hồ", "◴"),
-    CHAT("chat", "Wally", "✦"),
-    HISTORY("history", "Nhật ký", "☷"),
-    INSIGHTS("insights", "Phân tích", "▥")
+    SCHEDULE("schedule", "Lịch trình", "▦"),
+    TASKS("tasks", "Công việc", "☑"),
+    FOCUS("focus", "Tập trung", "◴"),
+    MORE("more", "Mở rộng", "▤")
 }
 
 enum class HistoryFilter(val label: String) {
@@ -159,7 +188,9 @@ data class EditableProposalDraft(
     val isFuturePlanned: Boolean,
     val idempotencyKey: String = UUID.randomUUID().toString(),
     /** v1.1.0: Tag của người dùng khớp TIÊU ĐỀ đề xuất (khớp xác định, không dùng AI). null = không gắn. */
-    val tagId: String? = null
+    val tagId: String? = null,
+    val isMarkedWaste: Boolean = false,
+    val taskId: String? = null
 ) {
     /** Gắn Tag khớp tiêu đề; Tag là cách phân loại của người dùng nên Category theo Tag (người dùng vẫn sửa được ở khung sửa). */
     fun withTagMatch(tags: List<Tag>): EditableProposalDraft {
@@ -182,7 +213,8 @@ data class EditableProposalDraft(
                 startLocal = p.startLocal ?: "",
                 endLocal = p.endLocal ?: "",
                 hasInitialTimeEvidence = p.timeEvidence == "explicit_range",
-                isFuturePlanned = p.isFuturePlanned
+                isFuturePlanned = p.isFuturePlanned,
+                isMarkedWaste = false
             )
         }
     }
@@ -210,7 +242,10 @@ data class ManualEntryState(
     val endIsNow: Boolean = false,
     val creatingTag: Boolean = false,
     val newTagName: String = "",
-    val saveAsPlanned: Boolean = false
+    val saveAsPlanned: Boolean = false,
+    val isMarkedWaste: Boolean = false,
+    val batchSlots: List<SelectedSlotGroup> = emptyList(),
+    val taskId: String? = null
 ) {
     fun hasUserData(todayLocal: String = LocalDate.now().toString()): Boolean =
         categoryKey != null ||
@@ -222,6 +257,7 @@ data class ManualEntryState(
             endText.isNotBlank() ||
             endIsNow ||
             saveAsPlanned ||
+            isMarkedWaste ||
             note.isNotBlank() ||
             dateLocal != todayLocal
 
@@ -242,7 +278,8 @@ data class ManualEntryState(
         endText = endText,
         endIsNow = endIsNow,
         saveAsPlanned = saveAsPlanned,
-        updatedAtEpochMs = nowMs
+        updatedAtEpochMs = nowMs,
+        isMarkedWaste = isMarkedWaste
     )
 }
 
@@ -302,8 +339,13 @@ data class ImportBackupUiState(
     val isRestoring: Boolean = false
 )
 
+data class TaskCompletionPrompt(
+    val task: TaskItem,
+    val suggestedMinutes: Int
+)
+
 data class TimeWalletUiState(
-    val currentTab: AppTab = AppTab.OVERVIEW,
+    val currentTab: AppTab = AppTab.SCHEDULE,
     val todayDateLocal: String = LocalDate.now().toString(),
     val records: List<LedgerRecord> = emptyList(),
     val todayStats: DayLedgerStats = LedgerAnalyticsCalculator.computeDayStats(
@@ -311,6 +353,10 @@ data class TimeWalletUiState(
         emptyList()
     ),
     val weeklyInsights: WeeklyInsightsSummary = LedgerAnalyticsCalculator.computeWeeklyInsights(
+        LocalDate.now().toString(),
+        emptyList()
+    ),
+    val weeklyEfficiency: WeeklyEfficiencySummary = LedgerAnalyticsCalculator.computeWeeklyEfficiency(
         LocalDate.now().toString(),
         emptyList()
     ),
@@ -367,6 +413,8 @@ data class TimeWalletUiState(
     val importBackup: ImportBackupUiState? = null,
     val showProductInfoDialog: Boolean = false,
     val showAiSettingsDialog: Boolean = false,
+    val showProfileSettings: Boolean = false,
+    val showAppIntro: Boolean = false,
     val manualEntry: ManualEntryState? = null,
     val pendingManualDraft: ManualEntryDraft? = null,
     val showScheduleWorkspace: Boolean = false,
@@ -382,11 +430,34 @@ data class TimeWalletUiState(
     val confirmingRecord: LedgerRecord? = null,
     val pendingOverlapConflict: PendingOverlapConflict? = null,
     val requestNotificationPermissionNonce: Int = 0,
+    val focusPinEnabled: Boolean = false,
+    val focusPinPreview: FocusPinState = FocusPinPolicy.resolve(emptyList(), null, System.currentTimeMillis()),
     val lastCrashReport: String? = null,
     val aiConnectionTestMessage: String? = null,
     val aiConnectionTesting: Boolean = false,
     val aiDiagnosticsText: String = "",
-    val toastMessage: String? = null
+    val toastMessage: String? = null,
+    // Wally 2.0 state
+    val projects: List<Project> = emptyList(),
+    val tasks: List<TaskItem> = emptyList(),
+    val taskFilter: TaskSmartFilter = TaskSmartFilter.TODAY,
+    val habits: List<Habit> = emptyList(),
+    val habitLogs: List<HabitLog> = emptyList(),
+    val unifiedGoals: List<GoalRules.Summary> = emptyList(),
+    val customization: CustomizationSettings = CustomizationSettings(),
+    val aiReadPermissions: AiReadPermissions = AiReadPermissions(),
+    val localRules: List<LocalCategoryRule> = emptyList(),
+    val pomodoroMode: Boolean = false,
+    val pomodoroTargetMinutes: Int = 25,
+    val focusBreakNudgeVisible: Boolean = false,
+    val peakFocusWindow: PeakFocusWindow? = null,
+    val planAccuracySummary: PlanAccuracySummary = PlanAccuracySummary(0, 0, null, "Chưa có dữ liệu so sánh Dự kiến và Thực tế."),
+    val showWallyOverlay: Boolean = false,
+    val wallyOverlayHint: String? = null,
+    val pendingTaskLogPrompt: TaskCompletionPrompt? = null,
+    val showQuickCaptureDialog: Boolean = false,
+    val exportedMarkdownContent: String? = null,
+    val selectedMoreSection: Int = 0
 )
 
 class TimeWalletViewModel(application: Application) : AndroidViewModel(application) {
@@ -397,6 +468,9 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
     private val dailyReviewDao = database.dailyReviewDao()
     private val tagDao = database.tagDao()
     private val goalDao = database.goalDao()
+    private val projectDao = database.projectDao()
+    private val taskDao = database.taskDao()
+    private val habitDao = database.habitDao()
     private val settingsStore = TimerAndSettingsStore(application)
     private val reminderScheduler: ReminderScheduler = AndroidCompletionReminderScheduler(application)
 
@@ -482,7 +556,12 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 chatHistory = restoredChatHistory,
                 proposals = restoredProposals,
                 pendingManualDraft = restoredManualDraft,
-                aiPreferences = aiPrefs
+                aiPreferences = aiPrefs,
+                showAppIntro = !settingsStore.hasSeenAppIntro(),
+                focusPinEnabled = runCatching { settingsStore.isFocusPinEnabled() }.getOrDefault(false),
+                customization = runCatching { settingsStore.loadCustomizationSettings() }.getOrDefault(CustomizationSettings()),
+                aiReadPermissions = runCatching { settingsStore.loadAiReadPermissions() }.getOrDefault(AiReadPermissions()),
+                localRules = runCatching { settingsStore.loadLocalRules() }.getOrDefault(emptyList())
             )
         }
 
@@ -552,10 +631,40 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
 
         // v1.1.0: Tag cá nhân và mục tiêu (mọi phiên bản) từ Room.
         viewModelScope.launch(safeHandler) {
-            tagDao.observeAll().collect { entities -> _uiState.update { it.copy(tags = entities.map(TagEntity::toDomain)) } }
+            tagDao.observeAll().collect { entities ->
+                val domainTags = entities.map(TagEntity::toDomain)
+                recomputeStats(records = _uiState.value.records, tags = domainTags)
+            }
         }
         viewModelScope.launch(safeHandler) {
-            goalDao.observeAll().collect { entities -> _uiState.update { it.copy(goals = entities.map(GoalEntity::toDomain)) } }
+            goalDao.observeAll().collect { entities ->
+                val domainGoals = entities.map(GoalEntity::toDomain)
+                recomputeStats(records = _uiState.value.records, goals = domainGoals)
+            }
+        }
+        viewModelScope.launch(safeHandler) {
+            projectDao.observeAll().collect { entities ->
+                val domainProjects = entities.map(ProjectEntity::toDomain)
+                recomputeStats(records = _uiState.value.records, projects = domainProjects)
+            }
+        }
+        viewModelScope.launch(safeHandler) {
+            combine(taskDao.observeAllTasks(), taskDao.observeAllSubtasks()) { taskEntities, subtaskEntities ->
+                Wally20Coordinator.assembleTasks(taskEntities, subtaskEntities)
+            }.collect { assembledTasks ->
+                recomputeStats(records = _uiState.value.records, tasks = assembledTasks)
+            }
+        }
+        viewModelScope.launch(safeHandler) {
+            combine(habitDao.observeAllHabits(), habitDao.observeAllLogs()) { habitEntities, logEntities ->
+                habitEntities.map(HabitEntity::toDomain) to logEntities.map(HabitLogEntity::toDomain)
+            }.collect { (domainHabits, domainLogs) ->
+                recomputeStats(
+                    records = _uiState.value.records,
+                    habits = domainHabits,
+                    habitLogs = domainLogs
+                )
+            }
         }
 
         // v1.0.6: vòng cập nhật đồng hồ KHÔNG chạy ngầm; chỉ chạy khi màn hình đang hiện (onAppResumed ... onAppPaused).
@@ -651,7 +760,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         hasInitialTimeEvidence = hasInitialTimeEvidence,
         isFuturePlanned = isFuturePlanned,
         idempotencyKey = idempotencyKey,
-        tagId = tagId
+        tagId = tagId,
+        isMarkedWaste = isMarkedWaste
     )
 
     private fun SavedProposalDraft.toEditableDraft(): EditableProposalDraft = EditableProposalDraft(
@@ -666,7 +776,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         hasInitialTimeEvidence = hasInitialTimeEvidence,
         isFuturePlanned = isFuturePlanned,
         idempotencyKey = idempotencyKey,
-        tagId = tagId
+        tagId = tagId,
+        isMarkedWaste = isMarkedWaste
     )
 
     private var recomputeJob: Job? = null
@@ -681,11 +792,18 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         budgets: List<CategoryTimeBudget> = _uiState.value.budgets,
         dailyReviews: List<DailyReviewRecord> = _uiState.value.dailyReviews,
         activityNotes: List<ActivityReviewNote> = _uiState.value.activityNotes,
+        tags: List<Tag> = _uiState.value.tags,
+        goals: List<Goal> = _uiState.value.goals,
+        projects: List<Project> = _uiState.value.projects,
+        tasks: List<TaskItem> = _uiState.value.tasks,
+        habits: List<Habit> = _uiState.value.habits,
+        habitLogs: List<HabitLog> = _uiState.value.habitLogs,
         reviewDateOverride: String? = null
     ) {
         val zone = ZoneId.systemDefault()
         val nowMs = System.currentTimeMillis()
-        val todayStr = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate().toString()
+        val todayLocal = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
+        val todayStr = todayLocal.toString()
         val current = _uiState.value
         val targetReviewDate = reviewDateOverride ?: current.selectedReviewDateLocal.ifBlank { todayStr }
         _uiState.update {
@@ -695,6 +813,12 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 budgets = budgets,
                 dailyReviews = dailyReviews,
                 activityNotes = activityNotes,
+                tags = tags,
+                goals = goals,
+                projects = projects,
+                tasks = tasks,
+                habits = habits,
+                habitLogs = habitLogs,
                 selectedReviewDateLocal = targetReviewDate
             )
         }
@@ -709,10 +833,30 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                     records = records, budgets = budgets, dailyReviews = dailyReviews, activityNotes = activityNotes,
                     reviewDateOverride = targetReviewDate, selectedReviewDate = targetReviewDate,
                     activeTimer = activeTimer, preferredFocusCategory = preferredCat, consecutiveBreakRolls = breakRolls,
-                    zone = zone, nowMs = nowMs
+                    zone = zone, nowMs = nowMs, goals = goals, tags = tags
                 )
             }
             if (seq != recomputeSeq.get()) return@launch
+            val pinEnabled = _uiState.value.focusPinEnabled
+            val resolvedPin = withContext(Dispatchers.Default) {
+                FocusPinPolicy.resolve(records, activeTimer, nowMs, zone)
+            }
+            val (unifiedGoalsList, extrasPair) = withContext(Dispatchers.Default) {
+                val tagMap = tags.associate { it.id to it.name }
+                val unified = Wally20Coordinator.buildUnifiedGoalSummaries(
+                    goals = goals,
+                    budgets = budgets,
+                    records = records,
+                    tagNameOf = { id -> tagMap[id] },
+                    today = todayLocal,
+                    nowEpochMs = nowMs,
+                    zone = zone
+                )
+                val extras = Wally20Coordinator.computeAnalyticsExtras(records, todayStr, zone)
+                unified to extras
+            }
+            if (seq != recomputeSeq.get()) return@launch
+            reminderScheduler.syncFocusPin(pinEnabled, records, activeTimer, nowMs)
             _uiState.update { state ->
                 state.copy(
                     todayDateLocal = d.todayDateLocal,
@@ -721,11 +865,46 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                     currentDailyReviewSnapshot = d.reviewSnapshot,
                     todayStats = d.dayStats,
                     weeklyInsights = d.weekly,
+                    weeklyEfficiency = d.weeklyEfficiency,
                     diceCognitiveState = d.cognitiveState,
-                    diceFaceProbabilities = d.faceProbabilities
+                    diceFaceProbabilities = d.faceProbabilities,
+                    focusPinPreview = resolvedPin,
+                    unifiedGoals = unifiedGoalsList,
+                    peakFocusWindow = extrasPair.first,
+                    planAccuracySummary = extrasPair.second
                 )
             }
         }
+    }
+
+    fun openProfileSettings() {
+        _uiState.update { it.copy(showProfileSettings = true) }
+    }
+
+    fun closeProfileSettings() {
+        _uiState.update { it.copy(showProfileSettings = false) }
+    }
+
+    fun openAppIntro() {
+        _uiState.update { it.copy(showAppIntro = true) }
+    }
+
+    fun dismissAppIntro() {
+        settingsStore.setAppIntroSeen(true)
+        _uiState.update { it.copy(showAppIntro = false) }
+    }
+
+    fun editAndResubmitChatPrompt(editedPrompt: String) {
+        val clean = editedPrompt.trim()
+        if (clean.isEmpty()) return
+        _uiState.update {
+            it.copy(
+                chatInputText = clean,
+                chatAnswer = null,
+                chatFault = null
+            )
+        }
+        analyzeChatInput()
     }
 
     /**
@@ -733,13 +912,70 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
      */
     fun onAppResumed() {
         val persistedTimer = settingsStore.loadActiveTimer()
-        if (_uiState.value.activeTimer == null && persistedTimer != null) {
-            _uiState.update { it.copy(activeTimer = persistedTimer) }
+        val persistedFocusPin = runCatching { settingsStore.isFocusPinEnabled() }.getOrDefault(false)
+        _uiState.update { cur ->
+            cur.copy(
+                activeTimer = if (cur.activeTimer == null && persistedTimer != null) persistedTimer else cur.activeTimer,
+                focusPinEnabled = persistedFocusPin
+            )
         }
-        reminderScheduler.syncReminders(_uiState.value.records, System.currentTimeMillis())
+        val nowMs = System.currentTimeMillis()
+        reminderScheduler.syncReminders(_uiState.value.records, nowMs)
+        reminderScheduler.syncFocusPin(persistedFocusPin, _uiState.value.records, _uiState.value.activeTimer, nowMs)
         refreshTimerTick()
         recomputeStats(_uiState.value.records)
         startTicker()
+    }
+
+    fun toggleFocusPin(enabled: Boolean) {
+        val nowMs = System.currentTimeMillis()
+        settingsStore.setFocusPinEnabled(enabled, immediate = true)
+        val preview = FocusPinPolicy.resolve(_uiState.value.records, _uiState.value.activeTimer, nowMs, ZoneId.systemDefault())
+        _uiState.update { it.copy(focusPinEnabled = enabled, focusPinPreview = preview) }
+        reminderScheduler.syncFocusPin(enabled, _uiState.value.records, _uiState.value.activeTimer, nowMs)
+        if (enabled) {
+            if (!CompletionNotificationHelper.hasNotificationPermission(getApplication())) {
+                _uiState.update { it.copy(requestNotificationPermissionNonce = it.requestNotificationPermissionNonce + 1) }
+                showToast("Hãy bật quyền Thông báo để ghim hoạt động tập trung.")
+            } else {
+                showToast("Đã ghim thông báo: ${preview.headline}")
+            }
+        } else {
+            showToast("Đã tắt ghim thông báo tập trung.")
+        }
+    }
+
+    fun onNotificationPermissionGranted() {
+        val state = _uiState.value
+        if (state.focusPinEnabled) {
+            reminderScheduler.syncFocusPin(true, state.records, state.activeTimer, System.currentTimeMillis())
+        }
+    }
+
+    fun openFocusFromNotification(title: String?, categoryKey: String?, tagId: String?) {
+        val cleanTitle = title?.trim().orEmpty()
+        _uiState.update { cur ->
+            val canPrefill = cur.activeTimer == null && cleanTitle.isNotEmpty()
+            cur.copy(
+                currentTab = AppTab.FOCUS,
+                showScheduleWorkspace = false,
+                showProfileSettings = false,
+                showWallyOverlay = false,
+                timerInputTitle = if (canPrefill) cleanTitle else cur.timerInputTitle,
+                timerInputCategoryKey = if (canPrefill) TimeCategory.fromKeyOrDefault(categoryKey).key else cur.timerInputCategoryKey,
+                timerInputTagId = if (canPrefill) tagId else cur.timerInputTagId
+            )
+        }
+        val after = _uiState.value
+        if (after.activeTimer == null && cleanTitle.isNotEmpty()) {
+            settingsStore.saveTimerInputDraft(
+                TimerInputDraft(
+                    title = after.timerInputTitle,
+                    categoryKey = after.timerInputCategoryKey,
+                    tagId = after.timerInputTagId
+                )
+            )
+        }
     }
 
     private fun refreshTimerTick() {
@@ -759,7 +995,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         _uiState.update {
             it.copy(
                 timerElapsedSeconds = snapshot.elapsedSeconds,
-                timerClockSkewDetected = snapshot.clockSkewDetected
+                timerClockSkewDetected = snapshot.clockSkewDetected,
+                focusBreakNudgeVisible = snapshot.elapsedSeconds >= 90L * 60L
             )
         }
     }
@@ -915,7 +1152,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 timerInputCategoryKey = face.category.key,
                 timerElapsedSeconds = 0L,
                 timerClockSkewDetected = false,
-                currentTab = AppTab.TIMER
+                currentTab = AppTab.FOCUS
             )
         }
         recomputeStats(_uiState.value.records)
@@ -933,12 +1170,14 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         val nowEpoch = System.currentTimeMillis()
         val nowElapsed = SystemClock.elapsedRealtime()
         val currentBootCount = TimerAndSettingsStore.readDeviceBootCount(getApplication())
+        val targetSecs = if (current.pomodoroMode) current.pomodoroTargetMinutes.coerceIn(5, 120) * 60L else null
         val session = ActiveTimerSession(
             title = title,
             categoryKey = current.timerInputCategoryKey,
             startedAtEpochMs = nowEpoch,
             startedElapsedRealtimeMs = nowElapsed,
             timezone = ZoneId.systemDefault().id,
+            targetDurationSeconds = targetSecs,
             startedBootCount = currentBootCount,
             tagId = current.timerInputTagId
         )
@@ -989,7 +1228,9 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 startedAtEpochMs = session.startedAtEpochMs,
                 endEpochMs = endEpochMs,
                 zone = zone,
-                tagId = session.tagId
+                tagId = session.tagId,
+                taskId = session.taskId,
+                habitId = session.habitId
             )) {
                 is TimerCommitResult.Overlap -> {
                     val durationMs = endEpochMs - session.startedAtEpochMs
@@ -1058,7 +1299,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 activeTimer = null,
                 timerElapsedSeconds = 0L,
                 timerClockSkewDetected = false,
-                currentTab = AppTab.OVERVIEW
+                focusBreakNudgeVisible = false,
+                currentTab = AppTab.SCHEDULE
             )
         }
         // Phiên đã rời khỏi trạng thái "đang chạy": số liệu dẫn xuất không được còn tính cả phiên đang chạy lẫn bản ghi vừa ghi.
@@ -1072,7 +1314,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             it.copy(
                 activeTimer = null,
                 timerElapsedSeconds = 0L,
-                timerClockSkewDetected = false
+                timerClockSkewDetected = false,
+                focusBreakNudgeVisible = false
             )
         }
         recomputeStats(_uiState.value.records)
@@ -1867,7 +2110,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         newDurationMinutesText: String,
         newStartHm: String,
         newEndHm: String,
-        allowFutureAsPlanned: Boolean
+        allowFutureAsPlanned: Boolean,
+        newMarkedWaste: Boolean = existing.isMarkedWaste
     ) {
         val zone = ZoneId.systemDefault()
         val nowMs = System.currentTimeMillis()
@@ -1888,7 +2132,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 existingRecords = currentRecords,
                 activeTimer = _uiState.value.activeTimer,
                 nowEpochMs = nowMs,
-                zoneId = zone
+                zoneId = zone,
+                newMarkedWaste = newMarkedWaste
             )
             applyConfirmationAction(result = result, closeEditOnSuccess = true)
         }
@@ -2124,7 +2369,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         val targetDate = dateLocal ?: _uiState.value.todayDateLocal
         _uiState.update {
             it.copy(
-                currentTab = AppTab.OVERVIEW,
+                currentTab = AppTab.SCHEDULE,
                 isShowingDailyReview = true,
                 selectedReviewDateLocal = targetDate
             )
@@ -2236,7 +2481,11 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             dailyReviews = state.dailyReviews,
             activityNotes = state.activityNotes,
             tags = state.tags,
-            goals = state.goals
+            goals = state.goals,
+            projects = state.projects,
+            tasks = state.tasks,
+            habits = state.habits,
+            habitLogs = state.habitLogs
         )
         _uiState.update { it.copy(exportedJsonContent = json) }
     }
@@ -2345,6 +2594,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
     // ------------------- WALLY: NHẬP GIỜ THỦ CÔNG -------------------
 
     private fun syncManualDraftPersistence(form: ManualEntryState, immediate: Boolean = false) {
+        if (form.batchSlots.isNotEmpty()) return
         val draft = ManualEntryDraftCoordinator.syncDraft(
             store = settingsStore,
             form = form,
@@ -2414,6 +2664,34 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             startText = startDigits,
             endText = endDigits,
             saveAsPlanned = saveAsPlanned || dateLocal > todayStr
+        )
+        _uiState.update { it.copy(manualEntry = form) }
+    }
+
+    /**
+     * Mở form ghi mới từ danh sách khối giờ trống đã chọn trên Lịch trình:
+     * - 1 khoảng liền kề -> mở form Range chuẩn để tạo 1 sự kiện.
+     * - >= 2 khoảng rời rạc -> mở form tạo hàng loạt nhiều bản ghi độc lập cùng tên/tag.
+     */
+    fun openManualFormForSlots(groups: List<SelectedSlotGroup>) {
+        if (groups.isEmpty() || _uiState.value.manualEntry != null) return
+        val todayStr = LocalDate.now().toString()
+        if (groups.size == 1) {
+            val g = groups.single()
+            openManualFormForSlot(
+                dateLocal = g.dateLocal,
+                startHm = g.startHm,
+                endHm = g.endHm,
+                saveAsPlanned = g.dateLocal > todayStr
+            )
+            return
+        }
+        val form = ManualEntryState(
+            categoryKey = null,
+            dateLocal = groups.first().dateLocal,
+            mode = ManualMode.RANGE,
+            saveAsPlanned = groups.all { it.dateLocal > todayStr },
+            batchSlots = groups
         )
         _uiState.update { it.copy(manualEntry = form) }
     }
@@ -2551,6 +2829,100 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         if (form.saving) return
         val zone = ZoneId.systemDefault()
         val tagName = form.tagId?.let { id -> _uiState.value.tags.firstOrNull { it.id == id }?.name }
+
+        if (form.batchSlots.isNotEmpty()) {
+            val today = LocalDate.now(zone)
+            val batchVal = ManualEntry.validateMultiSlot(
+                slots = form.batchSlots,
+                categoryKey = form.categoryKey,
+                tagId = form.tagId,
+                tagName = tagName,
+                note = form.note,
+                today = today,
+                saveAsPlanned = form.saveAsPlanned,
+                isMarkedWaste = form.isMarkedWaste
+            ).getOrElse { err ->
+                _uiState.update { it.copy(manualEntry = it.manualEntry?.copy(error = err.message ?: "Khung giờ không hợp lệ.")) }
+                return
+            }
+            if (!manualSaveGuard.tryAcquire()) return
+            _uiState.update { it.copy(manualEntry = it.manualEntry?.copy(saving = true, error = null)) }
+            val job = viewModelScope.launch(safeHandler) {
+                val nowMs = System.currentTimeMillis()
+                val batchInputs = ManualEntry.toMultiSlotBatchInputs(batchVal, form.sessionId)
+                val existing = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
+                when (val plan = BatchProposalPlanner.plan(
+                    inputs = batchInputs,
+                    existingRecords = existing,
+                    activeTimer = _uiState.value.activeTimer,
+                    nowEpochMs = nowMs,
+                    zone = zone
+                )) {
+                    is BatchOverlapStep.Invalid -> {
+                        _uiState.update { it.copy(manualEntry = it.manualEntry?.copy(saving = false, error = plan.message)) }
+                        return@launch
+                    }
+                    is BatchOverlapStep.ConflictAt -> {
+                        _uiState.update {
+                            it.copy(
+                                manualEntry = it.manualEntry?.copy(
+                                    saving = false,
+                                    error = "Khung giờ của \"${plan.conflictCandidate.title}\" bị trùng với hoạt động đã có. Hãy bỏ chọn khung bị trùng."
+                                )
+                            )
+                        }
+                        return@launch
+                    }
+                    is BatchOverlapStep.ReadyAll -> {
+                        when (val result = BatchConfirm.run(
+                            dao = ledgerDao,
+                            inputs = plan.inputs,
+                            activeTimer = _uiState.value.activeTimer,
+                            readActiveTimer = { settingsStore.loadActiveTimer() },
+                            nowEpochMs = nowMs,
+                            zone = zone
+                        )) {
+                            is ConfirmResult.Invalid ->
+                                _uiState.update { it.copy(manualEntry = it.manualEntry?.copy(saving = false, error = result.message)) }
+                            is ConfirmResult.Aborted ->
+                                _uiState.update { it.copy(manualEntry = it.manualEntry?.copy(saving = false, error = result.message)) }
+                            is ConfirmResult.Committed -> {
+                                val needsReminder = batchVal.any { v ->
+                                    val r = v.startHm?.let { s ->
+                                        v.endHm?.let { e -> LedgerValidator.parseTimeRangeToEpochMillis(v.dateLocal, s, e, zone) }
+                                    }
+                                    v.saveAsPlanned || (r != null && r.second > nowMs)
+                                }
+                                _uiState.update {
+                                    it.copy(
+                                        manualEntry = null,
+                                        requestNotificationPermissionNonce = if (needsReminder && result.savedCount > 0) {
+                                            it.requestNotificationPermissionNonce + 1
+                                        } else {
+                                            it.requestNotificationPermissionNonce
+                                        }
+                                    )
+                                }
+                                val totalMin = batchVal.sumOf { it.durationMinutes }
+                                showToast(
+                                    if (result.savedCount > 0) {
+                                        "Đã ghi ${result.savedCount} khoảng giờ (${LedgerAnalyticsCalculator.formatCompactDurationSeconds(totalMin * 60L)})."
+                                    } else {
+                                        ConfirmFeedback.message(0, result.skippedDuplicates)
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            job.invokeOnCompletion {
+                manualSaveGuard.release()
+                if (it != null) _uiState.update { s -> s.copy(manualEntry = s.manualEntry?.copy(saving = false)) }
+            }
+            return
+        }
+
         val validation = if (form.mode == ManualMode.RANGE) {
             ManualEntry.validateRange(
                 categoryKey = form.categoryKey,
@@ -2563,7 +2935,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 note = form.note,
                 today = LocalDate.now(zone),
                 nowHm = TimeRange.formatHm(LocalTime.now(zone).hour * 60 + LocalTime.now(zone).minute),
-                saveAsPlanned = form.saveAsPlanned
+                saveAsPlanned = form.saveAsPlanned,
+                isMarkedWaste = form.isMarkedWaste
             )
         } else {
             ManualEntry.validate(
@@ -2575,7 +2948,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 today = LocalDate.now(zone),
                 tagId = form.tagId,
                 tagName = tagName,
-                saveAsPlanned = form.saveAsPlanned
+                saveAsPlanned = form.saveAsPlanned,
+                isMarkedWaste = form.isMarkedWaste
             )
         }
         if (validation is ManualEntryValidation.Invalid) {
@@ -2588,7 +2962,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
 
         val job = viewModelScope.launch(safeHandler) {
             val nowMs = System.currentTimeMillis()
-            val batchInput = ManualEntry.toBatchInput(validation, form.sessionId)
+            val batchInput = ManualEntry.toBatchInput(validation, form.sessionId).copy(taskId = form.taskId)
             val range = if (!batchInput.startHm.isNullOrBlank() && !batchInput.endHm.isNullOrBlank()) {
                 LedgerValidator.parseTimeRangeToEpochMillis(batchInput.dateLocal, batchInput.startHm, batchInput.endHm, zone)
             } else null
@@ -2618,7 +2992,9 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                         zoneId = zone,
                         idempotencyKey = batchInput.idempotencyKey!!,
                         convertFutureToPlanned = batchInput.convertFutureToPlanned,
-                        tagId = batchInput.tagId
+                        tagId = batchInput.tagId,
+                        isMarkedWaste = batchInput.isMarkedWaste,
+                        taskId = batchInput.taskId
                     )
                     if (built is ValidationResult.Valid) {
                         _uiState.update {
@@ -2904,7 +3280,31 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         if (s.coach.loading) return
         val zone = ZoneId.systemDefault()
         val now = System.currentTimeMillis()
-        val digest = CoachDigestBuilder.build(s.records, s.tags, s.goals, days, now, zone)
+        val perms = s.aiReadPermissions
+        if (!perms.readLedger && !perms.readTasks && !perms.readHabits && !perms.readGoals) {
+            _uiState.update {
+                it.copy(
+                    coach = CoachUiState(
+                        rangeDays = days,
+                        requested = true,
+                        note = "Bạn đang tắt toàn bộ quyền đọc dữ liệu AI trong Mở rộng › Tùy chỉnh. Bật ít nhất 1 mục để Wally phân tích."
+                    )
+                )
+            }
+            return
+        }
+        val digest = Wally20Coordinator.buildFilteredCoachDigest(
+            perms = perms,
+            records = s.records,
+            tags = s.tags,
+            goals = s.goals,
+            tasks = s.tasks,
+            habits = s.habits,
+            habitLogs = s.habitLogs,
+            days = days,
+            nowMs = now,
+            zone = zone
+        )
         val prefs = s.aiPreferences
         if (!digest.hasAnyData && !digest.hasPlanOrStateHistory) {
             _uiState.update { it.copy(coach = CoachUiState(rangeDays = days, facts = digest.facts, requested = true,
@@ -3006,13 +3406,13 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             }
             CoachActionKind.TIMER -> {
                 if (current.activeTimer != null) {
-                    _uiState.update { it.copy(currentTab = AppTab.TIMER) }
+                    _uiState.update { it.copy(currentTab = AppTab.FOCUS) }
                     showToast("Đồng hồ đang đo phiên hiện tại.")
                     return
                 }
                 _uiState.update {
                     it.copy(
-                        currentTab = AppTab.TIMER,
+                        currentTab = AppTab.FOCUS,
                         timerInputTitle = action.targetLabel ?: action.title,
                         timerInputCategoryKey = action.targetCategoryKey ?: it.timerInputCategoryKey,
                         timerInputTagId = action.targetTagId ?: it.timerInputTagId
@@ -3121,5 +3521,490 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 "Wally chưa có AI: hãy nhập khóa API và bật AI. Ghi thủ công và các tab khác vẫn dùng bình thường."
             }
         )
+    }
+
+    // ------------------- WALLY 2.0: HUB NĂNG SUẤT & TÙY CHỈNH -------------------
+
+    fun openWallyOverlay(hint: String? = null) {
+        _uiState.update { it.copy(showWallyOverlay = true, wallyOverlayHint = hint) }
+    }
+
+    fun closeWallyOverlay() {
+        _uiState.update { it.copy(showWallyOverlay = false, wallyOverlayHint = null) }
+    }
+
+    fun openQuickCaptureDialog() {
+        _uiState.update { it.copy(showQuickCaptureDialog = true) }
+    }
+
+    fun closeQuickCaptureDialog() {
+        _uiState.update { it.copy(showQuickCaptureDialog = false) }
+    }
+
+    fun selectMoreSection(sectionIndex: Int) {
+        _uiState.update { it.copy(selectedMoreSection = sectionIndex.coerceIn(0, 1)) }
+    }
+
+    fun selectTaskFilter(filter: TaskSmartFilter) {
+        _uiState.update { it.copy(taskFilter = filter) }
+    }
+
+    fun createTask(
+        title: String,
+        categoryKey: String = TimeCategory.WORK.key,
+        priority: TaskPriority = TaskPriority.P2,
+        estimatedMinutes: Int? = 30,
+        dueDateLocal: String? = null,
+        tagId: String? = null,
+        projectId: String? = null,
+        eisenhowerQuad: EisenhowerQuad? = null,
+        subtasksRaw: List<String> = emptyList()
+    ) {
+        val clean = title.trim()
+        if (clean.isEmpty()) {
+            showToast("Hãy nhập tên công việc.")
+            return
+        }
+        val matchedRule = Wally20Coordinator.matchLocalRuleCategory(clean, _uiState.value.localRules)
+        val resolvedCat = matchedRule?.category ?: TimeCategory.fromKeyOrDefault(categoryKey)
+        val resolvedTagId = tagId ?: matchedRule?.tagId
+        val nowMs = System.currentTimeMillis()
+        val taskId = UUID.randomUUID().toString()
+        val status = if (dueDateLocal != null) TaskStatus.TODO else TaskStatus.INBOX
+        val task = TaskItem(
+            id = taskId,
+            title = clean,
+            projectId = projectId,
+            tagId = resolvedTagId,
+            category = resolvedCat,
+            priority = priority,
+            estimatedMinutes = estimatedMinutes,
+            dueDateLocal = dueDateLocal,
+            status = status,
+            eisenhowerQuad = eisenhowerQuad,
+            createdAt = nowMs,
+            updatedAt = nowMs
+        )
+        val subtasks = subtasksRaw.mapIndexedNotNull { idx, s ->
+            val st = s.trim()
+            if (st.isEmpty()) null else SubtaskItem(
+                id = UUID.randomUUID().toString(),
+                taskId = taskId,
+                title = st,
+                isDone = false,
+                sortOrder = idx
+            )
+        }
+        viewModelScope.launch(safeHandler) {
+            taskDao.upsertTask(TaskEntity.fromDomain(task))
+            if (subtasks.isNotEmpty()) {
+                taskDao.upsertSubtasks(subtasks.map(SubtaskEntity::fromDomain))
+            }
+            showToast("Đã thêm việc \"${clean}\".")
+        }
+    }
+
+    fun toggleTaskDone(task: TaskItem) {
+        val nowMs = System.currentTimeMillis()
+        val becomingDone = !task.isDone
+        val nextStatus = if (becomingDone) TaskStatus.DONE else TaskStatus.TODO
+        val updated = task.copy(
+            status = nextStatus,
+            completedAt = if (becomingDone) nowMs else null,
+            updatedAt = nowMs
+        )
+        viewModelScope.launch(safeHandler) {
+            taskDao.upsertTask(TaskEntity.fromDomain(updated))
+            if (becomingDone) {
+                val loggedSec = TaskHabitEngine.computeTaskLoggedSeconds(task.id, _uiState.value.records)
+                if (loggedSec <= 0L) {
+                    _uiState.update {
+                        it.copy(
+                            pendingTaskLogPrompt = TaskCompletionPrompt(
+                                task = updated,
+                                suggestedMinutes = (task.estimatedMinutes ?: 25).coerceIn(5, 480)
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun dismissTaskLogPrompt() {
+        _uiState.update { it.copy(pendingTaskLogPrompt = null) }
+    }
+
+    fun openManualLogFromCompletedTask(prompt: TaskCompletionPrompt) {
+        val t = prompt.task
+        val mins = prompt.suggestedMinutes
+        _uiState.update {
+            it.copy(
+                pendingTaskLogPrompt = null,
+                manualEntry = ManualEntryState(
+                    categoryKey = t.category.key,
+                    hoursText = (mins / 60).takeIf { h -> h > 0 }?.toString().orEmpty(),
+                    minutesText = (mins % 60).takeIf { m -> m > 0 || mins < 60 }?.toString().orEmpty(),
+                    dateLocal = it.todayDateLocal,
+                    note = t.title,
+                    mode = ManualMode.DURATION,
+                    tagId = t.tagId,
+                    taskId = t.id
+                )
+            )
+        }
+    }
+
+    fun updateTaskStatus(task: TaskItem, newStatus: TaskStatus) {
+        val nowMs = System.currentTimeMillis()
+        val updated = task.copy(
+            status = newStatus,
+            completedAt = if (newStatus == TaskStatus.DONE) nowMs else null,
+            updatedAt = nowMs
+        )
+        viewModelScope.launch(safeHandler) {
+            taskDao.upsertTask(TaskEntity.fromDomain(updated))
+        }
+    }
+
+    fun setTaskEisenhowerQuad(task: TaskItem, quad: EisenhowerQuad?) {
+        val updated = task.copy(eisenhowerQuad = quad, updatedAt = System.currentTimeMillis())
+        viewModelScope.launch(safeHandler) {
+            taskDao.upsertTask(TaskEntity.fromDomain(updated))
+        }
+    }
+
+    fun addSubtask(taskId: String, title: String) {
+        val clean = title.trim()
+        if (clean.isEmpty()) return
+        val existingCount = _uiState.value.tasks.firstOrNull { it.id == taskId }?.subtasks?.size ?: 0
+        val item = SubtaskItem(
+            id = UUID.randomUUID().toString(),
+            taskId = taskId,
+            title = clean,
+            isDone = false,
+            sortOrder = existingCount
+        )
+        viewModelScope.launch(safeHandler) {
+            taskDao.upsertSubtask(SubtaskEntity.fromDomain(item))
+        }
+    }
+
+    fun toggleSubtaskDone(subtask: SubtaskItem) {
+        viewModelScope.launch(safeHandler) {
+            taskDao.upsertSubtask(SubtaskEntity.fromDomain(subtask.copy(isDone = !subtask.isDone)))
+        }
+    }
+
+    fun deleteTask(taskId: String) {
+        viewModelScope.launch(safeHandler) {
+            taskDao.deleteTaskWithSubtasks(taskId)
+            showToast("Đã xóa công việc.")
+        }
+    }
+
+    fun startFocusOnTask(task: TaskItem) {
+        val cur = _uiState.value
+        if (cur.activeTimer != null) {
+            _uiState.update { it.copy(currentTab = AppTab.FOCUS) }
+            showToast("Đang có phiên tập trung chạy. Hãy dừng & lưu trước.")
+            return
+        }
+        val nowEpoch = System.currentTimeMillis()
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val currentBootCount = TimerAndSettingsStore.readDeviceBootCount(getApplication())
+        val targetSecs = if (cur.pomodoroMode) {
+            cur.pomodoroTargetMinutes.coerceIn(5, 120) * 60L
+        } else {
+            task.estimatedMinutes?.let { it.coerceIn(5, 240) * 60L }
+        }
+        val session = ActiveTimerSession(
+            title = task.title,
+            categoryKey = task.category.key,
+            startedAtEpochMs = nowEpoch,
+            startedElapsedRealtimeMs = nowElapsed,
+            timezone = ZoneId.systemDefault().id,
+            targetDurationSeconds = targetSecs,
+            startedBootCount = currentBootCount,
+            tagId = task.tagId,
+            taskId = task.id
+        )
+        settingsStore.saveActiveTimer(session)
+        settingsStore.saveTimerInputDraft(null, immediate = true)
+        _uiState.update {
+            it.copy(
+                activeTimer = session,
+                timerInputTitle = task.title,
+                timerInputCategoryKey = task.category.key,
+                timerInputTagId = task.tagId,
+                timerElapsedSeconds = 0L,
+                timerClockSkewDetected = false,
+                focusBreakNudgeVisible = false,
+                currentTab = AppTab.FOCUS
+            )
+        }
+        recomputeStats(_uiState.value.records)
+        showToast("▶ Đã bắt đầu tập trung: ${task.title}.")
+    }
+
+    fun scheduleTaskOnCalendar(task: TaskItem, dateLocal: String? = null) {
+        val targetDate = dateLocal ?: task.dueDateLocal ?: _uiState.value.todayDateLocal
+        val mins = (task.estimatedMinutes ?: 30).coerceIn(15, 240)
+        val zone = ZoneId.systemDefault()
+        val nowMs = System.currentTimeMillis()
+        val nowMin = Instant.ofEpochMilli(nowMs).atZone(zone).let { it.hour * 60 + it.minute }
+        val dayModel = ScheduleGridEngine.buildDayScheduleModel(
+            date = runCatching { LocalDate.parse(targetDate) }.getOrElse { LocalDate.now(zone) },
+            records = _uiState.value.records,
+            activeTimer = _uiState.value.activeTimer,
+            nowEpochMs = nowMs,
+            zone = zone
+        )
+        val minStart = if (targetDate == _uiState.value.todayDateLocal) ((nowMin + 14) / 15) * 15 else 9 * 60
+        val gap = dayModel.freeGaps.firstOrNull { (it.endMinute - maxOf(it.startMinute, minStart)) >= 15 }
+        val startMin = gap?.let { maxOf(it.startMinute, minStart) } ?: 9 * 60
+        val endMin = (startMin + mins).coerceAtMost(gap?.endMinute ?: (startMin + mins)).coerceAtLeast(startMin + 15)
+        val sHm = TimeRange.formatHm(startMin.coerceIn(0, 1425))
+        val eHm = if (endMin >= 1440) "23:59" else TimeRange.formatHm(endMin)
+        _uiState.update {
+            it.copy(
+                manualEntry = ManualEntryState(
+                    categoryKey = task.category.key,
+                    dateLocal = targetDate,
+                    note = task.title,
+                    mode = ManualMode.RANGE,
+                    tagId = task.tagId,
+                    startText = sHm.filter(Char::isDigit),
+                    endText = eHm.filter(Char::isDigit),
+                    saveAsPlanned = true,
+                    taskId = task.id
+                )
+            )
+        }
+    }
+
+    fun breakDownTaskWithWally(task: TaskItem) {
+        if (!_uiState.value.aiReadPermissions.readTasks) {
+            showToast("Quyền đọc Công việc & Inbox đang tắt trong Hồ sơ & Cài đặt.")
+            return
+        }
+        val steps = Wally20Coordinator.proposeSubtasksOffline(task)
+        viewModelScope.launch(safeHandler) {
+            val existingCount = task.subtasks.size
+            val newSubs = steps.mapIndexed { idx, stepTitle ->
+                SubtaskItem(
+                    id = UUID.randomUUID().toString(),
+                    taskId = task.id,
+                    title = stepTitle,
+                    isDone = false,
+                    sortOrder = existingCount + idx
+                )
+            }
+            taskDao.upsertSubtasks(newSubs.map(SubtaskEntity::fromDomain))
+            showToast("✦ Wally đã chia \"${task.title}\" thành ${newSubs.size} bước nhỏ.")
+        }
+    }
+
+    fun requestWallyReplanInbox() {
+        val s = _uiState.value
+        if (!s.aiReadPermissions.readTasks) {
+            val msg = "Quyền đọc Công việc & Inbox đang tắt — bật lại trong Cài đặt để Wally gợi ý xếp lịch Inbox."
+            showToast(msg)
+            _uiState.update {
+                it.copy(
+                    proposals = emptyList(),
+                    showWallyOverlay = true,
+                    wallyOverlayHint = msg
+                )
+            }
+            return
+        }
+        val zone = ZoneId.systemDefault()
+        val nowMs = System.currentTimeMillis()
+        val drafts = Wally20Coordinator.buildInboxReplanDrafts(
+            tasks = s.tasks,
+            records = s.records,
+            todayLocal = s.todayDateLocal,
+            nowEpochMs = nowMs,
+            zone = zone
+        )
+        if (drafts.isEmpty()) {
+            showToast("Không còn việc Inbox chưa xếp lịch hoặc không có khoảng trống phù hợp hôm nay.")
+            return
+        }
+        _uiState.update {
+            it.copy(
+                proposals = drafts,
+                showWallyOverlay = true,
+                wallyOverlayHint = "Wally đã gợi ý khung giờ cho ${drafts.size} việc từ Inbox — bấm ✓ để xác nhận lên lịch."
+            )
+        }
+    }
+
+    fun createHabit(
+        title: String,
+        categoryKey: String = TimeCategory.LEARN.key,
+        tagId: String? = null,
+        frequency: HabitFrequency = HabitFrequency.DAILY,
+        minSessionMinutes: Int = 15
+    ) {
+        val clean = title.trim()
+        if (clean.isEmpty()) {
+            showToast("Hãy nhập tên thói quen.")
+            return
+        }
+        val nowMs = System.currentTimeMillis()
+        val habit = Habit(
+            id = UUID.randomUUID().toString(),
+            title = clean,
+            tagId = tagId,
+            category = TimeCategory.fromKeyOrDefault(categoryKey),
+            frequency = frequency,
+            minSessionMinutes = minSessionMinutes.coerceIn(1, 240),
+            createdAt = nowMs,
+            updatedAt = nowMs
+        )
+        viewModelScope.launch(safeHandler) {
+            habitDao.upsertHabit(HabitEntity.fromDomain(habit))
+            showToast("Đã thêm thói quen \"${clean}\".")
+        }
+    }
+
+    fun toggleHabitForDate(habit: Habit, dateLocal: String = _uiState.value.todayDateLocal) {
+        val s = _uiState.value
+        val existingLog = s.habitLogs.firstOrNull { it.habitId == habit.id && it.dateLocal == dateLocal }
+        val nextDone = !(existingLog?.completed ?: false)
+        val nowMs = System.currentTimeMillis()
+        val updatedLog = HabitLog(
+            id = existingLog?.id ?: UUID.randomUUID().toString(),
+            habitId = habit.id,
+            dateLocal = dateLocal,
+            completed = nextDone,
+            linkedLedgerId = existingLog?.linkedLedgerId,
+            updatedAt = nowMs
+        )
+        viewModelScope.launch(safeHandler) {
+            habitDao.upsertLog(HabitLogEntity.fromDomain(updatedLog))
+        }
+    }
+
+    fun submitQuickCapture(rawInput: String, preferredKind: CaptureIntentKind? = null) {
+        val s = _uiState.value
+        val cleanInput = rawInput.trim()
+        if (cleanInput.isEmpty()) {
+            showToast("Hãy nhập nội dung cần ghi hoặc việc cần làm.")
+            return
+        }
+        val parsed = TaskHabitEngine.parseQuickCaptureInput(
+            rawInput = cleanInput,
+            preferredKind = preferredKind,
+            tags = s.tags,
+            rules = s.localRules
+        )
+        when (parsed.kind) {
+            CaptureIntentKind.TASK_INBOX -> {
+                createTask(
+                    title = parsed.cleanTitle,
+                    categoryKey = parsed.category.key,
+                    priority = parsed.priority,
+                    estimatedMinutes = parsed.durationMinutes ?: 30,
+                    tagId = parsed.tagId
+                )
+                _uiState.update { it.copy(showQuickCaptureDialog = false) }
+            }
+            CaptureIntentKind.TIMED_EVENT -> {
+                val mins = parsed.durationMinutes ?: 30
+                val form = ManualEntryState(
+                    categoryKey = parsed.category.key,
+                    dateLocal = s.todayDateLocal,
+                    note = parsed.cleanTitle,
+                    mode = ManualMode.RANGE,
+                    tagId = parsed.tagId,
+                    startText = parsed.startHm?.filter(Char::isDigit).orEmpty(),
+                    endText = parsed.endHm?.filter(Char::isDigit).orEmpty(),
+                    hoursText = (mins / 60).takeIf { it > 0 }?.toString().orEmpty(),
+                    minutesText = (mins % 60).toString(),
+                    isMarkedWaste = parsed.markWaste
+                )
+                _uiState.update { it.copy(showQuickCaptureDialog = false, manualEntry = form) }
+            }
+            CaptureIntentKind.DURATION_ONLY -> {
+                val mins = parsed.durationMinutes ?: 30
+                val form = ManualEntryState(
+                    categoryKey = parsed.category.key,
+                    dateLocal = s.todayDateLocal,
+                    note = parsed.cleanTitle,
+                    mode = ManualMode.DURATION,
+                    tagId = parsed.tagId,
+                    hoursText = (mins / 60).takeIf { it > 0 }?.toString().orEmpty(),
+                    minutesText = (mins % 60).toString(),
+                    isMarkedWaste = parsed.markWaste
+                )
+                _uiState.update { it.copy(showQuickCaptureDialog = false, manualEntry = form) }
+            }
+        }
+    }
+
+    fun setPomodoroMode(enabled: Boolean, targetMinutes: Int = _uiState.value.pomodoroTargetMinutes) {
+        val clamped = targetMinutes.coerceIn(5, 120)
+        _uiState.update { it.copy(pomodoroMode = enabled, pomodoroTargetMinutes = clamped) }
+    }
+
+    fun updateCustomizationSettings(transform: (CustomizationSettings) -> CustomizationSettings) {
+        val next = transform(_uiState.value.customization)
+        settingsStore.saveCustomizationSettings(next, immediate = true)
+        _uiState.update { it.copy(customization = next) }
+        showToast("Đã cập nhật tùy chỉnh giao diện.")
+    }
+
+    fun updateAiReadPermissions(transform: (AiReadPermissions) -> AiReadPermissions) {
+        val next = transform(_uiState.value.aiReadPermissions)
+        settingsStore.saveAiReadPermissions(next, immediate = true)
+        _uiState.update { it.copy(aiReadPermissions = next) }
+        showToast("Đã cập nhật quyền đọc dữ liệu cho AI.")
+    }
+
+    fun addLocalCategoryRule(keyword: String, categoryKey: String, tagId: String? = null, markWaste: Boolean = false) {
+        val cleanKw = keyword.trim()
+        if (cleanKw.isEmpty()) {
+            showToast("Từ khóa quy tắc không được rỗng.")
+            return
+        }
+        val rule = LocalCategoryRule(
+            id = UUID.randomUUID().toString(),
+            keyword = cleanKw,
+            category = TimeCategory.fromKeyOrDefault(categoryKey),
+            tagId = tagId,
+            markWasteByDefault = markWaste
+        )
+        val next = _uiState.value.localRules + rule
+        settingsStore.saveLocalRules(next, immediate = true)
+        _uiState.update { it.copy(localRules = next) }
+        showToast("Đã lưu quy tắc tự động phân loại \"$cleanKw\".")
+    }
+
+    fun deleteLocalCategoryRule(ruleId: String) {
+        val next = _uiState.value.localRules.filterNot { it.id == ruleId }
+        settingsStore.saveLocalRules(next, immediate = true)
+        _uiState.update { it.copy(localRules = next) }
+    }
+
+    fun prepareExportDailyMarkdown() {
+        val s = _uiState.value
+        val md = Wally20Coordinator.exportDailyMarkdown(
+            dateLocal = s.todayDateLocal,
+            records = s.records,
+            tasks = s.tasks,
+            habits = s.habits,
+            habitLogs = s.habitLogs,
+            dailyReviews = s.dailyReviews,
+            weeklyEfficiency = s.weeklyEfficiency,
+            zone = ZoneId.systemDefault()
+        )
+        _uiState.update { it.copy(exportedMarkdownContent = md) }
+    }
+
+    fun closeExportMarkdownDialog() {
+        _uiState.update { it.copy(exportedMarkdownContent = null) }
     }
 }

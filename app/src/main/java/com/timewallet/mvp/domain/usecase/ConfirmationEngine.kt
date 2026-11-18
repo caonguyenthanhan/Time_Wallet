@@ -163,7 +163,8 @@ object ConfirmationEngine {
         existingRecords: List<LedgerRecord>,
         activeTimer: ActiveTimerSession? = null,
         nowEpochMs: Long,
-        zoneId: ZoneId
+        zoneId: ZoneId,
+        newMarkedWaste: Boolean = existing.isMarkedWaste
     ): ConfirmationActionResult {
         val st = newStartHm.trim()
         val en = newEndHm.trim()
@@ -209,7 +210,8 @@ object ConfirmationEngine {
             tagId = existing.tagId,
             plannedStartedAt = origPlanStart,
             plannedEndedAt = origPlanEnd,
-            plannedDurationSeconds = origPlanDur
+            plannedDurationSeconds = origPlanDur,
+            isMarkedWaste = newMarkedWaste
         )
         val built = when (validatedNoOverlap) {
             is ValidationResult.Invalid -> return ConfirmationActionResult.Invalid(validatedNoOverlap.message)

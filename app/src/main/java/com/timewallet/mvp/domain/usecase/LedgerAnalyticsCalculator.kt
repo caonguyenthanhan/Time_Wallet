@@ -3,7 +3,12 @@ package com.timewallet.mvp.domain.usecase
 import com.timewallet.mvp.domain.model.ActiveTimerSession
 import com.timewallet.mvp.domain.model.BudgetPeriod
 import com.timewallet.mvp.domain.model.CategoryTimeBudget
+import com.timewallet.mvp.domain.model.Goal
+import com.timewallet.mvp.domain.model.GoalKind
+import com.timewallet.mvp.domain.model.GoalTargetType
+import com.timewallet.mvp.domain.model.GoalVersionStatus
 import com.timewallet.mvp.domain.model.LedgerRecord
+import com.timewallet.mvp.domain.model.Tag
 import com.timewallet.mvp.domain.model.TimeBudgetProgress
 import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.model.TimeLayer
@@ -92,6 +97,52 @@ data class WeeklyInsightsSummary(
     val totalUnplacedSeconds: Long
         get() = totalUntimedSeconds
 }
+
+/** 4 tầng hiệu quả của một ngày đủ 24 giờ trên ngăn Thống kê (tham chiếu Time_Wallet_Mo_Rong_UX.html). */
+enum class EfficiencyTier(val labelVi: String) {
+    GOAL("Mục tiêu"),
+    NEUTRAL("Phi mục tiêu"),
+    WASTE("Lãng phí"),
+    UNKNOWN("Chưa rõ")
+}
+
+data class DayEfficiencyBreakdown(
+    val dateLocal: String,
+    val calendarDaySeconds: Long,
+    val goalSeconds: Long,
+    val neutralSeconds: Long,
+    val wasteSeconds: Long,
+    val unknownSeconds: Long,
+    val untimedSeconds: Long
+) {
+    fun secondsFor(filter: EfficiencyTier?): Long = when (filter) {
+        EfficiencyTier.GOAL -> goalSeconds
+        EfficiencyTier.NEUTRAL -> neutralSeconds
+        EfficiencyTier.WASTE -> wasteSeconds
+        EfficiencyTier.UNKNOWN -> unknownSeconds
+        null -> goalSeconds + neutralSeconds + wasteSeconds
+    }
+}
+
+data class EfficiencyGoalItem(
+    val id: String,
+    val title: String,
+    val progressText: String,
+    val fraction: Float,
+    val accentHex: Long,
+    val met: Boolean
+)
+
+data class WeeklyEfficiencySummary(
+    val days: List<DayEfficiencyBreakdown>,
+    val totalGoalSeconds: Long,
+    val totalNeutralSeconds: Long,
+    val totalWasteSeconds: Long,
+    val totalUnknownSeconds: Long,
+    val totalUntimedSeconds: Long,
+    val goalItems: List<EfficiencyGoalItem>,
+    val actionableInsight: String
+)
 
 object LedgerAnalyticsCalculator {
 
@@ -700,6 +751,244 @@ object LedgerAnalyticsCalculator {
             currentWeekStartLocal = weekMonday.toString(),
             currentWeekEndLocal = weekSunday.toString(),
             reflectionPrompt = reflectionPrompt
+        )
+    }
+
+    private data class EfficiencyTaggedInterval(
+        val startMs: Long,
+        val endMs: Long,
+        val tier: EfficiencyTier
+    )
+
+    private fun conserveTierSecondsFromMs(
+        msMap: Map<EfficiencyTier, Long>,
+        totalSeconds: Long
+    ): Map<EfficiencyTier, Long> {
+        if (msMap.isEmpty() || totalSeconds <= 0L) return emptyMap()
+        val floorMap = msMap.mapValues { (_, ms) -> ms / 1000L }.toMutableMap()
+        val deficit = (totalSeconds - floorMap.values.sum()).coerceAtLeast(0L)
+        if (deficit > 0L) {
+            val ranked = msMap.entries
+                .sortedWith(
+                    compareByDescending<Map.Entry<EfficiencyTier, Long>> { it.value % 1000L }
+                        .thenByDescending { it.value }
+                        .thenBy { it.key.ordinal }
+                )
+            var rem = deficit
+            for (entry in ranked) {
+                if (rem <= 0L) break
+                floorMap[entry.key] = (floorMap[entry.key] ?: 0L) + 1L
+                rem--
+            }
+        }
+        return floorMap.filterValues { it > 0L }
+    }
+
+    /**
+     * Tính câu chuyện phân bổ 24 giờ/ngày trong 7 ngày gần nhất thành 4 tầng:
+     * Mục tiêu · Phi mục tiêu · Lãng phí (chỉ khi người dùng tự đánh dấu) · Chưa rõ.
+     * Bản ghi chưa gắn mốc giờ (`REPORTED_UNTIMED`) luôn tách riêng, không đưa lên cột 24h.
+     */
+    fun computeWeeklyEfficiency(
+        endDateLocal: String,
+        records: List<LedgerRecord>,
+        goals: List<Goal> = emptyList(),
+        budgets: List<CategoryTimeBudget> = emptyList(),
+        tags: List<Tag> = emptyList(),
+        zoneId: ZoneId = ZoneId.systemDefault(),
+        nowEpochMs: Long = System.currentTimeMillis(),
+        activeTimer: ActiveTimerSession? = null,
+        weeklyInsights: WeeklyInsightsSummary? = null
+    ): WeeklyEfficiencySummary {
+        val endDate = LocalDate.parse(endDateLocal)
+        val todayLocal = Instant.ofEpochMilli(nowEpochMs).atZone(zoneId).toLocalDate()
+        val goalGroups = goals.groupBy { it.groupId }
+        val budgetCategories = budgets.mapTo(HashSet()) { it.category }
+
+        val days = (-6..0).map { offset ->
+            val date = endDate.plusDays(offset.toLong())
+            val dateStr = date.toString()
+            val dayStartZoned = date.atStartOfDay(zoneId)
+            val nextDayStartZoned = date.plusDays(1).atStartOfDay(zoneId)
+            val dayStartMs = dayStartZoned.toInstant().toEpochMilli()
+            val dayEndMs = nextDayStartZoned.toInstant().toEpochMilli()
+            val calendarDaySeconds = Duration.between(dayStartZoned, nextDayStartZoned).seconds.coerceAtLeast(3600L)
+            val pastCutoffMs = nowEpochMs.coerceIn(dayStartMs, dayEndMs)
+            val isFutureDate = date.isAfter(todayLocal)
+
+            val activeGoalTargetsOnDay = goalGroups.values.mapNotNull { versions ->
+                GoalRules.versionOn(versions, date)?.takeIf {
+                    it.status == GoalVersionStatus.ACTIVE && it.kind == GoalKind.MIN
+                }
+            }
+
+            fun resolveRecordTier(cat: TimeCategory, tagId: String?, isWaste: Boolean): EfficiencyTier {
+                if (isWaste) return EfficiencyTier.WASTE
+                val matchesGoal = if (activeGoalTargetsOnDay.isNotEmpty()) {
+                    activeGoalTargetsOnDay.any { g ->
+                        when (g.targetType) {
+                            GoalTargetType.TAG -> tagId != null && tagId == g.targetKey
+                            GoalTargetType.CATEGORY -> cat.key == g.targetKey
+                        }
+                    }
+                } else {
+                    cat in budgetCategories
+                }
+                return if (matchesGoal) EfficiencyTier.GOAL else EfficiencyTier.NEUTRAL
+            }
+
+            val intervals = mutableListOf<EfficiencyTaggedInterval>()
+            var untimedSeconds = 0L
+
+            for (record in records) {
+                if (record.isCancelled || record.isNeedsReconciliation) continue
+                if (record.startedAt != null && record.endedAt != null) {
+                    val start = record.startedAt
+                    val end = record.endedAt
+                    if (end <= dayStartMs - 1000L || start >= dayEndMs + 1000L) continue
+                    if (record.layer == TimeLayer.PLANNED || record.status == "PLANNED" || start >= pastCutoffMs) continue
+
+                    val confirmedCutoffMs = min(nowEpochMs, record.confirmedCutoffEpochMsAt(nowEpochMs))
+                    val rawConfirmedEnd = min(confirmedCutoffMs, end)
+                    clipIntervalToDay(start, rawConfirmedEnd, dayStartMs, dayEndMs, nowEpochMs)?.let { (aStart, aEnd) ->
+                        intervals += EfficiencyTaggedInterval(
+                            startMs = aStart,
+                            endMs = aEnd,
+                            tier = resolveRecordTier(record.category, record.tagId, record.isMarkedWaste)
+                        )
+                    }
+                } else if (!isFutureDate && record.date == dateStr &&
+                    record.layer != TimeLayer.PLANNED && record.status != "PLANNED"
+                ) {
+                    untimedSeconds += record.durationSeconds
+                }
+            }
+
+            if (activeTimer != null && activeTimer.startedAtEpochMs < nowEpochMs && pastCutoffMs > dayStartMs) {
+                clipIntervalToDay(activeTimer.startedAtEpochMs, nowEpochMs, dayStartMs, dayEndMs, nowEpochMs)?.let { (tStart, tEnd) ->
+                    val tCat = TimeCategory.fromKeyOrDefault(activeTimer.categoryKey)
+                    intervals += EfficiencyTaggedInterval(
+                        startMs = tStart,
+                        endMs = tEnd,
+                        tier = resolveRecordTier(tCat, activeTimer.tagId, isWaste = false)
+                    )
+                }
+            }
+
+            val tierMsMap = mutableMapOf<EfficiencyTier, Long>()
+            var totalTimedMs = 0L
+            if (intervals.isNotEmpty()) {
+                val boundaries = intervals.flatMap { listOf(it.startMs, it.endMs) }.distinct().sorted()
+                for (i in 0 until boundaries.size - 1) {
+                    val s = boundaries[i]
+                    val e = boundaries[i + 1]
+                    if (e <= s) continue
+                    val covering = intervals.filter { it.startMs <= s && it.endMs >= e }
+                    if (covering.isEmpty()) continue
+                    val winningTier = when {
+                        covering.any { it.tier == EfficiencyTier.WASTE } -> EfficiencyTier.WASTE
+                        covering.any { it.tier == EfficiencyTier.GOAL } -> EfficiencyTier.GOAL
+                        else -> EfficiencyTier.NEUTRAL
+                    }
+                    val ms = e - s
+                    totalTimedMs += ms
+                    tierMsMap[winningTier] = (tierMsMap[winningTier] ?: 0L) + ms
+                }
+            }
+
+            val timedSeconds = totalTimedMs / 1000L
+            val tierSecs = conserveTierSecondsFromMs(tierMsMap, timedSeconds)
+            val gSec = tierSecs[EfficiencyTier.GOAL] ?: 0L
+            val nSec = tierSecs[EfficiencyTier.NEUTRAL] ?: 0L
+            val wSec = tierSecs[EfficiencyTier.WASTE] ?: 0L
+            val unkSec = (calendarDaySeconds - timedSeconds).coerceAtLeast(0L)
+
+            DayEfficiencyBreakdown(
+                dateLocal = dateStr,
+                calendarDaySeconds = calendarDaySeconds,
+                goalSeconds = gSec,
+                neutralSeconds = nSec,
+                wasteSeconds = wSec,
+                unknownSeconds = unkSec,
+                untimedSeconds = untimedSeconds
+            )
+        }
+
+        val summaries = GoalRules.summaries(
+            goals = goals,
+            records = records,
+            tagNameOf = { id -> tags.firstOrNull { it.id == id }?.name },
+            today = endDate,
+            nowEpochMs = nowEpochMs,
+            zone = zoneId
+        )
+        val goalItems = if (summaries.isNotEmpty()) {
+            summaries.mapNotNull { s ->
+                val p = s.progress ?: return@mapNotNull null
+                val colorHex = when (s.latest.targetType) {
+                    GoalTargetType.TAG -> tags.firstOrNull { it.id == s.latest.targetKey }?.category?.colorHex ?: 0xFF287BCBL
+                    GoalTargetType.CATEGORY -> TimeCategory.fromKeyOrDefault(s.latest.targetKey).colorHex
+                }
+                EfficiencyGoalItem(
+                    id = s.groupId,
+                    title = s.name,
+                    progressText = "${formatCompactDurationSeconds(p.usedSeconds)} / ${formatCompactDurationSeconds(p.targetSeconds)}",
+                    fraction = p.fraction,
+                    accentHex = colorHex,
+                    met = p.met
+                )
+            }.take(4)
+        } else {
+            val budgetList = weeklyInsights?.budgetProgressList
+                ?: computeBudgetProgress(budgets, records, zoneId, nowEpochMs, activeTimer)
+            budgetList.take(4).map { b ->
+                val combinedUsed = b.usedSeconds + b.untimedNoteSeconds
+                EfficiencyGoalItem(
+                    id = "budget_${b.category.key}",
+                    title = b.category.displayName,
+                    progressText = "${formatCompactDurationSeconds(combinedUsed)} / ${formatCompactDurationSeconds(b.targetSeconds)}",
+                    fraction = b.combinedProgressFraction,
+                    accentHex = b.category.colorHex,
+                    met = combinedUsed >= b.targetSeconds
+                )
+            }
+        }
+
+        val totalGoal = days.sumOf { it.goalSeconds }
+        val totalNeutral = days.sumOf { it.neutralSeconds }
+        val totalWaste = days.sumOf { it.wasteSeconds }
+        val totalUnknown = days.sumOf { it.unknownSeconds }
+        val totalUntimed = days.sumOf { it.untimedSeconds }
+
+        val topUnmetSummary = summaries.firstOrNull { it.progress != null && !it.progress.met && it.latest.kind == GoalKind.MIN }
+        val actionableInsight = when {
+            topUnmetSummary != null && topUnmetSummary.progress != null -> {
+                val rem = topUnmetSummary.progress.remainingSeconds.coerceAtLeast(60L)
+                "Tuần này \"${topUnmetSummary.name}\" còn thiếu ${formatCompactDurationSeconds(rem)}. Thử chia nhỏ thành 1–2 phiên ngắn trên lịch."
+            }
+            goalItems.any { !it.met } -> {
+                val unmet = goalItems.first { !it.met }
+                "\"${unmet.title}\" đang ở mức ${unmet.progressText}. Chạm 1 ô trống trên lịch để hoàn tất phần còn thiếu."
+            }
+            totalWaste >= 1800L ->
+                "Có ${formatCompactDurationSeconds(totalWaste)} tự đánh dấu lãng phí trong 7 ngày qua. Thử đặt hẹn giờ kết thúc sớm hơn ở khung giờ dễ xao nhãng."
+            goalItems.isNotEmpty() && goalItems.all { it.met } ->
+                "Bạn đã đạt toàn bộ mục tiêu đang theo dõi tuần này. Tiếp tục giữ nhịp ngủ ≥ 7h và khoảng nghỉ phục hồi đều đặn."
+            totalGoal + totalNeutral > 0L ->
+                "Đã ghi ${formatCompactDurationSeconds(totalGoal)} hướng mục tiêu và ${formatCompactDurationSeconds(totalNeutral)} sinh hoạt/phục hồi trong 7 ngày qua."
+            else ->
+                "Đặt 1 mục tiêu nhỏ (học, vận động hoặc dự án) để biểu đồ 24h kể rõ quỹ thời gian hướng mục tiêu của bạn."
+        }
+
+        return WeeklyEfficiencySummary(
+            days = days,
+            totalGoalSeconds = totalGoal,
+            totalNeutralSeconds = totalNeutral,
+            totalWasteSeconds = totalWaste,
+            totalUnknownSeconds = totalUnknown,
+            totalUntimedSeconds = totalUntimed,
+            goalItems = goalItems,
+            actionableInsight = actionableInsight
         )
     }
 

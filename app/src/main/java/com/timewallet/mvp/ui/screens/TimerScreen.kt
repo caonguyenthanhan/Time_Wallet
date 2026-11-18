@@ -26,10 +26,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -60,15 +67,30 @@ import com.timewallet.mvp.domain.usecase.CognitiveState
 import com.timewallet.mvp.domain.usecase.DiceActionKind
 import com.timewallet.mvp.domain.usecase.DiceRollResult
 import com.timewallet.mvp.domain.usecase.FaceProbabilityItem
+import com.timewallet.mvp.domain.model.SubtaskItem
+import com.timewallet.mvp.domain.model.Tag
+import com.timewallet.mvp.domain.model.TaskItem
+import com.timewallet.mvp.domain.usecase.FocusPinPolicy
+import com.timewallet.mvp.domain.usecase.FocusPinState
+import com.timewallet.mvp.ui.theme.WalletBg
+import com.timewallet.mvp.ui.theme.WalletCardBg
+import com.timewallet.mvp.ui.theme.WalletDangerSolid
+import com.timewallet.mvp.ui.theme.WalletInfoBg
+import com.timewallet.mvp.ui.theme.WalletInfoText
 import com.timewallet.mvp.ui.theme.WalletInk
 import com.timewallet.mvp.ui.theme.WalletMint
+import com.timewallet.mvp.ui.theme.WalletMintAccent
+import com.timewallet.mvp.ui.theme.WalletMintDark
+import com.timewallet.mvp.ui.theme.WalletMintSoft
 import com.timewallet.mvp.ui.theme.WalletMintTint
 import com.timewallet.mvp.ui.theme.WalletMuted
 import com.timewallet.mvp.ui.theme.WalletRing
 import com.timewallet.mvp.ui.theme.WalletStroke
+import com.timewallet.mvp.ui.theme.WalletWarningBg
+import com.timewallet.mvp.ui.theme.WalletWarningText
 import kotlin.math.max
 
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun TimerScreen(
     activeTimer: ActiveTimerSession?,
@@ -92,7 +114,19 @@ fun TimerScreen(
     tagSuggestions: List<com.timewallet.mvp.domain.model.Tag> = emptyList(),
     selectedTagId: String? = null,
     onSelectTag: (String?) -> Unit = {},
-    onCleanDraft: () -> Unit = {}
+    onCleanDraft: () -> Unit = {},
+    focusPinEnabled: Boolean = false,
+    focusPinPreview: FocusPinState = FocusPinPolicy.resolve(emptyList(), null, System.currentTimeMillis()),
+    onToggleFocusPin: (Boolean) -> Unit = {},
+    onApplyFocusSuggestion: (String?, String?, String?) -> Unit = { _, _, _ -> },
+    pomodoroMode: Boolean = false,
+    pomodoroTargetMinutes: Int = 25,
+    enablePomodoro: Boolean = true,
+    enableDice: Boolean = true,
+    onSetPomodoroMode: (Boolean, Int) -> Unit = { _, _ -> },
+    activeTask: TaskItem? = null,
+    onToggleSubtaskDone: (SubtaskItem) -> Unit = {},
+    focusBreakNudgeVisible: Boolean = false
 ) {
     val isRunning = activeTimer != null
     val hours = elapsedSeconds / 3600L
@@ -102,13 +136,14 @@ fun TimerScreen(
     val mm = minutes.toString().padStart(2, '0')
     val ss = seconds.toString().padStart(2, '0')
     val formattedClock = if (hours > 0L) "$hours:$mm:$ss" else "$mm:$ss"
-    // Cỡ chữ đồng hồ cố định theo dp (không phình theo cỡ chữ hệ thống) để luôn nằm gọn trong vòng tròn.
+    // Thu gọn vòng đồng hồ để màn Đồng hồ nằm trọn trong 1 khung hình mà không cần cuộn trang ngoài.
     val compactOrb = LocalDensity.current.fontScale > 1.15f || LocalConfiguration.current.screenHeightDp < 720
-    val orbSize = if (compactOrb) 176.dp else 224.dp
-    val clockDp = if (compactOrb) (if (hours > 0L) 30.dp else 44.dp) else (if (hours > 0L) 36.dp else 52.dp)
+    val orbSize = if (compactOrb) 156.dp else 184.dp
+    val clockDp = if (compactOrb) (if (hours > 0L) 28.dp else 40.dp) else (if (hours > 0L) 32.dp else 44.dp)
     val clockSize = with(LocalDensity.current) { clockDp.toSp() }
 
     val targetSeconds = activeTimer?.targetDurationSeconds
+        ?: if (enablePomodoro && pomodoroMode) pomodoroTargetMinutes.coerceIn(5, 120) * 60L else null
     val sweepDegrees = if (targetSeconds != null && targetSeconds > 0L) {
         ((elapsedSeconds.toFloat() / targetSeconds.toFloat()).coerceIn(0f, 1f)) * 360f
     } else {
@@ -116,21 +151,62 @@ fun TimerScreen(
     }
 
     var showCleanTimerConfirm by remember { mutableStateOf(false) }
+    var showCategoryPicker by remember { mutableStateOf(false) }
+    var showDiceSheet by remember { mutableStateOf(lastDiceRoll != null && !isRunning) }
+
+    val activeCategoryKey = if (isRunning) activeTimer?.categoryKey ?: inputCategoryKey else inputCategoryKey
+    val activeCategory = TimeCategory.fromKeyOrDefault(activeCategoryKey)
+    val isDirtyDraft = !isRunning && (inputTitle.isNotBlank() || selectedTagId != null || inputCategoryKey != "work")
 
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        ScreenTitle("Đồng hồ")
+        ScreenTitle("Tập trung")
 
-        // Đồng hồ tròn: thành phần chính, nằm ngay vùng nhìn đầu tiên.
+        if (!isRunning && enablePomodoro) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                listOf(
+                    Triple(false, 25, "Đếm xuôi"),
+                    Triple(true, 25, "Pomodoro 25p"),
+                    Triple(true, 45, "Sâu 45p")
+                ).forEach { (isPomo, mins, label) ->
+                    val selected = if (!isPomo) !pomodoroMode else (pomodoroMode && pomodoroTargetMinutes == mins)
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(100.dp))
+                            .background(if (selected) WalletMintDark else WalletCardBg)
+                            .border(1.dp, if (selected) WalletMintDark else WalletStroke, RoundedCornerShape(100.dp))
+                            .walletClickable(onClickLabel = "Chế độ $label") { onSetPomodoroMode(isPomo, mins) }
+                            .padding(horizontal = 11.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = label,
+                            fontSize = 11.5.sp,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (selected) Color.White else WalletInk,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+            }
+        }
+
+        // Đồng hồ tròn cân đối ở trung tâm khung nhìn.
         Box(
             modifier = Modifier.size(orbSize),
             contentAlignment = Alignment.Center
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val strokeWidth = 12.dp.toPx()
+                val strokeWidth = 11.dp.toPx()
                 val inset = strokeWidth / 2f
                 val arcSize = androidx.compose.ui.geometry.Size(size.width - strokeWidth, size.height - strokeWidth)
                 val topLeft = androidx.compose.ui.geometry.Offset(inset, inset)
@@ -148,18 +224,18 @@ fun TimerScreen(
             }
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(horizontal = if (compactOrb) 12.dp else 24.dp)
+                modifier = Modifier.padding(horizontal = if (compactOrb) 10.dp else 18.dp)
             ) {
                 Text(
                     text = if (targetSeconds != null) "MỤC TIÊU ${targetSeconds / 60} PHÚT" else "THỜI GIAN THỰC",
-                    fontSize = 11.sp,
+                    fontSize = 10.5.sp,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp,
+                    letterSpacing = 0.8.sp,
                     color = WalletMuted,
                     maxLines = 1,
                     softWrap = false
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = formattedClock,
                     fontSize = clockSize,
@@ -169,14 +245,14 @@ fun TimerScreen(
                     maxLines = 1,
                     softWrap = false
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 if (isRunning && targetSeconds != null) {
                     val remaining = max(0L, targetSeconds - elapsedSeconds)
                     val remMin = (remaining / 60L).toString().padStart(2, '0')
                     val remSec = (remaining % 60L).toString().padStart(2, '0')
                     Text(
                         text = if (remaining > 0L) "Còn lại $remMin:$remSec" else "Đã đạt mục tiêu!",
-                        fontSize = 13.sp,
+                        fontSize = 12.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF1F8066),
                         textAlign = TextAlign.Center
@@ -184,7 +260,7 @@ fun TimerScreen(
                 } else {
                     Text(
                         text = if (isRunning) "● Đang ghi nhận" else "Sẵn sàng",
-                        fontSize = 13.sp,
+                        fontSize = 12.5.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = if (isRunning) Color(0xFF2E8F69) else WalletMuted
                     )
@@ -192,71 +268,171 @@ fun TimerScreen(
             }
         }
 
-        // Hoạt động đang làm + danh mục (một dòng cuộn ngang).
+        // Hoạt động đang làm kèm nút xóa nhanh inline thay vì dòng đỏ rời ở cuối trang.
         OutlinedTextField(
             value = if (isRunning) activeTimer?.title ?: inputTitle else inputTitle,
             onValueChange = onTitleChange,
             enabled = !isRunning,
             placeholder = { Text("Bạn đang làm gì? (VD: Đọc tài liệu)") },
+            trailingIcon = if (isDirtyDraft) {
+                {
+                    Box(
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .clip(CircleShape)
+                            .semantics { contentDescription = "Clean · Xóa nhập liệu" }
+                            .walletClickable(onClickLabel = "Xóa nhập liệu đồng hồ") { showCleanTimerConfirm = true }
+                            .padding(6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        GlyphIcon(WalletGlyph.ERASER, color = Color(0xFFB3261E), size = 18.dp)
+                    }
+                }
+            } else null,
             singleLine = true,
             shape = RoundedCornerShape(16.dp),
             modifier = Modifier.fillMaxWidth()
         )
-        CategoryChipRow(
-            selectedKey = if (isRunning) activeTimer?.categoryKey ?: inputCategoryKey else inputCategoryKey,
-            enabled = !isRunning,
-            onSelectCategory = onCategoryChange
-        )
-        if (!isRunning && tagSuggestions.isNotEmpty()) {
-            androidx.compose.foundation.layout.FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+
+        // Hàng 1 dòng gọn: chip "Nhóm: ... ▾" + gợi ý Tag cá nhân (bấm "Nhóm" mới xổ 9 danh mục).
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(100.dp))
+                    .background(if (showCategoryPicker) WalletMint else WalletCardBg)
+                    .border(1.dp, if (showCategoryPicker) WalletMint else WalletStroke, RoundedCornerShape(100.dp))
+                    .semantics { contentDescription = "Nhóm ${activeCategory.displayName}, chạm để đổi" }
+                    .walletClickable(enabled = !isRunning, onClickLabel = "Chọn nhóm hoạt động") {
+                        showCategoryPicker = !showCategoryPicker
+                    }
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                tagSuggestions.forEach { t ->
-                    ChoiceChip(t.name, selectedTagId == t.id, "Tag ${t.name}", leadingCategory = t.category) { onSelectTag(t.id) }
-                }
+                CategoryIcon(activeCategory, size = 14.dp, tint = if (showCategoryPicker) Color.White else WalletMintAccent)
+                Text(
+                    text = "Nhóm: ${activeCategory.displayName} ${if (showCategoryPicker) "▴" else "▾"}",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (showCategoryPicker) Color.White else WalletInk,
+                    maxLines = 1,
+                    softWrap = false
+                )
             }
-        } else if (isRunning && activeTimer?.tagId != null) {
-            val name = tagSuggestions.firstOrNull { it.id == activeTimer.tagId }?.name
-            if (name != null) Text("Tag: $name", fontSize = 12.5.sp, color = WalletMuted)
+            if (!isRunning) {
+                tagSuggestions.forEach { t ->
+                    ChoiceChip(t.name, selectedTagId == t.id, "Tag ${t.name}", leadingCategory = t.category) {
+                        onSelectTag(t.id)
+                    }
+                }
+            } else if (activeTimer?.tagId != null) {
+                val name = tagSuggestions.firstOrNull { it.id == activeTimer.tagId }?.name
+                if (name != null) Text("Tag: $name", fontSize = 12.5.sp, color = WalletMuted, maxLines = 1, softWrap = false)
+            }
+        }
+
+        if (!isRunning && showCategoryPicker) {
+            CategoryChipRow(
+                selectedKey = activeCategoryKey,
+                enabled = true,
+                onSelectCategory = { key ->
+                    onCategoryChange(key)
+                    showCategoryPicker = false
+                }
+            )
         }
 
         if (clockSkewDetected) {
             NoticeBox(
                 text = "Giờ hệ thống thay đổi trong khi đo. Đồng hồ đã tự bù lệch.",
-                bg = Color(0xFFFFF4E5),
-                fg = Color(0xFF8A5300)
+                bg = WalletWarningBg,
+                fg = WalletWarningText
             )
         }
+
+        if (focusBreakNudgeVisible && isRunning) {
+            NoticeBox(
+                text = "Đã tập trung hơn 90 phút liên tục — cân nhắc tạm dừng lưu phiên và nghỉ ngắn 5–10 phút để giữ hiệu suất.",
+                bg = WalletMintSoft,
+                fg = WalletMintAccent
+            )
+        }
+
+        if (activeTask != null) {
+            SoftCard(padding = 12.dp) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "Đang gắn với việc: ${activeTask.title}",
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = WalletMintAccent
+                    )
+                    if (activeTask.subtasks.isEmpty()) {
+                        Text("Chưa có bước con.", fontSize = 11.sp, color = WalletMuted)
+                    } else {
+                        activeTask.subtasks.forEach { sub ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .walletClickable(onClickLabel = "Bước ${sub.title}") {
+                                        onToggleSubtaskDone(sub)
+                                    }
+                                    .padding(vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(if (sub.isDone) "☑" else "☐", fontSize = 13.sp, color = if (sub.isDone) WalletMintAccent else WalletMuted)
+                                Text(sub.title, fontSize = 12.sp, color = if (sub.isDone) WalletMuted else WalletInk)
+                            }
+                        }
+                    }
+                }
+            }
+        }
         if (isRunning && elapsedSeconds > 86_400L) {
-            // v1.0.6 (R01): phiên > 24h vẫn lưu được; báo ngắn gọn cách ứng dụng xử lý.
             NoticeBox(
                 text = "Phiên đã chạy hơn 24 giờ. Khi kết thúc, thời gian được lưu thành các đoạn tối đa 24 giờ, không bị mất. Nếu báo trùng giờ, hãy sửa hoặc xóa bản ghi trùng rồi lưu lại.",
-                bg = Color(0xFFE9F3FB),
-                fg = Color(0xFF245A82)
+                bg = WalletInfoBg,
+                fg = WalletInfoText
             )
         }
 
         if (!isRunning) {
-            Button(
-                onClick = onStartTimer,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 56.dp),
-                shape = RoundedCornerShape(20.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
-                contentPadding = PaddingValues(vertical = 14.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = "▶ Bắt đầu đo", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
-            }
-            if (inputTitle.isNotBlank() || selectedTagId != null || inputCategoryKey != "work") {
-                TextButton(
-                    onClick = { showCleanTimerConfirm = true },
+                Button(
+                    onClick = onStartTimer,
                     modifier = Modifier
-                        .heightIn(min = 48.dp)
-                        .semantics { contentDescription = "Clean · Xóa nhập liệu đồng hồ" }
+                        .weight(1f)
+                        .heightIn(min = 54.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
+                    contentPadding = PaddingValues(vertical = 14.dp)
                 ) {
-                    Text("Clean · Xóa nhập liệu", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB3261E))
+                    Text(text = "▶ Bắt đầu đo", fontSize = 15.5.sp, fontWeight = FontWeight.ExtraBold)
+                }
+                if (enableDice) {
+                    Box(
+                        modifier = Modifier
+                            .size(54.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(if (lastDiceRoll != null) WalletMintSoft else WalletMintTint)
+                            .border(1.dp, if (lastDiceRoll != null) WalletMintAccent else WalletStroke, RoundedCornerShape(18.dp))
+                            .semantics { contentDescription = "Mở Xúc xắc thời gian" }
+                            .walletClickable(onClickLabel = "Mở Xúc xắc thời gian") { showDiceSheet = true },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        GlyphIcon(WalletGlyph.DICE, color = WalletMintAccent, size = 24.dp)
+                    }
                 }
             }
         } else {
@@ -268,16 +444,16 @@ fun TimerScreen(
                     text = "Hủy phiên",
                     modifier = Modifier
                         .weight(0.9f)
-                        .heightIn(min = 56.dp),
+                        .heightIn(min = 54.dp),
                     onClick = onCancelTimer
                 )
                 Button(
                     onClick = onStopAndSaveTimer,
                     modifier = Modifier
                         .weight(1.4f)
-                        .heightIn(min = 56.dp),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
+                        .heightIn(min = 54.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
                     contentPadding = PaddingValues(vertical = 14.dp)
                 ) {
                     Text(text = "■ Kết thúc & lưu", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
@@ -285,23 +461,106 @@ fun TimerScreen(
             }
         }
 
-        // Xúc xắc: tính năng phụ, mở khi cần.
-        DiceSection(
-            cognitiveState = diceCognitiveState,
-            faceProbabilities = diceFaceProbabilities,
-            isRolling = isRollingDice,
-            rollingPreviewFaceNumber = rollingPreviewFaceNumber,
-            lastRoll = lastDiceRoll,
-            isTimerRunning = isRunning,
-            onRollDice = onRollDice,
-            onApplyAndStart = onApplyDiceAndStartTimer
-        )
+        // Ghim thông báo tập trung: hiển thị việc theo kế hoạch hoặc gợi ý giờ này tuần trước / hôm qua / 3 ngày gần đây.
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = WalletCardBg,
+            border = BorderStroke(if (focusPinEnabled) 1.5.dp else 1.dp, if (focusPinEnabled) WalletMintAccent else WalletStroke),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = if (focusPinEnabled) "Đang ghim tập trung" else "Ghim thông báo tập trung",
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = if (focusPinEnabled) WalletMintAccent else WalletInk
+                    )
+                    Text(
+                        text = focusPinPreview.headline,
+                        fontSize = 11.5.sp,
+                        color = WalletMuted,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                }
+                if (!isRunning && !focusPinPreview.suggestedTitle.isNullOrBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(100.dp))
+                            .background(WalletBg)
+                            .border(1.dp, WalletStroke, RoundedCornerShape(100.dp))
+                            .walletClickable(onClickLabel = "Điền hoạt động gợi ý vào đồng hồ") {
+                                onApplyFocusSuggestion(
+                                    focusPinPreview.suggestedTitle,
+                                    focusPinPreview.suggestedCategory?.key,
+                                    focusPinPreview.suggestedTagId
+                                )
+                            }
+                            .padding(horizontal = 9.dp, vertical = 5.dp)
+                    ) {
+                        Text(
+                            text = "Chọn",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = WalletMintAccent,
+                            softWrap = false
+                        )
+                    }
+                }
+                Switch(
+                    checked = focusPinEnabled,
+                    onCheckedChange = onToggleFocusPin,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = WalletMint
+                    )
+                )
+            }
+        }
+    }
+
+    if (enableDice && showDiceSheet) {
+        val diceSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { showDiceSheet = false },
+            sheetState = diceSheetState,
+            containerColor = WalletCardBg
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .padding(bottom = 18.dp)
+            ) {
+                DiceSection(
+                    cognitiveState = diceCognitiveState,
+                    faceProbabilities = diceFaceProbabilities,
+                    isRolling = isRollingDice,
+                    rollingPreviewFaceNumber = rollingPreviewFaceNumber,
+                    lastRoll = lastDiceRoll,
+                    isTimerRunning = isRunning,
+                    initiallyExpanded = true,
+                    onRollDice = onRollDice,
+                    onApplyAndStart = {
+                        showDiceSheet = false
+                        onApplyDiceAndStartTimer()
+                    }
+                )
+            }
+        }
     }
 
     if (showCleanTimerConfirm) {
         AlertDialog(
             onDismissRequest = { showCleanTimerConfirm = false },
-            containerColor = Color.White,
+            containerColor = WalletCardBg,
             title = { Text("Xóa nhập liệu đồng hồ?", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
             text = {
                 Text(
@@ -316,7 +575,7 @@ fun TimerScreen(
                         showCleanTimerConfirm = false
                         onCleanDraft()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB3261E))
+                    colors = ButtonDefaults.buttonColors(containerColor = WalletDangerSolid, contentColor = Color.White)
                 ) { Text("Xóa nhập liệu", fontWeight = FontWeight.Bold) }
             },
             dismissButton = {
@@ -344,7 +603,7 @@ private fun NoticeBox(text: String, bg: Color, fg: Color) {
 /** Hàng danh mục cuộn ngang (gọn hơn lưới nhiều dòng); cùng ngữ nghĩa chọn một như CategorySelectorGrid. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun CategoryChipRow(selectedKey: String, enabled: Boolean, onSelectCategory: (String) -> Unit) {
+internal fun CategoryChipRow(selectedKey: String, enabled: Boolean = true, onSelectCategory: (String) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -359,7 +618,7 @@ private fun CategoryChipRow(selectedKey: String, enabled: Boolean, onSelectCateg
                 modifier = Modifier
                     .bringIntoViewRequester(requester)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(if (selected) WalletMint else Color.White)
+                    .background(if (selected) WalletMint else WalletCardBg)
                     .border(1.dp, if (selected) WalletMint else WalletStroke, RoundedCornerShape(14.dp))
                     .semantics {
                         contentDescription = "Danh mục ${category.displayName}"
@@ -373,7 +632,7 @@ private fun CategoryChipRow(selectedKey: String, enabled: Boolean, onSelectCateg
                 CategoryIcon(
                     category = category,
                     size = 15.dp,
-                    tint = if (selected) Color.White else WalletMint
+                    tint = if (selected) Color.White else WalletMintAccent
                 )
                 Text(
                     text = category.displayName,
@@ -397,10 +656,11 @@ private fun DiceSection(
     rollingPreviewFaceNumber: Int,
     lastRoll: DiceRollResult?,
     isTimerRunning: Boolean,
+    initiallyExpanded: Boolean = true,
     onRollDice: () -> Unit,
     onApplyAndStart: () -> Unit
 ) {
-    var open by remember { mutableStateOf(lastRoll != null) }
+    var open by remember { mutableStateOf(initiallyExpanded || lastRoll != null) }
     val buttonsRequester = remember { BringIntoViewRequester() }
     // Chỉ cuộn khi một lượt lắc VỪA kết thúc trong lần hiển thị này (không cuộn khi quay lại tab đã có kết quả cũ).
     var wasRolling by remember { mutableStateOf(false) }
@@ -440,7 +700,7 @@ private fun DiceSection(
                 modifier = Modifier
                     .size(44.dp)
                     .clip(CircleShape)
-                    .background(Color.White),
+                    .background(WalletCardBg),
                 contentAlignment = Alignment.Center
             ) {
                 if (displayedSymbol != null) {
@@ -466,7 +726,7 @@ private fun DiceSection(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
-                            .background(Color.White)
+                            .background(WalletCardBg)
                             .padding(14.dp),
                         verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
@@ -504,7 +764,7 @@ private fun DiceSection(
                             text = if (isRolling) "Đang lắc…" else "🎲 Lắc xúc xắc",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
-                            color = WalletMint,
+                            color = WalletMintAccent,
                             maxLines = 2,
                             textAlign = TextAlign.Center
                         )
@@ -516,7 +776,7 @@ private fun DiceSection(
                                 .weight(1.2f)
                                 .heightIn(min = 52.dp),
                             shape = RoundedCornerShape(16.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
+                            colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
                             contentPadding = PaddingValues(vertical = 12.dp)
                         ) {
                             Text(
@@ -554,7 +814,7 @@ private fun DiceSection(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(10.dp))
-                                    .background(if (isSelected) Color.White else Color.Transparent)
+                                    .background(if (isSelected) WalletCardBg else Color.Transparent)
                                     .padding(horizontal = 8.dp, vertical = 4.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
@@ -563,7 +823,7 @@ private fun DiceSection(
                                     text = "${item.probabilityPercent}%",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (isWork) Color(0xFF287BCB) else Color(0xFFBD7B22)
+                                    color = if (isWork) Color(0xFF4C9DF0) else Color(0xFFD99432)
                                 )
                             }
                         }

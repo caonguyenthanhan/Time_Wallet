@@ -46,14 +46,14 @@ class WallyUiStaticTest {
 
     @Test
     fun `app keeps exactly five tabs and the chat tab is now called Wally`() {
-        assertEquals(5, AppTab.entries.size)
-        assertEquals(listOf("Tổng quan", "Đồng hồ", "Wally", "Nhật ký", "Phân tích"), AppTab.entries.map { it.label })
+        assertEquals(4, AppTab.entries.size)
+        assertEquals(listOf("Lịch trình", "Công việc", "Tập trung", "Mở rộng"), AppTab.entries.map { it.label })
     }
 
     @Test
     fun `dashboard order is hero then quick actions then donut then 24h axis`() {
         val s = src("OverviewScreen.kt")
-        val order = listOf("VÍ THỜI GIAN HÔM NAY", "\"Hỏi Wally\"", "Phân bổ theo danh mục", "Trục 24 giờ hôm nay", "Hoạt động gần đây")
+        val order = listOf("+ Ghi giờ", "VÍ THỜI GIAN HÔM NAY", "Phân bổ theo danh mục", "Hoạt động gần đây")
             .map { s.indexOf(it) }
         assertTrue("thiếu mục: $order", order.all { it >= 0 })
         assertEquals("thứ tự bố cục", order.sorted(), order)
@@ -72,7 +72,7 @@ class WallyUiStaticTest {
         // v1.1.0: chip dùng chung (ChoiceChip) nằm trong PersonalScreens.kt; form dùng nó cho mọi lựa chọn.
         assertTrue(sheet.contains("ChoiceChip(") && src("PersonalScreens.kt").contains("minimumInteractiveComponentSize()"))
         assertTrue(sheet.contains("imePadding()") && sheet.contains("navigationBarsPadding()"))
-        assertTrue(File("src/main/java/com/timewallet/mvp/MainActivity.kt").readText().contains("contentDescription = \"Thêm giờ thủ công\""))
+        assertTrue(src("OverviewScreen.kt").contains("onClickLabel = \"Thêm giờ thủ công\""))
     }
 
     @Test

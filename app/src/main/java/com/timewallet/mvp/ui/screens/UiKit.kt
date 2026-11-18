@@ -16,7 +16,9 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -48,6 +50,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Fill
@@ -73,8 +76,10 @@ import com.timewallet.mvp.R
 import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.usecase.DonutSlice
 import com.timewallet.mvp.ui.AppTab
+import com.timewallet.mvp.ui.theme.WalletCardBg
 import com.timewallet.mvp.ui.theme.WalletInk
 import com.timewallet.mvp.ui.theme.WalletMint
+import com.timewallet.mvp.ui.theme.WalletMintAccent
 import com.timewallet.mvp.ui.theme.WalletMintTint
 import com.timewallet.mvp.ui.theme.WalletMuted
 import com.timewallet.mvp.ui.theme.WalletRing
@@ -98,6 +103,43 @@ fun Modifier.walletClickable(
     .semantics { this.role = role }
     .clickable(enabled = enabled, onClickLabel = onClickLabel, onClick = onClick)
 
+/** Viên thuốc bấm gọn mắt nhưng vẫn giữ vùng chạm tối thiểu >= 48.dp bao bên ngoài. */
+@Composable
+fun WalletPill(
+    onClickLabel: String,
+    modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(100.dp),
+    containerColor: Color = WalletMintTint,
+    borderColor: Color? = null,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 11.dp, vertical = 6.dp),
+    selected: Boolean? = null,
+    role: Role = Role.Button,
+    contentDescription: String? = null,
+    onClick: () -> Unit,
+    content: @Composable RowScope.() -> Unit
+) {
+    Box(
+        modifier = modifier
+            .semantics {
+                if (selected != null) this.selected = selected
+                if (!contentDescription.isNullOrBlank()) this.contentDescription = contentDescription
+            }
+            .walletClickable(onClickLabel = onClickLabel, role = role, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            modifier = Modifier
+                .clip(shape)
+                .background(containerColor)
+                .then(if (borderColor != null) Modifier.border(1.dp, borderColor, shape) else Modifier)
+                .padding(contentPadding),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            content = content
+        )
+    }
+}
+
 enum class WalletGlyph {
     HOME, CLOCK, WALLY_BOT, SPARK, LIST, BARS,
     PLUS, CHEVRON, SEND, STOP, MORE, DICE, BOOK,
@@ -106,11 +148,10 @@ enum class WalletGlyph {
 }
 
 fun AppTab.glyph(): WalletGlyph = when (this) {
-    AppTab.OVERVIEW -> WalletGlyph.HOME
-    AppTab.TIMER -> WalletGlyph.CLOCK
-    AppTab.CHAT -> WalletGlyph.WALLY_BOT
-    AppTab.HISTORY -> WalletGlyph.LIST
-    AppTab.INSIGHTS -> WalletGlyph.BARS
+    AppTab.SCHEDULE -> WalletGlyph.LIST
+    AppTab.TASKS -> WalletGlyph.CONFIRM
+    AppTab.FOCUS -> WalletGlyph.CLOCK
+    AppTab.MORE -> WalletGlyph.BARS
 }
 
 private fun vectorResForGlyph(glyph: WalletGlyph, filled: Boolean): Int? = when (glyph) {
@@ -251,7 +292,7 @@ fun GlyphIcon(
 @Composable
 fun SoftCard(
     modifier: Modifier = Modifier,
-    tint: Color = Color.White,
+    tint: Color = WalletCardBg,
     padding: Dp = 16.dp,
     content: @Composable () -> Unit
 ) {
@@ -311,7 +352,7 @@ fun SectionTitle(
                 text = actionText,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
-                color = WalletMint,
+                color = WalletMintAccent,
                 maxLines = 1,
                 softWrap = false,
                 modifier = Modifier
@@ -365,7 +406,7 @@ fun EmptyState(
                 .background(WalletMintTint),
             contentAlignment = Alignment.Center
         ) {
-            GlyphIcon(glyph = glyph, color = WalletMint, size = 30.dp)
+            GlyphIcon(glyph = glyph, color = WalletMintAccent, size = 30.dp)
         }
         Spacer(modifier = Modifier.height(4.dp))
         Text(text = title, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk, textAlign = TextAlign.Center)
@@ -377,7 +418,7 @@ fun EmptyState(
             Button(
                 onClick = onAction,
                 shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = WalletMint),
+                colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
                 modifier = Modifier.height(48.dp)
             ) {
                 Text(text = actionLabel, fontSize = 14.sp, fontWeight = FontWeight.Bold)
@@ -503,6 +544,7 @@ fun DonutChart(
             anim
         }
 
+        val ringColor = WalletRing
         Canvas(modifier = interactiveModifier) {
             val strokePx = ringWidth.toPx()
             val maxPopPx = popOutDp.toPx()
@@ -515,7 +557,7 @@ fun DonutChart(
             val arcSize = Size(arcDiameter, arcDiameter)
 
             drawArc(
-                color = WalletRing, startAngle = 0f, sweepAngle = 360f, useCenter = false,
+                color = ringColor, startAngle = 0f, sweepAngle = 360f, useCenter = false,
                 topLeft = topLeftBase, size = arcSize, style = Stroke(width = strokePx)
             )
             val gapDeg = if (displaySlices.size >= 2) 2.6f else 0f
@@ -614,19 +656,19 @@ fun DonutWithLegend(
     } else {
         Row(
             modifier = modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             DonutChart(
                 slices = slices,
                 centerTop = centerTop,
                 centerBottom = centerBottom,
-                ringWidth = 14.dp,
+                ringWidth = 15.dp,
                 selectedIndex = selectedIndex,
                 onSelectSlice = onSelectSlice,
-                modifier = Modifier.size(122.dp).describe(description)
+                modifier = Modifier.size(126.dp).describe(description)
             )
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) { legend() }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) { legend() }
         }
     }
 }

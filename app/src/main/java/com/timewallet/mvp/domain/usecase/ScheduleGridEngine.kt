@@ -61,6 +61,26 @@ data class ScheduleFreeGap(
     val durationMinutes: Int get() = (endMinute - startMinute).coerceAtLeast(0)
 }
 
+/** Khung giờ trống người dùng chọn trên lưới Lịch trình. */
+data class SelectedTimeSlot(
+    val dateLocal: String,
+    val startMinute: Int,
+    val endMinute: Int
+) {
+    val durationMinutes: Int get() = (endMinute - startMinute).coerceAtLeast(0)
+}
+
+/** Khoảng giờ sau khi gộp các ô trống liền kề cùng ngày (ô rời rạc hoặc khác ngày luôn tách riêng). */
+data class SelectedSlotGroup(
+    val dateLocal: String,
+    val startMinute: Int,
+    val endMinute: Int
+) {
+    val startHm: String get() = TimeRange.formatHm(startMinute.coerceIn(0, 1439))
+    val endHm: String get() = if (endMinute >= 1440) "00:00" else TimeRange.formatHm(endMinute.coerceIn(1, 1439))
+    val durationMinutes: Int get() = (endMinute - startMinute).coerceAtLeast(1)
+}
+
 data class DayScheduleModel(
     val dateLocal: String,
     val timedBlocks: List<ScheduleGridBlock>,
@@ -467,6 +487,85 @@ object ScheduleGridEngine {
         val snappedEnd = ((rawEnd + snapMinutes / 2) / snapMinutes) * snapMinutes
         val clampedEnd = snappedEnd.coerceIn(safeStart + minMinutes, 1440)
         return safeStart to clampedEnd
+    }
+
+    /**
+     * Tìm phần giờ trống lớn nhất (>= 15 phút) bên trong ô 1 giờ `[hour*60, (hour+1)*60]`.
+     * Trả về null nếu ô giờ đó đã bị phủ gần kín.
+     */
+    fun computeFreeSlotInHour(
+        dateLocal: String,
+        hour: Int,
+        occupiedBlocks: List<ScheduleGridBlock>,
+        minSlotMinutes: Int = 15
+    ): SelectedTimeSlot? {
+        val cellStart = (hour.coerceIn(0, 23)) * 60
+        val cellEnd = cellStart + 60
+        val gaps = computeFreeGaps(dateLocal, occupiedBlocks, minGapMinutes = minSlotMinutes)
+        val best = gaps.mapNotNull { gap ->
+            val s = max(cellStart, gap.startMinute)
+            val e = min(cellEnd, gap.endMinute)
+            if (e - s >= minSlotMinutes) SelectedTimeSlot(dateLocal, s, e) else null
+        }.maxByOrNull { it.durationMinutes }
+        return best
+    }
+
+    fun toggleSelectedSlot(
+        current: List<SelectedTimeSlot>,
+        candidate: SelectedTimeSlot
+    ): List<SelectedTimeSlot> {
+        val exists = current.any {
+            it.dateLocal == candidate.dateLocal &&
+                it.startMinute == candidate.startMinute &&
+                it.endMinute == candidate.endMinute
+        }
+        return if (exists) {
+            current.filterNot {
+                it.dateLocal == candidate.dateLocal &&
+                    it.startMinute == candidate.startMinute &&
+                    it.endMinute == candidate.endMinute
+            }
+        } else {
+            current + candidate
+        }
+    }
+
+    /**
+     * Gộp các khối giờ trống liền kề/giao nhau TRONG CÙNG MỘT NGÀY thành 1 khoảng;
+     * các khối rời rạc hoặc khác ngày giữ thành nhiều [SelectedSlotGroup] độc lập.
+     */
+    fun mergeSelectedEmptySlots(slots: List<SelectedTimeSlot>): List<SelectedSlotGroup> {
+        if (slots.isEmpty()) return emptyList()
+        val valid = slots.filter { it.endMinute > it.startMinute && it.startMinute in 0 until 1440 && it.endMinute <= 1440 }
+        if (valid.isEmpty()) return emptyList()
+        val groupedByDate = valid.groupBy { it.dateLocal }.toSortedMap()
+        val result = mutableListOf<SelectedSlotGroup>()
+        for ((date, daySlots) in groupedByDate) {
+            val sorted = daySlots.sortedBy { it.startMinute }
+            var curStart = sorted.first().startMinute
+            var curEnd = sorted.first().endMinute
+            for (i in 1 until sorted.size) {
+                val next = sorted[i]
+                if (next.startMinute <= curEnd) {
+                    curEnd = max(curEnd, next.endMinute)
+                } else {
+                    result += SelectedSlotGroup(date, curStart, curEnd)
+                    curStart = next.startMinute
+                    curEnd = next.endMinute
+                }
+            }
+            result += SelectedSlotGroup(date, curStart, curEnd)
+        }
+        return result
+    }
+
+    fun summarizeSelectedSlotGroups(groups: List<SelectedSlotGroup>): String {
+        if (groups.isEmpty()) return ""
+        val totalMinutes = groups.sumOf { it.durationMinutes }
+        val preview = groups.take(2).joinToString(", ") { "${it.startHm}–${if (it.endMinute >= 1440) "24:00" else TimeRange.formatHm(it.endMinute)}" }
+        val extra = if (groups.size > 2) " +${groups.size - 2}" else ""
+        val kindLabel = if (groups.size == 1) "1 sự kiện" else "${groups.size} khoảng rời"
+        return "$kindLabel · $preview$extra (${TimeRange.formatDuration(totalMinutes)})"
     }
 
     private fun stateOrder(state: ScheduleBlockVisualState): Int = when (state) {

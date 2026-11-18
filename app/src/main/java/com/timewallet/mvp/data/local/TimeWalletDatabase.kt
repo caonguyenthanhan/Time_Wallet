@@ -14,9 +14,14 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DailyReviewEntity::class,
         ActivityReviewNoteEntity::class,
         TagEntity::class,
-        GoalEntity::class
+        GoalEntity::class,
+        ProjectEntity::class,
+        TaskEntity::class,
+        SubtaskEntity::class,
+        HabitEntity::class,
+        HabitLogEntity::class
     ],
-    version = 5,
+    version = 7,
     exportSchema = true   // v1.1.0+: schema JSON trong app/schemas để test migration đối chiếu DDL với Room thật
 )
 abstract class TimeWalletDatabase : RoomDatabase() {
@@ -26,6 +31,9 @@ abstract class TimeWalletDatabase : RoomDatabase() {
     abstract fun dailyReviewDao(): DailyReviewDao
     abstract fun tagDao(): TagDao
     abstract fun goalDao(): GoalDao
+    abstract fun projectDao(): ProjectDao
+    abstract fun taskDao(): TaskDao
+    abstract fun habitDao(): HabitDao
 
     companion object {
         // v1.1.0 (3 -> 4). DDL phải KHỚP CHÍNH XÁC cái Room kỳ vọng (đã đối chiếu với schemas/…/4.json bằng test).
@@ -173,6 +181,162 @@ abstract class TimeWalletDatabase : RoomDatabase() {
             }
         }
 
+        // v1.3.0 (5 -> 6): cờ đánh dấu lãng phí theo chính lựa chọn người dùng (NOT NULL DEFAULT 0).
+        const val SQL_ADD_IS_MARKED_WASTE =
+            "ALTER TABLE `ledger_records` ADD COLUMN `isMarkedWaste` INTEGER NOT NULL DEFAULT 0"
+
+        /**
+         * Nâng cấp CSDL từ phiên bản 5 lên 6: tách "Phi mục tiêu" khỏi "Lãng phí" trên biểu đồ hiệu quả 24h.
+         */
+        val MIGRATION_5_6: Migration = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(SQL_ADD_IS_MARKED_WASTE)
+            }
+        }
+
+        // v2.0 (6 -> 7): liên kết Task/Habit, hợp nhất Goal+Budget và bổ sung 5 bảng lõi mới (không xóa dữ liệu cũ).
+        const val SQL_ADD_LEDGER_TASK_ID = "ALTER TABLE `ledger_records` ADD COLUMN `taskId` TEXT"
+        const val SQL_ADD_LEDGER_HABIT_ID = "ALTER TABLE `ledger_records` ADD COLUMN `habitId` TEXT"
+        const val SQL_CREATE_LEDGER_TASK_ID_INDEX = "CREATE INDEX IF NOT EXISTS `index_ledger_records_taskId` ON `ledger_records` (`taskId`)"
+        const val SQL_CREATE_LEDGER_HABIT_ID_INDEX = "CREATE INDEX IF NOT EXISTS `index_ledger_records_habitId` ON `ledger_records` (`habitId`)"
+        const val SQL_ADD_GOAL_IS_PRIORITY = "ALTER TABLE `goals` ADD COLUMN `isPriority` INTEGER NOT NULL DEFAULT 0"
+        const val SQL_ADD_GOAL_PRIORITY_ORDER = "ALTER TABLE `goals` ADD COLUMN `priorityOrder` INTEGER NOT NULL DEFAULT 0"
+
+        const val SQL_CREATE_PROJECTS_TABLE = """
+            CREATE TABLE IF NOT EXISTS `projects` (
+                `id` TEXT NOT NULL,
+                `name` TEXT NOT NULL,
+                `colorHex` INTEGER NOT NULL,
+                `archivedAt` INTEGER,
+                `createdAt` INTEGER NOT NULL,
+                `updatedAt` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+        """
+
+        const val SQL_CREATE_TASKS_TABLE = """
+            CREATE TABLE IF NOT EXISTS `tasks` (
+                `id` TEXT NOT NULL,
+                `title` TEXT NOT NULL,
+                `notes` TEXT NOT NULL,
+                `projectId` TEXT,
+                `tagId` TEXT,
+                `categoryKey` TEXT NOT NULL,
+                `priority` TEXT NOT NULL,
+                `estimatedMinutes` INTEGER,
+                `dueDateLocal` TEXT,
+                `dueTimeLocal` TEXT,
+                `status` TEXT NOT NULL,
+                `eisenhowerQuad` TEXT,
+                `goalId` TEXT,
+                `createdAt` INTEGER NOT NULL,
+                `updatedAt` INTEGER NOT NULL,
+                `completedAt` INTEGER,
+                PRIMARY KEY(`id`)
+            )
+        """
+        const val SQL_CREATE_TASKS_STATUS_INDEX = "CREATE INDEX IF NOT EXISTS `index_tasks_status` ON `tasks` (`status`)"
+        const val SQL_CREATE_TASKS_DUE_INDEX = "CREATE INDEX IF NOT EXISTS `index_tasks_dueDateLocal` ON `tasks` (`dueDateLocal`)"
+        const val SQL_CREATE_TASKS_PROJECT_INDEX = "CREATE INDEX IF NOT EXISTS `index_tasks_projectId` ON `tasks` (`projectId`)"
+
+        const val SQL_CREATE_SUBTASKS_TABLE = """
+            CREATE TABLE IF NOT EXISTS `subtasks` (
+                `id` TEXT NOT NULL,
+                `taskId` TEXT NOT NULL,
+                `title` TEXT NOT NULL,
+                `isDone` INTEGER NOT NULL,
+                `sortOrder` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+        """
+        const val SQL_CREATE_SUBTASKS_TASK_INDEX = "CREATE INDEX IF NOT EXISTS `index_subtasks_taskId` ON `subtasks` (`taskId`)"
+
+        const val SQL_CREATE_HABITS_TABLE = """
+            CREATE TABLE IF NOT EXISTS `habits` (
+                `id` TEXT NOT NULL,
+                `title` TEXT NOT NULL,
+                `tagId` TEXT,
+                `categoryKey` TEXT NOT NULL,
+                `frequencyType` TEXT NOT NULL,
+                `daysMask` INTEGER NOT NULL,
+                `targetPerPeriod` INTEGER NOT NULL,
+                `minSessionMinutes` INTEGER NOT NULL,
+                `goalId` TEXT,
+                `archivedAt` INTEGER,
+                `createdAt` INTEGER NOT NULL,
+                `updatedAt` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+        """
+        const val SQL_CREATE_HABITS_TAG_INDEX = "CREATE INDEX IF NOT EXISTS `index_habits_tagId` ON `habits` (`tagId`)"
+
+        const val SQL_CREATE_HABIT_LOGS_TABLE = """
+            CREATE TABLE IF NOT EXISTS `habit_logs` (
+                `id` TEXT NOT NULL,
+                `habitId` TEXT NOT NULL,
+                `dateLocal` TEXT NOT NULL,
+                `completed` INTEGER NOT NULL,
+                `linkedLedgerId` TEXT,
+                `updatedAt` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+        """
+        const val SQL_CREATE_HABIT_LOGS_UNIQUE_INDEX = "CREATE UNIQUE INDEX IF NOT EXISTS `index_habit_logs_habitId_dateLocal` ON `habit_logs` (`habitId`, `dateLocal`)"
+
+        const val SQL_MIGRATE_BUDGETS_TO_UNIFIED_GOALS = """
+            INSERT OR IGNORE INTO `goals` (
+                `id`, `groupId`, `targetType`, `targetKey`, `kind`, `period`,
+                `targetSeconds`, `status`, `validFrom`, `validTo`, `createdAt`, `updatedAt`,
+                `isPriority`, `priorityOrder`
+            )
+            SELECT
+                'budget_migrated_' || `categoryKey`,
+                'grp_budget_' || `categoryKey`,
+                'CATEGORY',
+                `categoryKey`,
+                'MAX',
+                CASE WHEN UPPER(`period`) = 'DAY' THEN 'DAY' ELSE 'WEEK' END,
+                CASE WHEN `targetSeconds` < 60 THEN 60 ELSE `targetSeconds` END,
+                'ACTIVE',
+                '1970-01-01',
+                NULL,
+                `updatedAt`,
+                `updatedAt`,
+                CASE WHEN `isPriority` != 0 THEN 1 ELSE 0 END,
+                `priorityOrder`
+            FROM `category_budgets`
+            WHERE NOT EXISTS (
+                SELECT 1 FROM `goals` g
+                WHERE g.`targetType` = 'CATEGORY'
+                  AND g.`targetKey` = `category_budgets`.`categoryKey`
+                  AND g.`kind` = 'MAX'
+                  AND g.`validTo` IS NULL
+            )
+        """
+
+        val MIGRATION_6_7: Migration = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(SQL_ADD_LEDGER_TASK_ID)
+                db.execSQL(SQL_ADD_LEDGER_HABIT_ID)
+                db.execSQL(SQL_CREATE_LEDGER_TASK_ID_INDEX)
+                db.execSQL(SQL_CREATE_LEDGER_HABIT_ID_INDEX)
+                db.execSQL(SQL_ADD_GOAL_IS_PRIORITY)
+                db.execSQL(SQL_ADD_GOAL_PRIORITY_ORDER)
+                db.execSQL(SQL_CREATE_PROJECTS_TABLE.trimIndent())
+                db.execSQL(SQL_CREATE_TASKS_TABLE.trimIndent())
+                db.execSQL(SQL_CREATE_TASKS_STATUS_INDEX)
+                db.execSQL(SQL_CREATE_TASKS_DUE_INDEX)
+                db.execSQL(SQL_CREATE_TASKS_PROJECT_INDEX)
+                db.execSQL(SQL_CREATE_SUBTASKS_TABLE.trimIndent())
+                db.execSQL(SQL_CREATE_SUBTASKS_TASK_INDEX)
+                db.execSQL(SQL_CREATE_HABITS_TABLE.trimIndent())
+                db.execSQL(SQL_CREATE_HABITS_TAG_INDEX)
+                db.execSQL(SQL_CREATE_HABIT_LOGS_TABLE.trimIndent())
+                db.execSQL(SQL_CREATE_HABIT_LOGS_UNIQUE_INDEX)
+                db.execSQL(SQL_MIGRATE_BUDGETS_TO_UNIFIED_GOALS.trimIndent())
+            }
+        }
+
         @Volatile
         private var INSTANCE: TimeWalletDatabase? = null
 
@@ -183,7 +347,7 @@ abstract class TimeWalletDatabase : RoomDatabase() {
                     TimeWalletDatabase::class.java,
                     "time_wallet_ledger.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .build()
                     .also { INSTANCE = it }
             }
