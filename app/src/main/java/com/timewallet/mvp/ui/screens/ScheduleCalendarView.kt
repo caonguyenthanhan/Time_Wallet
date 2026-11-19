@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -57,6 +58,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -283,7 +285,7 @@ fun ScheduleCalendarView(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 if (showBackButton) {
                     Box(
@@ -306,10 +308,10 @@ fun ScheduleCalendarView(
                         .walletClickable(onClickLabel = "Lùi thời gian") {
                             onSelectDate(stepScheduleDate(selectedDate, viewMode, -1).toString())
                         }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        .padding(horizontal = 7.dp, vertical = 4.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("‹", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("‹", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 }
                 Column(
                     modifier = Modifier.weight(1f),
@@ -321,7 +323,7 @@ fun ScheduleCalendarView(
                     ) {
                         Text(
                             text = formatScheduleRangeHeading(selectedDate, today, viewMode),
-                            fontSize = 13.5.sp,
+                            fontSize = if (viewMode == ScheduleViewMode.WEEK) 12.5.sp else 13.5.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = Color.White,
                             maxLines = 1,
@@ -543,8 +545,10 @@ fun ScheduleCalendarView(
             }
         }
 
+        val screenHeightDp = LocalConfiguration.current.screenHeightDp
+        val embeddedGridHeight = (screenHeightDp - 195).coerceIn(470, 620).dp
         val gridModifier = if (embeddedInScrollContainer) {
-            Modifier.fillMaxWidth().height(540.dp)
+            Modifier.fillMaxWidth().height(embeddedGridHeight)
         } else {
             Modifier.fillMaxWidth().weight(1f)
         }
@@ -587,7 +591,7 @@ fun ScheduleCalendarView(
                     days = multiDayModels,
                     todayStr = today.toString(),
                     nowMinute = nowMinute,
-                    hourHeight = 56.dp,
+                    hourHeight = 66.dp,
                     selectedSlots = selectedEmptySlots,
                     modifier = gridModifier,
                     onSelectDay = { dateStr ->
@@ -613,7 +617,7 @@ fun ScheduleCalendarView(
                     days = multiDayModels,
                     todayStr = today.toString(),
                     nowMinute = nowMinute,
-                    hourHeight = 48.dp,
+                    hourHeight = 58.dp,
                     compactColumns = true,
                     selectedSlots = selectedEmptySlots,
                     modifier = gridModifier,
@@ -761,7 +765,7 @@ private fun DayTimelineGrid(
     onConfirmUnconfirmed: (LedgerRecord) -> Unit,
     onMoveOrResize: (recordId: String, dateLocal: String, startHm: String, endHm: String) -> Unit
 ) {
-    val hourHeight = 72.dp
+    val hourHeight = 82.dp
     val density = LocalDensity.current
     val hourHeightPx = with(density) { hourHeight.toPx() }
     val minuteHeightPx = hourHeightPx / 60f
@@ -793,7 +797,7 @@ private fun DayTimelineGrid(
                 .padding(vertical = 8.dp)
         ) {
             // Trục giờ 00:00 -> 23:00
-            Column(modifier = Modifier.width(50.dp)) {
+            Column(modifier = Modifier.width(54.dp)) {
                 for (h in 0 until 24) {
                     Box(
                         modifier = Modifier.height(hourHeight).fillMaxWidth().padding(end = 6.dp),
@@ -801,7 +805,7 @@ private fun DayTimelineGrid(
                     ) {
                         Text(
                             text = "%02d:00".format(h),
-                            fontSize = 10.5.sp,
+                            fontSize = 11.5.sp,
                             fontWeight = FontWeight.Medium,
                             color = WalletMuted,
                             maxLines = 1,
@@ -1153,16 +1157,16 @@ private fun ScheduleEventCard(
                 ) {
                     CategoryIcon(
                         category = block.category,
-                        size = if (blockHeightDp < 32.dp) 12.dp else 14.dp,
+                        size = if (blockHeightDp < 32.dp) 13.dp else 16.dp,
                         tint = accentColor
                     )
                     Text(
                         text = block.title,
-                        fontSize = if (compact) 11.sp else 12.sp,
-                        lineHeight = if (compact) 13.sp else 15.sp,
+                        fontSize = if (compact) 12.sp else 13.5.sp,
+                        lineHeight = if (compact) 14.5.sp else 17.sp,
                         fontWeight = FontWeight.Bold,
                         color = blockTitleInk,
-                        maxLines = 1,
+                        maxLines = if (blockHeightDp >= 52.dp) 2 else 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
@@ -1170,7 +1174,7 @@ private fun ScheduleEventCard(
                         if (blockHeightDp < 32.dp) {
                             Text(
                                 text = "${TimeRange.formatHm(effectiveStartMin)}–${if (effectiveEndMin >= 1440) "24:00" else TimeRange.formatHm(effectiveEndMin)}",
-                                fontSize = 9.5.sp,
+                                fontSize = 10.5.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = accentColor,
                                 maxLines = 1,
@@ -1196,8 +1200,8 @@ private fun ScheduleEventCard(
                         StateMicroPill(block.visualState)
                         Text(
                             text = block.planComparisonText ?: timeWindow,
-                            fontSize = 10.sp,
-                            lineHeight = 12.sp,
+                            fontSize = 11.sp,
+                            lineHeight = 13.5.sp,
                             fontWeight = if (block.planComparisonText != null || isDragging) FontWeight.Bold else FontWeight.Medium,
                             color = if (isDragging) blockDragInk else blockSubInk,
                             maxLines = 1,
@@ -1206,8 +1210,8 @@ private fun ScheduleEventCard(
                     } else {
                         Text(
                             text = block.planComparisonText ?: timeWindow,
-                            fontSize = 10.5.sp,
-                            lineHeight = 13.sp,
+                            fontSize = 11.5.sp,
+                            lineHeight = 14.5.sp,
                             fontWeight = if (block.planComparisonText != null || isDragging) FontWeight.Bold else FontWeight.Medium,
                             color = if (isDragging) blockDragInk else blockSubInk,
                             maxLines = 1,
@@ -1291,11 +1295,13 @@ private fun MultiDayTimelineGrid(
     onToggleCell: (DayScheduleModel, Int) -> Unit,
     onTapBlock: (ScheduleGridBlock) -> Unit
 ) {
-    val scrollState = rememberScrollState()
-    val hourPx = with(LocalDensity.current) { hourHeight.toPx() }
+    val vScrollState = rememberScrollState()
+    val hScrollState = rememberScrollState()
+    val density = LocalDensity.current
+    val hourPx = with(density) { hourHeight.toPx() }
     LaunchedEffect(days.size, compactColumns) {
         val targetHour = (nowMinute / 60 - 2).coerceIn(0, 16)
-        scrollState.scrollTo((targetHour * hourPx).roundToInt())
+        vScrollState.scrollTo((targetHour * hourPx).roundToInt())
     }
 
     Surface(
@@ -1304,192 +1310,233 @@ private fun MultiDayTimelineGrid(
         border = BorderStroke(1.dp, WalletStroke),
         modifier = modifier
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Thanh đầu cột cho 3 ngày / 7 ngày với tóm tắt Thực tế vs Kế hoạch từng ngày
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(WalletMintTint)
-                    .padding(start = 42.dp, end = 4.dp, top = 6.dp, bottom = 6.dp)
-            ) {
-                days.forEach { day ->
-                    val d = remember(day.dateLocal) { LocalDate.parse(day.dateLocal) }
-                    val isToday = day.dateLocal == todayStr
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (isToday) WalletMint else Color.Transparent)
-                            .walletClickable(onClickLabel = "Mở ngày ${day.dateLocal}") {
-                                onSelectDay(day.dateLocal)
-                            }
-                            .padding(vertical = 4.dp, horizontal = 2.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = shortWeekdayVi(d.dayOfWeek),
-                            fontSize = if (compactColumns) 10.sp else 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isToday) Color(0xFFD6EFE3) else WalletMuted,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                        Text(
-                            text = d.format(DateTimeFormatter.ofPattern("dd/MM")),
-                            fontSize = if (compactColumns) 10.5.sp else 12.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = if (isToday) Color.White else WalletInk,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                        if (day.actualMinutesTotal > 0 || day.plannedMinutesTotal > 0) {
-                            Text(
-                                text = if (compactColumns) {
-                                    TimeRange.formatDuration(day.actualMinutesTotal.coerceAtLeast(day.plannedMinutesTotal))
-                                } else {
-                                    "TT ${TimeRange.formatDuration(day.actualMinutesTotal)}" +
-                                        if (day.plannedMinutesTotal > 0) " · KH ${TimeRange.formatDuration(day.plannedMinutesTotal)}" else ""
-                                },
-                                fontSize = if (compactColumns) 9.sp else 9.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (isToday) Color.White else WalletMintAccent,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val axisWidth = 42.dp
+            val rightPad = 4.dp
+            val gridAvailWidth = (maxWidth - axisWidth - rightPad).coerceAtLeast(180.dp)
+            val minColWidth = if (compactColumns) 98.dp else 112.dp
+            val needsHorizontalScroll = (minColWidth * days.size) > gridAvailWidth
+            val colWidth = if (needsHorizontalScroll) minColWidth else (gridAvailWidth / days.size.coerceAtLeast(1))
+            val totalDaysWidth = colWidth * days.size
+            val colPx = with(density) { colWidth.toPx() }
+
+            LaunchedEffect(days.firstOrNull()?.dateLocal, days.size, needsHorizontalScroll) {
+                if (needsHorizontalScroll) {
+                    val todayIdx = days.indexOfFirst { it.dateLocal == todayStr }
+                    if (todayIdx > 1) {
+                        hScrollState.scrollTo(((todayIdx - 1) * colPx).roundToInt())
                     }
                 }
             }
-            HorizontalDivider(color = WalletStroke)
 
-            // Lưới giờ dùng chung 00:00 -> 24:00
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .verticalScroll(scrollState)
-            ) {
-                Column(modifier = Modifier.width(42.dp)) {
-                    for (h in 0 until 24) {
-                        Box(
-                            modifier = Modifier.height(hourHeight).fillMaxWidth().padding(end = 4.dp),
-                            contentAlignment = Alignment.TopEnd
-                        ) {
-                            Text(
-                                text = "%02d:00".format(h),
-                                fontSize = 9.5.sp,
-                                color = WalletMuted,
-                                maxLines = 1,
-                                softWrap = false
-                            )
-                        }
-                    }
-                }
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Thanh đầu cột cho 3 ngày / 7 ngày; trục giờ bên trái cố định, cột ngày cuộn ngang đồng bộ nếu hẹp.
                 Row(
                     modifier = Modifier
-                        .weight(1f)
-                        .height(hourHeight * 24)
-                        .padding(end = 4.dp)
+                        .fillMaxWidth()
+                        .background(WalletMintTint)
+                        .padding(top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    days.forEach { day ->
-                        val isDayToday = day.dateLocal == todayStr
-                        BoxWithConstraints(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .border(0.5.dp, WalletDivider)
-                        ) {
-                            val colW = maxWidth
-                            Column(modifier = Modifier.fillMaxSize()) {
-                                for (h in 0 until 24) {
-                                    val freeCell = ScheduleGridEngine.computeFreeSlotInHour(day.dateLocal, h, day.timedBlocks)
-                                    val cellSelected = freeCell != null && selectedSlots.any {
-                                        it.dateLocal == freeCell.dateLocal &&
-                                            it.startMinute == freeCell.startMinute &&
-                                            it.endMinute == freeCell.endMinute
-                                    }
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(hourHeight)
-                                            .then(
-                                                if (cellSelected) {
-                                                    Modifier
-                                                        .background(WalletMintSoft)
-                                                        .border(1.dp, WalletMint)
-                                                } else Modifier
-                                            )
-                                            .walletClickable(onClickLabel = "Chọn giờ trống ngày ${day.dateLocal} lúc %02d:00".format(h)) {
-                                                onToggleCell(day, h * 60)
-                                            }
-                                    ) {
-                                        if (!cellSelected) {
-                                            HorizontalDivider(color = WalletDivider, thickness = 0.8.dp)
-                                        } else {
-                                            Text(
-                                                text = "✓",
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                color = WalletMintAccent,
-                                                modifier = Modifier.align(Alignment.Center)
-                                            )
-                                        }
-                                    }
+                    Spacer(modifier = Modifier.width(axisWidth))
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .then(if (needsHorizontalScroll) Modifier.horizontalScroll(hScrollState) else Modifier)
+                            .padding(end = rightPad)
+                    ) {
+                        days.forEach { day ->
+                            val d = remember(day.dateLocal) { LocalDate.parse(day.dateLocal) }
+                            val isToday = day.dateLocal == todayStr
+                            val colSummary = buildString {
+                                if (day.actualMinutesTotal > 0) {
+                                    append("TT ${TimeRange.formatDuration(day.actualMinutesTotal).replace(" ", "")}")
+                                }
+                                if (day.plannedMinutesTotal > 0) {
+                                    if (isNotEmpty()) append(" · ")
+                                    append("KH ${TimeRange.formatDuration(day.plannedMinutesTotal).replace(" ", "")}")
                                 }
                             }
-                            day.timedBlocks.forEach { block ->
-                                val topDp = (block.startMinute / 60f) * hourHeight.value
-                                val hDp = max(20f, ((block.endMinute - block.startMinute) / 60f) * hourHeight.value)
-                                val frac = 1f / block.laneCount.coerceAtLeast(1)
-                                val wDp = (colW - 2.dp) * frac
-                                val xDp = wDp * block.laneIndex + 1.dp
-                                val accentColor = when (block.visualState) {
-                                    ScheduleBlockVisualState.PLANNED -> PlannedAccentBlue
-                                    ScheduleBlockVisualState.UNCONFIRMED -> UnconfirmedAmber
-                                    ScheduleBlockVisualState.ACTIVE -> ActiveAccentCyan
-                                    ScheduleBlockVisualState.COMPLETED -> Color(block.category.colorHex)
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .offset(x = xDp, y = topDp.dp)
-                                        .width((wDp - 1.dp).coerceAtLeast(16.dp))
-                                        .height(hDp.dp)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(
-                                            when (block.visualState) {
-                                                ScheduleBlockVisualState.PLANNED -> WalletInfoBg
-                                                ScheduleBlockVisualState.UNCONFIRMED -> WalletWarningBg
-                                                ScheduleBlockVisualState.ACTIVE -> WalletMintSoft
-                                                ScheduleBlockVisualState.COMPLETED -> accentColor.copy(alpha = 0.22f)
-                                            }
-                                        )
-                                        .border(
-                                            width = 1.dp,
-                                            color = accentColor.copy(alpha = 0.8f),
-                                            shape = RoundedCornerShape(6.dp)
-                                        )
-                                        .walletClickable(onClickLabel = "Mở ${block.title}") { onTapBlock(block) }
-                                        .padding(horizontal = 3.dp, vertical = 2.dp)
-                                ) {
+                            Column(
+                                modifier = Modifier
+                                    .width(colWidth)
+                                    .padding(horizontal = 2.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isToday) WalletMint else Color.Transparent)
+                                    .walletClickable(onClickLabel = "Mở ngày ${day.dateLocal}") {
+                                        onSelectDay(day.dateLocal)
+                                    }
+                                    .padding(vertical = 4.dp, horizontal = 3.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = shortWeekdayVi(d.dayOfWeek),
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isToday) Color(0xFFD6EFE3) else WalletMuted,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                                Text(
+                                    text = d.format(DateTimeFormatter.ofPattern("dd/MM")),
+                                    fontSize = if (compactColumns) 12.5.sp else 13.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (isToday) Color.White else WalletInk,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                                if (colSummary.isNotEmpty()) {
                                     Text(
-                                        text = if (compactColumns) block.category.emoji else block.title,
-                                        fontSize = if (compactColumns) 9.5.sp else 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = WalletInk,
-                                        maxLines = 2,
+                                        text = colSummary,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isToday) Color.White else WalletMintAccent,
+                                        maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
-                            if (isDayToday) {
-                                val nowY = (nowMinute / 60f) * hourHeight.value
-                                Box(
-                                    modifier = Modifier
-                                        .offset(y = nowY.dp)
-                                        .fillMaxWidth()
-                                        .height(2.dp)
-                                        .background(NowIndicatorCoral)
+                        }
+                    }
+                }
+                HorizontalDivider(color = WalletStroke)
+
+                // Lưới giờ dùng chung 00:00 -> 24:00 (trục giờ cố định bên trái, các cột ngày cuộn ngang đồng bộ)
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(vScrollState)
+                ) {
+                    Column(modifier = Modifier.width(axisWidth)) {
+                        for (h in 0 until 24) {
+                            Box(
+                                modifier = Modifier.height(hourHeight).fillMaxWidth().padding(end = 4.dp),
+                                contentAlignment = Alignment.TopEnd
+                            ) {
+                                Text(
+                                    text = "%02d:00".format(h),
+                                    fontSize = 9.5.sp,
+                                    color = WalletMuted,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
+                            }
+                        }
+                    }
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .then(if (needsHorizontalScroll) Modifier.horizontalScroll(hScrollState) else Modifier)
+                            .padding(end = rightPad)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .width(totalDaysWidth)
+                                .height(hourHeight * 24)
+                        ) {
+                            days.forEach { day ->
+                                val isDayToday = day.dateLocal == todayStr
+                                BoxWithConstraints(
+                                    modifier = Modifier
+                                        .width(colWidth)
+                                        .fillMaxHeight()
+                                        .border(0.5.dp, WalletDivider)
+                                ) {
+                                    val colW = maxWidth
+                                    Column(modifier = Modifier.fillMaxSize()) {
+                                        for (h in 0 until 24) {
+                                            val freeCell = ScheduleGridEngine.computeFreeSlotInHour(day.dateLocal, h, day.timedBlocks)
+                                            val cellSelected = freeCell != null && selectedSlots.any {
+                                                it.dateLocal == freeCell.dateLocal &&
+                                                    it.startMinute == freeCell.startMinute &&
+                                                    it.endMinute == freeCell.endMinute
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(hourHeight)
+                                                    .then(
+                                                        if (cellSelected) {
+                                                            Modifier
+                                                                .background(WalletMintSoft)
+                                                                .border(1.dp, WalletMint)
+                                                        } else Modifier
+                                                    )
+                                                    .walletClickable(onClickLabel = "Chọn giờ trống ngày ${day.dateLocal} lúc %02d:00".format(h)) {
+                                                        onToggleCell(day, h * 60)
+                                                    }
+                                            ) {
+                                                if (!cellSelected) {
+                                                    HorizontalDivider(color = WalletDivider, thickness = 0.8.dp)
+                                                } else {
+                                                    Text(
+                                                        text = "✓",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.ExtraBold,
+                                                        color = WalletMintAccent,
+                                                        modifier = Modifier.align(Alignment.Center)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                    day.timedBlocks.forEach { block ->
+                                        val topDp = (block.startMinute / 60f) * hourHeight.value
+                                        val hDp = max(22f, ((block.endMinute - block.startMinute) / 60f) * hourHeight.value)
+                                        val frac = 1f / block.laneCount.coerceAtLeast(1)
+                                        val wDp = (colW - 2.dp) * frac
+                                        val xDp = wDp * block.laneIndex + 1.dp
+                                        val accentColor = when (block.visualState) {
+                                            ScheduleBlockVisualState.PLANNED -> PlannedAccentBlue
+                                            ScheduleBlockVisualState.UNCONFIRMED -> UnconfirmedAmber
+                                            ScheduleBlockVisualState.ACTIVE -> ActiveAccentCyan
+                                            ScheduleBlockVisualState.COMPLETED -> Color(block.category.colorHex)
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .offset(x = xDp, y = topDp.dp)
+                                                .width((wDp - 1.dp).coerceAtLeast(20.dp))
+                                                .height(hDp.dp)
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(
+                                                    when (block.visualState) {
+                                                        ScheduleBlockVisualState.PLANNED -> WalletInfoBg
+                                                        ScheduleBlockVisualState.UNCONFIRMED -> WalletWarningBg
+                                                        ScheduleBlockVisualState.ACTIVE -> WalletMintSoft
+                                                        ScheduleBlockVisualState.COMPLETED -> accentColor.copy(alpha = 0.22f)
+                                                    }
+                                                )
+                                                .border(
+                                                    width = 1.dp,
+                                                    color = accentColor.copy(alpha = 0.8f),
+                                                    shape = RoundedCornerShape(6.dp)
+                                                )
+                                                .walletClickable(onClickLabel = "Mở ${block.title}") { onTapBlock(block) }
+                                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = block.title,
+                                                fontSize = if (compactColumns) 11.sp else 11.5.sp,
+                                                lineHeight = 14.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = WalletInk,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                    if (isDayToday) {
+                                        val nowY = (nowMinute / 60f) * hourHeight.value
+                                        Box(
+                                            modifier = Modifier
+                                                .offset(y = nowY.dp)
+                                                .fillMaxWidth()
+                                                .height(2.dp)
+                                                .background(NowIndicatorCoral)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -1637,32 +1684,32 @@ private fun MonthOverviewGrid(
             }
         }
 
-        // Thẻ chi tiết nhanh cho ngày đang chọn trong Tháng
+        // Thẻ chi tiết đầy đủ cho ngày đang chọn trong Tháng (to rõ để đọc trực tiếp toàn bộ lịch trong ngày)
         Surface(
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(20.dp),
             color = WalletCardBg,
             border = BorderStroke(1.dp, WalletStroke),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
                             text = formatScheduleRangeHeading(LocalDate.parse(selectedDateLocal), today, ScheduleViewMode.DAY),
-                            fontSize = 14.5.sp,
+                            fontSize = 16.5.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = WalletInk
                         )
                         Text(
                             text = "Thực tế ${TimeRange.formatDuration(selectedDayModel.actualMinutesTotal)} · Dự kiến ${TimeRange.formatDuration(selectedDayModel.plannedMinutesTotal)}",
-                            fontSize = 11.5.sp,
+                            fontSize = 13.sp,
                             color = WalletMuted
                         )
                     }
@@ -1674,10 +1721,10 @@ private fun MonthOverviewGrid(
                                 .walletClickable(onClickLabel = "Xem dòng giờ ngày $selectedDateLocal") {
                                     onOpenDayTimeline(selectedDateLocal)
                                 }
-                                .padding(horizontal = 10.dp, vertical = 7.dp),
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("Xem Ngày", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = WalletMintDark)
+                            Text("Xem Ngày", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = WalletMintDark)
                         }
                         Box(
                             modifier = Modifier
@@ -1686,50 +1733,52 @@ private fun MonthOverviewGrid(
                                 .walletClickable(onClickLabel = "Ghi mới vào ngày $selectedDateLocal") {
                                     onAddOnDate(selectedDateLocal)
                                 }
-                                .padding(horizontal = 10.dp, vertical = 7.dp),
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("+ Ghi mới", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text("+ Ghi mới", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         }
                     }
                 }
                 if (selectedDayModel.timedBlocks.isEmpty() && selectedDayModel.untimedRecords.isEmpty()) {
                     Text(
                         text = "Ngày này còn trống — chạm '+ Ghi mới' hoặc 'Xem Ngày' để lên lịch hay ghi nhận hoạt động.",
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp,
                         color = WalletMuted
                     )
                 } else {
-                    selectedDayModel.timedBlocks.take(6).forEach { block ->
+                    selectedDayModel.timedBlocks.take(10).forEach { block ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
+                                .clip(RoundedCornerShape(12.dp))
                                 .background(WalletBg)
                                 .walletClickable(onClickLabel = "Sửa ${block.title}") {
                                     block.record?.let(onEditRecord)
                                 }
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            CategoryIcon(block.category, size = 16.dp, tint = Color(block.category.colorHex))
-                            Text(
-                                text = block.title,
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = WalletInk,
-                                modifier = Modifier.weight(1f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = "${TimeRange.formatHm(block.startMinute)}–${if (block.endMinute >= 1440) "24:00" else TimeRange.formatHm(block.endMinute)}",
-                                fontSize = 11.sp,
-                                color = WalletMuted,
-                                maxLines = 1,
-                                softWrap = false
-                            )
+                            CategoryIcon(block.category, size = 18.dp, tint = Color(block.category.colorHex))
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = block.title,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = WalletInk,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "${TimeRange.formatHm(block.startMinute)}–${if (block.endMinute >= 1440) "24:00" else TimeRange.formatHm(block.endMinute)} · ${TimeRange.formatDuration((block.endMinute - block.startMinute).coerceAtLeast(1))}",
+                                    fontSize = 12.sp,
+                                    color = WalletMuted,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
                             StateMicroPill(block.visualState)
                         }
                     }
@@ -2005,7 +2054,7 @@ private fun formatScheduleRangeHeading(
         ScheduleViewMode.WEEK -> {
             val mon = selectedDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
             val sun = mon.plusDays(6)
-            "Tuần ${mon.format(ddMm)} – ${sun.format(ddMm)}"
+            "Tuần ${mon.format(ddMm)}–${sun.format(ddMm)}"
         }
         ScheduleViewMode.MONTH -> {
             selectedDate.format(DateTimeFormatter.ofPattern("'Tháng' MM/yyyy", Locale("vi", "VN")))

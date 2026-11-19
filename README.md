@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white" alt="Jetpack Compose" />
   <img src="https://img.shields.io/badge/Android-API%2026%E2%80%9335-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android API 26-35" />
   <img src="https://img.shields.io/badge/Room%20SQLite-Schema%20v7-00838F?style=flat-square" alt="Room Schema v7" />
-  <img src="https://img.shields.io/badge/JVM%20Tests-646%2F648%20PASS-2E7D32?style=flat-square" alt="Unit Tests" />
+  <img src="https://img.shields.io/badge/JVM%20Tests-647%2F649%20PASS-2E7D32?style=flat-square" alt="Unit Tests" />
   <img src="https://img.shields.io/badge/Lint%20Release-0%20errors-2E7D32?style=flat-square" alt="Lint Release" />
 </p>
 
@@ -51,10 +51,10 @@
 
 ## Key Capabilities in `v2.0.0`
 
-- **Lịch trình là trung tâm (`Lịch trình · Ngày / 3 ngày / Tuần / Tháng`):** Xem ngay thanh **Ví 24h thu gọn 1 dòng** ở đầu trang, đối chiếu song song **Kế hoạch vs Thực tế**, xử lý vắt nửa đêm (`UC-15`), chọn ô giờ trống tạo nhanh kế hoạch và thu gọn bộ lọc/chú giải vào menu `⋮`.
+- **Lịch trình là trung tâm (`Lịch trình · Ngày / 3 ngày / Tuần / Tháng`):** Xem ngay thanh **Ví 24h thu gọn 1 dòng** ở đầu trang, đối chiếu song song **Kế hoạch vs Thực tế**, xử lý vắt nửa đêm (`UC-15`), chọn ô giờ trống tạo nhanh kế hoạch, cuộn ngang lịch Tuần với cột giờ cố định, phóng to thẻ chi tiết ngày/hoạt động và thu gọn bộ lọc/chú giải vào menu `⋮`.
 - **Việc cần làm, Subtasks, Thói quen & Mục tiêu hợp nhất:** Chụp nhanh ý tưởng vào *Inbox*, quản lý *Priority (`P1–P3`)*, mở rộng *Subtasks* ngay trên thẻ, theo dõi chuỗi *Thói quen* 7 ngày (`T2–CN`) tự khớp từ sổ cái (`⚡`), và gộp *Mục tiêu tối thiểu (`MIN`)* cùng *Ngân sách giới hạn (`MAX`)* theo chu kỳ. Bật thêm *Kanban* hoặc *Ma trận Eisenhower* trong Cài đặt nếu cần.
 - **Tập trung thực chiến & Ghim thông báo (`Focus Pin`):** Chuyển đổi nhanh giữa *Đếm xuôi*, *Pomodoro 25p* và *Sâu 45p*; đo từ một *Task* sẽ mang theo mục tiêu phút và checklist *Subtasks* xuống ngay dưới đồng hồ. Bật **Ghim thông báo tập trung (`id = 910301`)** để giữ phiên đang đo, kế hoạch hiện tại hoặc gợi ý theo lịch sử (`tuần trước / hôm qua / 3 ngày gần đây`) ngay trên thanh thông báo kèm nút `Bỏ ghim`.
-- **Trợ lý `✦ Wally` xuyên suốt & Đề xuất có kiểm soát:** Mở nhanh từ mọi tab qua nút `✦ Wally` trên thanh trên cùng (`WallyAiOverlay`) mà không che nội dung màn hình; hỗ trợ ghi nhanh tiếng Việt tự nhiên, gợi ý xếp lịch Inbox, phân tích *Wally AI Coach* kèm nguồn dữ liệu và luôn yêu cầu xác nhận trước khi lưu.
+- **Trợ lý `✦ Wally` xuyên suốt & Bóng chat Pop-on:** Mở nhanh từ mọi tab qua **bóng chat Pop-on kéo thả tự hít mép** hoặc nút `✦ Wally` trên thanh trên cùng (`WallyAiOverlay`); hỗ trợ ghi nhanh tiếng Việt tự nhiên, gợi ý xếp lịch Inbox, phân tích *Wally AI Coach* kèm nguồn dữ liệu và luôn yêu cầu xác nhận trước khi lưu.
 - **Tùy biến linh hoạt, Dark Mode đồng bộ & Sở hữu dữ liệu mở:** Chuyển nhanh giao diện *Theo máy / Sáng / Tối*, bật tắt từng module nâng cao (*Habits, Pomodoro, Kanban, Eisenhower, Xúc xắc thời gian, Wally AI*), đặt quy tắc phân loại từ khóa offline, xuất/nhập **JSON `schemaVersion = 2`** (tương thích bản `1.x`) và xuất **nhật ký Markdown** cho Obsidian.
 
 ---
@@ -66,7 +66,7 @@
 </p>
 
 <p align="center">
-  <sub><i>Captured directly from signed Release APK <code>50EBDFFF…</code> (<code>v2.0.0</code> · <code>versionCode 18</code>) and preceding UX-wave builds on the isolated <code>WallyQA</code> emulator (Android 9, <code>780×1688 @320dpi</code>) using synthetic 1-week QA data, verified <code>v1.2.0 → v2.0.0</code> in-place migration, standalone Focus Pin <code>id=910301</code>, and offline AI permission checks. Owner personal instance (<code>index 0</code>), live AI eval on <code>v2.0.0</code>, Android 13–16 AEHD, cold-boot, and physical device remain untouched / <code>NOT_TESTED</code>.</i></sub>
+  <sub><i>All 34 screenshots and the 5-panel overview banner were captured directly from the latest signed Release APK <code>BEDEE1904C58…</code> (<code>v2.0.0</code> · <code>versionCode 18</code>) on the isolated <code>WallyQA</code> emulator (Android 9, <code>780×1688 @320dpi</code>) using synthetic 1-week QA data (alongside prior <code>v2.0.0</code> <code>50EBDFFF…</code> in-place migration check from <code>v1.2.0</code>, standalone Focus Pin <code>id=910301</code>, and offline AI permission checks). Owner personal instance (<code>index 0</code>), live AI eval on <code>v2.0.0</code>, Android 13–16 AEHD, cold-boot, and physical device remain untouched / <code>NOT_TESTED</code>.</i></sub>
 </p>
 
 <details>
@@ -74,18 +74,18 @@
 
 | Screen / Flow | Capture | Highlights |
 |---|---|---|
-| Day Schedule (Today · Light) | [01_lich-trinh-hom-nay_light.png](docs/screenshots/ui-preview/01_lich-trinh-hom-nay_light.png) | Collapsible 1-line 24h Wallet strip, unclipped date header, timeline-first layout |
-| Day Schedule (`18/11` · `Hôm nay` Pill) | [02_lich-trinh-ngay_light.png](docs/screenshots/ui-preview/02_lich-trinh-ngay_light.png) | Clean `Hôm nay` shortcut pill, `UC-15` overnight blocks, separated `Chưa gắn giờ` tray |
-| 3-Day / Week / Month Schedule | [03_lich-trinh-3ngay_light.png](docs/screenshots/ui-preview/03_lich-trinh-3ngay_light.png) · [04_lich-trinh-tuan_light.png](docs/screenshots/ui-preview/04_lich-trinh-tuan_light.png) · [05_lich-trinh-thang_light.png](docs/screenshots/ui-preview/05_lich-trinh-thang_light.png) | Side-by-side 3-day grid, 7-column `T2–CN` week grid, and monthly dot/planned overview |
+| Day Schedule (Today · Light) | [01_lich-trinh-hom-nay_light.png](docs/screenshots/ui-preview/01_lich-trinh-hom-nay_light.png) | Collapsible 1-line 24h Wallet strip, enlarged timeline, draggable Wally Pop-on bubble |
+| Day Schedule (`18/11` · `Hôm nay` Pill) | [02_lich-trinh-ngay_light.png](docs/screenshots/ui-preview/02_lich-trinh-ngay_light.png) | Clean `Hôm nay` shortcut pill, `UC-15` overnight blocks, Pop-on floating bubble |
+| 3-Day / Week / Month Schedule | [03_lich-trinh-3ngay_light.png](docs/screenshots/ui-preview/03_lich-trinh-3ngay_light.png) · [04_lich-trinh-tuan_light.png](docs/screenshots/ui-preview/04_lich-trinh-tuan_light.png) · [05_lich-trinh-thang_light.png](docs/screenshots/ui-preview/05_lich-trinh-thang_light.png) | Enlarged horizontally-scrollable 3-day & `T2–CN` week grids with pinned hour axis, plus enlarged monthly detail cards |
 | Calendar `⋮` Menu | [06_lich-trinh-menu_light.png](docs/screenshots/ui-preview/06_lich-trinh-menu_light.png) | Secondary controls (`＋ Ghi mới hoạt động`, category filter, 4-state legend) tucked cleanly into `⋮` |
-| Compact Tasks & Habits (Light) | [07_cong-viec_light.png](docs/screenshots/ui-preview/07_cong-viec_light.png) · [08_thoi-quen_light.png](docs/screenshots/ui-preview/08_thoi-quen_light.png) | 1-line Inbox bar, compact rows (`▶` Focus + `⋯`), daily habit summary, `T5–T4` dots & suggestions |
-| Unified Goals, Kanban & Eisenhower (Light) | [09_muc-tieu_light.png](docs/screenshots/ui-preview/09_muc-tieu_light.png) · [10_kanban_light.png](docs/screenshots/ui-preview/10_kanban_light.png) · [10b_ma-tran-eisenhower_light.png](docs/screenshots/ui-preview/10b_ma-tran-eisenhower_light.png) | `MIN`/`MAX` unified goals, opt-in Kanban columns, and `Q1–Q4` Eisenhower matrix |
+| Compact Tasks & Habits (Light) | [07_cong-viec_light.png](docs/screenshots/ui-preview/07_cong-viec_light.png) · [08_thoi-quen_light.png](docs/screenshots/ui-preview/08_thoi-quen_light.png) | Unclipped `FlowRow` module/filter pills, 1-line Inbox bar, compact rows (`▶` Focus + `⋯`), daily habits |
+| Unified Goals, Kanban & Eisenhower (Light) | [09_muc-tieu_light.png](docs/screenshots/ui-preview/09_muc-tieu_light.png) · [10_kanban_light.png](docs/screenshots/ui-preview/10_kanban_light.png) · [10b_ma-tran-eisenhower_light.png](docs/screenshots/ui-preview/10b_ma-tran-eisenhower_light.png) | `MIN`/`MAX` unified goals, wide opt-in Kanban columns, and `Q1–Q4` Eisenhower matrix |
 | Focus Timer & Standalone Focus Pin (`id=910301`) | [11_tap-trung_light.png](docs/screenshots/ui-preview/11_tap-trung_light.png) · [12_ghim-focus-cho.png](docs/screenshots/ui-preview/12_ghim-focus-cho.png) · [13_ghim-focus-dang-do.png](docs/screenshots/ui-preview/13_ghim-focus-dang-do.png) | Dual Stopwatch/Pomodoro timer & independent ongoing Focus notification (idle & active) |
 | Offline Quick Capture & Obsidian Export | [14_ghi-nhanh-offline_light.png](docs/screenshots/ui-preview/14_ghi-nhanh-offline_light.png) · [18_xuat-markdown_obsidian.png](docs/screenshots/ui-preview/18_xuat-markdown_obsidian.png) | Accentless duration parsing (`"Doc sach 20 phut"`) & local-only Obsidian Markdown export |
-| 24h Stats, Tools & Profile Settings (Light) | [15_thong-ke-24h_light.png](docs/screenshots/ui-preview/15_thong-ke-24h_light.png) · [16_cong-cu_light.png](docs/screenshots/ui-preview/16_cong-cu_light.png) · [17_cai-dat_light.png](docs/screenshots/ui-preview/17_cai-dat_light.png) | 4-tier 24h stacked bars, Tools hub separated from Settings (`Theme`, `AI Scope`, `Local Rules`) |
-| Week Schedule & Empty-Slot Selection (Dark) | [19_lich-trinh-tuan_dark.png](docs/screenshots/ui-preview/19_lich-trinh-tuan_dark.png) · [20_chon-gio-trong_dark.png](docs/screenshots/ui-preview/20_chon-gio-trong_dark.png) | Crisp dark surfaces & high-contrast selected slot action card (`Bỏ` / `+ Tạo sự kiện`) |
-| Task Subtasks → Live Focus & Task Done Dialog (Dark) | [21_cong-viec-subtasks_dark.png](docs/screenshots/ui-preview/21_cong-viec-subtasks_dark.png) · [22_tap-trung-task_dark.png](docs/screenshots/ui-preview/22_tap-trung-task_dark.png) · [23_da-xong-viec-dialog_dark.png](docs/screenshots/ui-preview/23_da-xong-viec-dialog_dark.png) | Inline subtasks, live Focus session synced with Task subtasks, and dark AlertDialogs |
-| `✦ Wally` Overlay & Offline Task Privacy Block (Dark) | [24_wally-overlay_dark.png](docs/screenshots/ui-preview/24_wally-overlay_dark.png) · [25_wally-chan-quyen-ai_dark.png](docs/screenshots/ui-preview/25_wally-chan-quyen-ai_dark.png) | Non-duplicated prompt bar & deterministic `Xếp Inbox` block when `Công việc & Inbox` scope is OFF |
+| 24h Stats, Tools & Profile Settings (Light) | [15_thong-ke-24h_light.png](docs/screenshots/ui-preview/15_thong-ke-24h_light.png) · [16_cong-cu_light.png](docs/screenshots/ui-preview/16_cong-cu_light.png) · [17_cai-dat_light.png](docs/screenshots/ui-preview/17_cai-dat_light.png) | Enlarged `228.dp` 4-tier 24h stacked bars, neat 2-column & grouped Tools hub, and Settings (`Theme`, `AI Scope`, `Local Rules`) |
+| Week Schedule & Empty-Slot Selection (Dark) | [19_lich-trinh-tuan_dark.png](docs/screenshots/ui-preview/19_lich-trinh-tuan_dark.png) · [20_chon-gio-trong_dark.png](docs/screenshots/ui-preview/20_chon-gio-trong_dark.png) | Enlarged dark `T2–CN` columns & high-contrast selected slot action card (`Đã chọn 17:00–18:00`) |
+| Task Subtasks → Live Focus & Task Done Dialog (Dark) | [21_cong-viec-subtasks_dark.png](docs/screenshots/ui-preview/21_cong-viec-subtasks_dark.png) · [22_tap-trung-task_dark.png](docs/screenshots/ui-preview/22_tap-trung-task_dark.png) · [23_da-xong-viec-dialog_dark.png](docs/screenshots/ui-preview/23_da-xong-viec-dialog_dark.png) | Inline subtasks, live Focus session with unclipped TopBar `time wallet. ● 00:02`, and dark AlertDialogs |
+| Wally Pop-on Overlay & Offline Task Privacy Block (Dark) | [24_wally-overlay_dark.png](docs/screenshots/ui-preview/24_wally-overlay_dark.png) · [25_wally-chan-quyen-ai_dark.png](docs/screenshots/ui-preview/25_wally-chan-quyen-ai_dark.png) | Pop-on chat opened via floating bubble with wrapped `FlowRow` prompt pills & deterministic `Xếp Inbox` privacy block |
 | Dark Stats, Settings, Dialogs & Opt-in Views | [26_thong-ke-24h_dark.png](docs/screenshots/ui-preview/26_thong-ke-24h_dark.png) · [27_cai-dat_dark.png](docs/screenshots/ui-preview/27_cai-dat_dark.png) · [28_nhap-json_dark.png](docs/screenshots/ui-preview/28_nhap-json_dark.png) · [29_xac-nhan-gio-dialog_dark.png](docs/screenshots/ui-preview/29_xac-nhan-gio-dialog_dark.png) · [30_thoi-quen_dark.png](docs/screenshots/ui-preview/30_thoi-quen_dark.png) · [31_muc-tieu_dark.png](docs/screenshots/ui-preview/31_muc-tieu_dark.png) · [32_kanban_dark.png](docs/screenshots/ui-preview/32_kanban_dark.png) · [33_ma-tran-eisenhower_dark.png](docs/screenshots/ui-preview/33_ma-tran-eisenhower_dark.png) | Complete Dark Mode token coverage across Statistics, Settings, Backup/Reconciliation dialogs, Habits, Goals, Kanban, and Eisenhower |
 
 See capture details in [docs/screenshots/ui-preview/README.md](docs/screenshots/ui-preview/README.md) (baseline `v1.0.11` preserved in [docs/screenshots/ldplayer-android9/README.md](docs/screenshots/ldplayer-android9/README.md)).
@@ -94,11 +94,11 @@ See capture details in [docs/screenshots/ui-preview/README.md](docs/screenshots/
 
 ---
 
-## Verification & Quality Status (`v2.0.0` · `50EBDFFF…`)
+## Verification & Quality Status (`v2.0.0` · `BEDEE190…`)
 
-- **JVM & Contract Tests:** `646/648` PASS (`0` failed, `0` errors; 2 Live API suites `V110CoachLiveEvalTest#coachLiveEval` and `V120LiveAiEvalTest#liveChatAndRouteEval` skipped offline).
-- **Static Analysis & Packaging:** `lintRelease` reports **0 errors** (`60` warnings); Release APK (`8,993,385` bytes, SHA-256 `50EBDFFF04A9F57C2AFDC4899E4C83CB962374ABF61CDB130B9FE1560EA8A884`) and Debug APK (`14,541,978` bytes, SHA-256 `D7FC3B6039F6891284A3DFC306D23DFAA2ECDFD21A71B691E33354AB7DC84BA9`) signed and verified with `apksigner`.
-- **QA Emulator Validation (`WallyQA`):** Verified in-place `v1.2.0 → v2.0.0` upgrade preserving `2h 15p` sample records (`FATAL EXCEPTION = 0`, `SQLiteException = 0`), standalone Focus Pin notification (`id=910301`), Light/Dark contrast across screens and dialogs, AI Task read-permission enforcement, `Task → Subtasks → Focus`, and `schemaVersion = 2` JSON export with zero secret leakage. *(Live AI eval on `v2.0.0`, cold-boot `BOOT_COMPLETED`, Android 13–16 AEHD, and Owner physical device remain `NOT_TESTED`.)*
+- **JVM & Contract Tests:** `647/649` PASS (`0` failed, `0` errors; 2 Live API suites `V110CoachLiveEvalTest#coachLiveEval` and `V120LiveAiEvalTest#liveChatAndRouteEval` skipped offline).
+- **Static Analysis & Packaging:** `lintRelease` reports **0 errors** (`60` warnings); Release APK (`9,009,774` bytes, SHA-256 `BEDEE1904C5805E2C7DEB9D83E8B0AD0A30C385BDD044FDA5B36EB8C610219CA`) and Debug APK (`13,354,580` bytes, SHA-256 `8A6A57BD41F6A0A55646FAC694A9FA37EBFCE8F9985BF324D9DE552825662E23`) signed and verified with `apksigner`.
+- **QA Emulator Validation (`WallyQA`):** Verified latest `BEDEE190…` UI polish (draggable Pop-on bubble, outer page & Month scrolling, synchronized horizontal Week columns with sticky hour axis, unclipped FlowRow filters/TopBar, and 2-column grouped Tools hub) with `0` crashes in `logcat`, alongside prior `v2.0.0` baseline (`50EBDFFF…`) checks for in-place `v1.2.0 → v2.0.0` upgrade (`FATAL EXCEPTION = 0`, `SQLiteException = 0`), standalone Focus Pin (`id=910301`), Light/Dark contrast, AI Task read-permission enforcement, `Task → Subtasks → Focus`, and `schemaVersion = 2` JSON export. *(Live AI eval on `v2.0.0`, cold-boot `BOOT_COMPLETED`, Android 13–16 AEHD, and Owner physical device remain `NOT_TESTED`.)*
 
 ---
 
@@ -142,7 +142,7 @@ Time_Wallet/
 │       │   ├── domain/             # Pure Kotlin models & engines (Task/Habit, FocusPin, Calendar, Analytics, Guards)
 │       │   ├── notifications/      # Focus Pin & AlarmManager CompletionReminder + CompletionBootReceiver
 │       │   └── ui/                 # TimeWalletViewModel, Wally20Coordinator, Screens, Theme, UiKit
-│       └── test/java/com/timewallet/mvp/  # JVM unit & static contract test suites (648 test cases)
+│       └── test/java/com/timewallet/mvp/  # JVM unit & static contract test suites (649 test cases)
 ├── WALLY_TECHNICAL_SPEC.md         # Detailed technical spec & Mermaid diagrams
 ├── WALLY_V200_CANDIDATE.md         # v2.0.0 Candidate handoff, SHA-256 & Acceptance Checklist
 ├── WALLY_V120_PRODUCTION_CANDIDATE.md  # v1.2.0 historical baseline handoff

@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -40,10 +41,13 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -136,21 +140,23 @@ fun TimeWalletTopBar(
     wallyHasDrafts: Boolean = false
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val compactTopBar = isTimerRunning || screenWidthDp < 380
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(WalletBg)
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(horizontal = if (compactTopBar) 12.dp else 14.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // v1.0.11: header gọn một dòng, co giãn phần nhãn để nút bên phải không bao giờ tràn trên màn hẹp.
+        // v1.0.11+: header gọn một dòng, co giãn hợp lý để không cắt "time wallet." khi đang chạy đồng hồ.
         Row(
             modifier = Modifier
                 .weight(1f, fill = false)
-                .padding(end = 6.dp),
+                .padding(end = if (compactTopBar) 4.dp else 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(if (compactTopBar) 6.dp else 8.dp)
         ) {
             // Icon-only vector (không chứa chữ nhỏ bên trong logo)
             Image(
@@ -158,21 +164,26 @@ fun TimeWalletTopBar(
                 contentDescription = "Biểu tượng Time Wallet",
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
-                    .size(30.dp)
+                    .size(if (compactTopBar) 28.dp else 30.dp)
                     .clip(RoundedCornerShape(10.dp))
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "time wallet",
-                    fontSize = 16.sp,
+                    text = if (isTimerRunning && screenWidthDp < 350) "Wally" else "time wallet",
+                    fontSize = when {
+                        isTimerRunning && screenWidthDp < 365 -> 13.5.sp
+                        compactTopBar -> 14.5.sp
+                        else -> 16.sp
+                    },
                     fontWeight = FontWeight.ExtraBold,
                     color = WalletInk,
                     maxLines = 1,
+                    softWrap = false,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = ".",
-                    fontSize = 19.sp,
+                    fontSize = if (compactTopBar) 17.sp else 19.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = WalletMint
                 )
@@ -181,26 +192,35 @@ fun TimeWalletTopBar(
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(if (compactTopBar) 3.dp else 4.dp)
         ) {
             if (isTimerRunning) {
                 Box(
                     modifier = Modifier
-                        .minimumInteractiveComponentSize()
+                        .heightIn(min = 48.dp)
                         .clip(RoundedCornerShape(14.dp))
-                        .background(WalletMintSoft)
                         .semantics { role = Role.Button }
-                        .clickable(onClickLabel = "Mở tab Đồng hồ đang chạy") { onTimerBadgeClick() }
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                        .clickable(onClickLabel = "Mở tab Đồng hồ đang chạy") { onTimerBadgeClick() },
+                    contentAlignment = Alignment.Center
                 ) {
-                    val m = (timerSeconds / 60).toString().padStart(2, '0')
-                    val s = (timerSeconds % 60).toString().padStart(2, '0')
-                    Text(
-                        text = "● $m:$s",
-                        color = WalletMintAccent,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(WalletMintSoft)
+                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val m = (timerSeconds / 60).toString().padStart(2, '0')
+                        val s = (timerSeconds % 60).toString().padStart(2, '0')
+                        Text(
+                            text = "● $m:$s",
+                            color = WalletMintAccent,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
                 }
             }
 
@@ -208,7 +228,7 @@ fun TimeWalletTopBar(
             if (onOpenQuickCapture != null) {
                 Box(
                     modifier = Modifier
-                        .minimumInteractiveComponentSize()
+                        .heightIn(min = 48.dp)
                         .semantics { contentDescription = "Thu thập nhanh" }
                         .walletClickable(onClickLabel = "Mở thu thập nhanh") { onOpenQuickCapture() },
                     contentAlignment = Alignment.Center
@@ -218,12 +238,12 @@ fun TimeWalletTopBar(
                             .clip(RoundedCornerShape(100.dp))
                             .background(WalletMintTint)
                             .border(1.dp, WalletStroke, RoundedCornerShape(100.dp))
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                            .padding(horizontal = if (compactTopBar) 8.dp else 10.dp, vertical = 5.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = "+ Ghi",
-                            fontSize = 11.5.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = WalletMintAccent,
                             maxLines = 1,
@@ -235,7 +255,7 @@ fun TimeWalletTopBar(
             if (onOpenWallyOverlay != null) {
                 Box(
                     modifier = Modifier
-                        .minimumInteractiveComponentSize()
+                        .heightIn(min = 48.dp)
                         .semantics { contentDescription = "Mở trợ lý Wally AI" }
                         .walletClickable(onClickLabel = "Mở trợ lý Wally AI") { onOpenWallyOverlay() },
                     contentAlignment = Alignment.Center
@@ -244,12 +264,12 @@ fun TimeWalletTopBar(
                         modifier = Modifier
                             .clip(RoundedCornerShape(100.dp))
                             .background(if (wallyHasDrafts) Color(0xFF0A2E22) else WalletMintDark)
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                            .padding(horizontal = if (compactTopBar) 8.dp else 10.dp, vertical = 5.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = if (wallyHasDrafts) "✦ Wally •" else "✦ Wally",
-                            fontSize = 11.5.sp,
+                            text = if (wallyHasDrafts && !isTimerRunning) "✦ Wally •" else "✦ Wally",
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = Color.White,
                             maxLines = 1,
@@ -580,17 +600,18 @@ fun ActivityRecordRow(
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(9.dp)
     ) {
-        CategoryBadge(category = record.category, size = 36.dp)
+        CategoryBadge(category = record.category, size = 40.dp)
 
         Column(modifier = Modifier.weight(1f)) {
-            // Dòng 1 (v1.0.10): TÊN chiếm toàn bộ chiều rộng còn lại (tối đa 2 dòng), thời lượng nằm bên phải.
+            // Dòng 1 (v1.0.10+): TÊN chiếm toàn bộ chiều rộng còn lại (tối đa 2 dòng), thời lượng nằm bên phải rõ nét.
             Row(
                 verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
                     text = record.title,
-                    fontSize = 12.5.sp,
+                    fontSize = 14.sp,
+                    lineHeight = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = WalletInk,
                     maxLines = 2,
@@ -599,7 +620,7 @@ fun ActivityRecordRow(
                 )
                 Text(
                     text = durationText,
-                    fontSize = 11.5.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = if (resolvedLayer == TimeLayer.PLANNED) WalletMuted else WalletInk,
                     maxLines = 1,
@@ -608,7 +629,7 @@ fun ActivityRecordRow(
             }
             // Dòng 2: nhãn trạng thái + mô tả thời gian bên trái; sửa/xóa (>= 48dp) bên phải.
             Row(
-                modifier = Modifier.padding(top = 2.dp),
+                modifier = Modifier.padding(top = 3.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
@@ -635,7 +656,7 @@ fun ActivityRecordRow(
                     ) {
                         Text(
                             text = badgeLabel,
-                            fontSize = 10.5.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = badgeTextColor,
                             maxLines = 2
@@ -644,7 +665,7 @@ fun ActivityRecordRow(
                     Text(
                         text = shownWhen,
                         // khoảng giờ giữ cỡ cố định theo dp (không phình theo cỡ chữ hệ thống) để luôn vừa một dòng cạnh nút sửa/xóa
-                        fontSize = if (rangeOnly) cappedSp(12f) else 12.sp,
+                        fontSize = if (rangeOnly) cappedSp(12.5f) else 12.5.sp,
                         color = WalletMuted,
                         // khoảng giờ là một khối không xuống dòng giữa chừng: nếu không vừa thì cả khối xuống dòng dưới nhãn
                         maxLines = if (rangeOnly) 1 else 3,
@@ -875,217 +896,234 @@ fun EditRecordDialog(
         (record.layer == TimeLayer.PLANNED || record.layer == TimeLayer.ACTIVE ||
             confState == ConfirmationState.PENDING_CONFIRMATION || record.isNeedsReconciliation)
 
-    AlertDialog(
+    Dialog(
         onDismissRequest = onDismiss,
-        containerColor = WalletCardBg,
-        title = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "Chỉnh sửa hoạt động",
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = WalletInk,
-                    modifier = Modifier.weight(1f)
-                )
-                if (onDelete != null) {
-                    Box(
-                        modifier = Modifier
-                            .minimumInteractiveComponentSize()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(WalletDangerBg)
-                            .semantics { contentDescription = "Xóa ${record.title}"; role = Role.Button }
-                            .clickable { confirmDelete = true }
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        GlyphIcon(WalletGlyph.DELETE, color = WalletDangerText, size = 18.dp)
-                    }
-                }
-            }
-        },
-        text = {
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.94f)
+                .widthIn(max = 480.dp)
+                .heightIn(max = 690.dp)
+                .imePadding(),
+            shape = RoundedCornerShape(24.dp),
+            color = WalletCardBg
+        ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(9.dp)
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(WalletMicroBg)
-                        .padding(9.dp)
-                ) {
-                    Text(
-                        text = when {
-                            record.layer == TimeLayer.REPORTED_UNTIMED ->
-                                "Hoạt động chưa gắn mốc giờ (chỉ thời lượng). Nhập Giờ bắt đầu & Kết thúc nếu muốn đưa lên dòng thời gian."
-                            record.plannedDurationSeconds != null && record.plannedDurationSeconds != record.durationSeconds ->
-                                "Trạng thái: ${record.layer.labelVi} · Kế hoạch gốc ${((record.plannedDurationSeconds + 30L) / 60L)}p vs hiện tại ${record.durationMinutes}p."
-                            else ->
-                                "Trạng thái hiện tại: ${record.layer.labelVi}. Sửa lịch dự kiến không làm thay đổi lịch sử đã ghi nhận."
-                        },
-                        fontSize = 11.sp,
-                        color = WalletMicroText,
-                        lineHeight = 15.sp
-                    )
-                }
-
-                if (canConfirm && onOpenConfirmation != null) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(WalletMintTint)
-                            .border(1.dp, WalletMintAccent.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-                            .walletClickable(onClickLabel = "Xác nhận kết quả thực tế") {
-                                onDismiss()
-                                onOpenConfirmation()
-                            }
-                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        GlyphIcon(WalletGlyph.CONFIRM, color = WalletMintAccent, size = 16.dp)
-                        Text(
-                            text = "Xác nhận kết quả thực tế / kết thúc sớm / đối soát",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = WalletMintAccent
-                        )
-                    }
-                }
-
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it.take(110) },
-                    label = { Text("Tên hoạt động") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Text(
-                    text = "Danh mục",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = WalletMuted
-                )
-                CategorySelectorGrid(
-                    selectedKey = categoryKey,
-                    onSelectCategory = { categoryKey = it }
-                )
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = dateLocal,
-                        onValueChange = { dateLocal = it.trim() },
-                        label = { Text("Ngày (YYYY-MM-DD)") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1.2f)
-                    )
-                    OutlinedTextField(
-                        value = durationMinutesText,
-                        onValueChange = { durationMinutesText = it.filter { ch -> ch.isDigit() } },
-                        label = { Text("Số phút") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(0.8f)
-                    )
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = startHm,
-                        onValueChange = { startHm = it.trim() },
-                        label = { Text("Bắt đầu (HH:mm)") },
-                        placeholder = { Text("13:00") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = endHm,
-                        onValueChange = { endHm = it.trim() },
-                        label = { Text("Kết thúc (HH:mm)") },
-                        placeholder = { Text("14:30") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "Lưu ở trạng thái Dự kiến",
-                        fontSize = 11.5.sp,
+                        text = "Chi tiết & Chỉnh sửa",
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.ExtraBold,
                         color = WalletInk,
                         modifier = Modifier.weight(1f)
                     )
-                    Switch(
-                        checked = allowPlanned,
-                        onCheckedChange = { allowPlanned = it }
-                    )
+                    if (onDelete != null) {
+                        Box(
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(WalletDangerBg)
+                                .semantics { contentDescription = "Xóa ${record.title}"; role = Role.Button }
+                                .clickable { confirmDelete = true }
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            GlyphIcon(WalletGlyph.DELETE, color = WalletDangerText, size = 18.dp)
+                        }
+                    }
                 }
-                if (!allowPlanned) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(11.dp))
+                            .background(WalletMicroBg)
+                            .padding(11.dp)
+                    ) {
+                        Text(
+                            text = when {
+                                record.layer == TimeLayer.REPORTED_UNTIMED ->
+                                    "Hoạt động chưa gắn mốc giờ (chỉ thời lượng). Nhập Giờ bắt đầu & Kết thúc nếu muốn đưa lên dòng thời gian."
+                                record.plannedDurationSeconds != null && record.plannedDurationSeconds != record.durationSeconds ->
+                                    "Trạng thái: ${record.layer.labelVi} · Kế hoạch gốc ${((record.plannedDurationSeconds + 30L) / 60L)}p vs hiện tại ${record.durationMinutes}p."
+                                else ->
+                                    "Trạng thái hiện tại: ${record.layer.labelVi}. Sửa lịch dự kiến không làm thay đổi lịch sử đã ghi nhận."
+                            },
+                            fontSize = 12.sp,
+                            color = WalletMicroText,
+                            lineHeight = 17.sp
+                        )
+                    }
+
+                    if (canConfirm && onOpenConfirmation != null) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(11.dp))
+                                .background(WalletMintTint)
+                                .border(1.dp, WalletMintAccent.copy(alpha = 0.35f), RoundedCornerShape(11.dp))
+                                .walletClickable(onClickLabel = "Xác nhận kết quả thực tế") {
+                                    onDismiss()
+                                    onOpenConfirmation()
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            GlyphIcon(WalletGlyph.CONFIRM, color = WalletMintAccent, size = 18.dp)
+                            Text(
+                                text = "Xác nhận kết quả thực tế / kết thúc sớm / đối soát",
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = WalletMintAccent
+                            )
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = { title = it.take(110) },
+                        label = { Text("Tên hoạt động") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Text(
+                        text = "Danh mục",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = WalletMuted
+                    )
+                    CategorySelectorGrid(
+                        selectedKey = categoryKey,
+                        onSelectCategory = { categoryKey = it }
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = dateLocal,
+                            onValueChange = { dateLocal = it.trim() },
+                            label = { Text("Ngày (YYYY-MM-DD)") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1.2f)
+                        )
+                        OutlinedTextField(
+                            value = durationMinutesText,
+                            onValueChange = { durationMinutesText = it.filter { ch -> ch.isDigit() } },
+                            label = { Text("Số phút") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(0.8f)
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = startHm,
+                            onValueChange = { startHm = it.trim() },
+                            label = { Text("Bắt đầu (HH:mm)") },
+                            placeholder = { Text("13:00") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = endHm,
+                            onValueChange = { endHm = it.trim() },
+                            label = { Text("Kết thúc (HH:mm)") },
+                            placeholder = { Text("14:30") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Đánh dấu lãng phí",
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = WalletInk
-                            )
-                            Text(
-                                text = "Tắt = giữ ở Phi mục tiêu hoặc Mục tiêu (ngủ/nghỉ/giải trí vừa đủ không phải lãng phí).",
-                                fontSize = 10.sp,
-                                color = WalletMuted,
-                                lineHeight = 13.sp
+                        Text(
+                            text = "Lưu ở trạng thái Dự kiến",
+                            fontSize = 12.5.sp,
+                            color = WalletInk,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Switch(
+                            checked = allowPlanned,
+                            onCheckedChange = { allowPlanned = it }
+                        )
+                    }
+                    if (!allowPlanned) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                Text(
+                                    text = "Đánh dấu lãng phí",
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = WalletInk
+                                )
+                                Text(
+                                    text = "Tắt = giữ ở Phi mục tiêu hoặc Mục tiêu (ngủ/nghỉ/giải trí vừa đủ không phải lãng phí).",
+                                    fontSize = 11.sp,
+                                    color = WalletMuted,
+                                    lineHeight = 14.sp
+                                )
+                            }
+                            Switch(
+                                checked = markedWaste,
+                                onCheckedChange = { markedWaste = it }
                             )
                         }
-                        Switch(
-                            checked = markedWaste,
-                            onCheckedChange = { markedWaste = it }
-                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Hủy", color = WalletMuted, fontWeight = FontWeight.SemiBold)
+                    }
+                    Button(
+                        onClick = {
+                            onSave(
+                                title,
+                                categoryKey,
+                                dateLocal,
+                                durationMinutesText,
+                                startHm,
+                                endHm,
+                                allowPlanned,
+                                markedWaste && !allowPlanned
+                            )
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White)
+                    ) {
+                        Text("Lưu thay đổi", fontWeight = FontWeight.Bold)
                     }
                 }
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    onSave(
-                        title,
-                        categoryKey,
-                        dateLocal,
-                        durationMinutesText,
-                        startHm,
-                        endHm,
-                        allowPlanned,
-                        markedWaste && !allowPlanned
-                    )
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White)
-            ) {
-                Text("Lưu thay đổi", fontWeight = FontWeight.Bold)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Hủy", color = WalletMuted)
-            }
         }
-    )
+    }
 
     if (confirmDelete && onDelete != null) {
         AlertDialog(
@@ -2434,7 +2472,10 @@ fun TaskCompletionLogPromptDialog(
         containerColor = WalletCardBg,
         title = { Text("Đã xong công việc!", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Text(
                     text = "\"${prompt.task.title}\" chưa có bản ghi thời gian nào trong Sổ cái hôm nay.",
                     fontSize = 13.sp,
@@ -2473,7 +2514,10 @@ fun MarkdownExportDialog(
         containerColor = WalletCardBg,
         title = { Text("Xuất nhật ký Markdown (Obsidian)", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Text(
                     text = "Nội dung thuần cục bộ (không chứa khóa API), sẵn sàng dán vào Obsidian hoặc kho ghi chú cá nhân.",
                     fontSize = 11.5.sp,

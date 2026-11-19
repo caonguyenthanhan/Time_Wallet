@@ -437,7 +437,7 @@ private fun EfficiencyAnalyticsSegment(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(186.dp),
+                    .height(228.dp),
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
                 verticalAlignment = Alignment.Bottom
             ) {
@@ -465,7 +465,7 @@ private fun EfficiencyAnalyticsSegment(
                     ) {
                         Text(
                             text = compactBarLabel(topLabelSecs),
-                            fontSize = cappedSp(10f),
+                            fontSize = cappedSp(10.5f),
                             fontWeight = FontWeight.Bold,
                             color = if (isSelectedDay) MaterialTheme.colorScheme.primary else WalletMuted,
                             maxLines = 1,
@@ -515,7 +515,7 @@ private fun EfficiencyAnalyticsSegment(
                         Spacer(modifier = Modifier.height(5.dp))
                         Text(
                             text = shortDayLabel,
-                            fontSize = cappedSp(11.5f),
+                            fontSize = cappedSp(12f),
                             fontWeight = if (isSelectedDay) FontWeight.ExtraBold else FontWeight.Medium,
                             color = if (isSelectedDay) WalletInk else WalletMuted,
                             maxLines = 1,
@@ -539,13 +539,13 @@ private fun EfficiencyAnalyticsSegment(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(11.dp))
+                        .clip(RoundedCornerShape(12.dp))
                         .background(WalletBg)
-                        .padding(horizontal = 10.dp, vertical = 7.dp)
+                        .padding(horizontal = 12.dp, vertical = 9.dp)
                 ) {
                     Text(
                         text = "$dayTitle · $tierName: $shownLabel / 24h",
-                        fontSize = 12.sp,
+                        fontSize = 13.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = WalletInk
                     )
@@ -703,20 +703,20 @@ private fun EfficiencyAnalyticsSegment(
                     ) {
                         Text(
                             text = "Nhịp tập trung & Độ sát kế hoạch",
-                            fontSize = 13.sp,
+                            fontSize = 14.5.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = WalletInk
                         )
                         Text(
                             text = "ⓘ Sổ cái cục bộ",
-                            fontSize = 10.5.sp,
+                            fontSize = 11.5.sp,
                             color = WalletMuted
                         )
                     }
                     if (peakFocusWindow != null) {
                         Text(
                             text = "Giờ vàng: ${peakFocusWindow.windowLabel} (${peakFocusWindow.goalMinutes}p · ${peakFocusWindow.sharePercent}% giờ mục tiêu 14 ngày)",
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -724,7 +724,7 @@ private fun EfficiencyAnalyticsSegment(
                     if (planAccuracySummary != null && planAccuracySummary.sampleCount > 0) {
                         Text(
                             text = planAccuracySummary.summaryText,
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
                             color = WalletInk
                         )
                     }
@@ -796,9 +796,10 @@ private fun ToolsHubSegment(
     onOpenWallyChat: () -> Unit,
     onOpenProfileSettings: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // 1. Thẻ Ghim thông báo tập trung nổi bật ở đầu trang Công cụ
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(18.dp),
             color = WalletCardBg,
             border = BorderStroke(if (focusPinEnabled) 1.5.dp else 1.dp, if (focusPinEnabled) WalletMint else WalletStroke),
             modifier = Modifier.fillMaxWidth()
@@ -806,7 +807,7 @@ private fun ToolsHubSegment(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 13.dp, vertical = 10.dp),
+                    .padding(horizontal = 14.dp, vertical = 11.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -814,18 +815,18 @@ private fun ToolsHubSegment(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(WalletBg),
+                        .background(WalletMintTint),
                     contentAlignment = Alignment.Center
                 ) {
                     GlyphIcon(glyph = WalletGlyph.NOTIFY, color = WalletMintAccent, size = 20.dp)
                 }
-                Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(text = "Ghim thông báo tập trung", fontSize = 14.5.sp, fontWeight = FontWeight.Bold, color = WalletInk)
                     Text(
-                        text = if (focusPinEnabled) focusPinPreview.headline else "Hiện việc theo lịch hoặc gợi ý tuần trước · hôm qua · 3 ngày",
+                        text = if (focusPinEnabled) focusPinPreview.headline else "Hiện việc theo lịch hoặc gợi ý từ lịch sử",
                         fontSize = 12.sp,
                         color = WalletMuted,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
@@ -839,67 +840,206 @@ private fun ToolsHubSegment(
                 )
             }
         }
-        ToolRowCard(
-            glyph = WalletGlyph.GOAL,
-            title = "Mục tiêu",
-            subtitle = if (goalsCount > 0) "Đang theo dõi $goalsCount mục tiêu" else "Đặt mục tiêu theo Tag hoặc danh mục",
-            onClick = onOpenGoals
+
+        // 2. Nhóm Quản lý & Theo dõi (Lưới 2x2 ngay ngắn, cùng chiều cao mỗi hàng)
+        Text(
+            text = "KẾ HOẠCH & MỤC TIÊU",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 0.6.sp,
+            color = WalletMuted,
+            modifier = Modifier.padding(start = 2.dp)
         )
-        ToolRowCard(
-            glyph = WalletGlyph.BARS,
-            title = "Ngân sách thời gian",
-            subtitle = if (budgetsCount > 0) "$budgetsCount hạn mức tuần đang theo dõi · sắp xếp thứ tự" else "Đặt ngân sách cho từng danh mục",
-            onClick = onOpenBudgets
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ToolGridTile(
+                    glyph = WalletGlyph.GOAL,
+                    title = "Mục tiêu",
+                    meta = if (goalsCount > 0) "$goalsCount đang theo dõi" else "Đặt MIN / MAX",
+                    modifier = Modifier.weight(1f),
+                    onClick = onOpenGoals
+                )
+                ToolGridTile(
+                    glyph = WalletGlyph.BARS,
+                    title = "Ngân sách thời gian",
+                    meta = if (budgetsCount > 0) "$budgetsCount hạn mức tuần" else "Giới hạn danh mục",
+                    modifier = Modifier.weight(1f),
+                    onClick = onOpenBudgets
+                )
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ToolGridTile(
+                    glyph = WalletGlyph.SPARK,
+                    title = "Tag & danh mục",
+                    meta = if (tagsCount > 0) "$tagsCount tag hoạt động" else "Nhãn cá nhân",
+                    modifier = Modifier.weight(1f),
+                    onClick = onOpenTags
+                )
+                ToolGridTile(
+                    glyph = WalletGlyph.BOOK,
+                    title = "Nhìn lại ngày",
+                    meta = if (hasSavedTodayReview) "✓ Đã lưu hôm nay" else "Phản tư cuối ngày",
+                    modifier = Modifier.weight(1f),
+                    onClick = onOpenDailyReview
+                )
+            }
+        }
+
+        // 3. Nhóm Trợ lý & Tập trung (Lưới 2 cột + Nút mở nhanh Wally Chat)
+        Text(
+            text = "TRỢ LÝ & TẬP TRUNG",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 0.6.sp,
+            color = WalletMuted,
+            modifier = Modifier.padding(start = 2.dp, top = 2.dp)
         )
-        ToolRowCard(
-            glyph = WalletGlyph.SPARK,
-            title = "Tag & danh mục",
-            subtitle = if (tagsCount > 0) "$tagsCount tag cá nhân đang hoạt động" else "Tạo tên gọi riêng cho thói quen",
-            onClick = onOpenTags
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ToolGridTile(
+                    glyph = WalletGlyph.WALLY_BOT,
+                    title = "Wally AI Coach",
+                    meta = if (aiEnabled) "Tóm tắt 5 giây · Đã bật" else "Tổng kết & gợi ý",
+                    modifier = Modifier.weight(1f),
+                    onClick = onOpenCoach
+                )
+                ToolGridTile(
+                    glyph = WalletGlyph.DICE,
+                    title = "Xúc xắc thời gian",
+                    meta = "Gợi ý phiên ngẫu nhiên",
+                    modifier = Modifier.weight(1f),
+                    onClick = onOpenTimer
+                )
+            }
+            ToolRowCard(
+                glyph = WalletGlyph.WALLY_BOT,
+                title = "Chat với Wally AI",
+                subtitle = "Ghi nhiều hoạt động tự nhiên, hỏi dữ liệu & duyệt đề xuất",
+                onClick = onOpenWallyChat
+            )
+        }
+
+        // 4. Nhóm Dữ liệu & Hệ thống gộp gọn trong một thẻ có vạch phân tách mảnh
+        Text(
+            text = "DỮ LIỆU & CÀI ĐẶT",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 0.6.sp,
+            color = WalletMuted,
+            modifier = Modifier.padding(start = 2.dp, top = 2.dp)
         )
-        ToolRowCard(
-            glyph = WalletGlyph.BOOK,
-            title = "Nhìn lại ngày",
-            subtitle = if (hasSavedTodayReview) "Đã lưu bản nhìn lại hôm nay · chạm để xem" else "Tổng kết ngắn và phản tư cuối ngày",
-            onClick = onOpenDailyReview
-        )
-        ToolRowCard(
-            glyph = WalletGlyph.WALLY_BOT,
-            title = "Wally AI Coach",
-            subtitle = if (aiEnabled) "Tóm tắt 5 giây & gợi ý hành động từ dữ liệu thật" else "Xem số liệu tổng hợp hoặc bật AI Coach",
-            onClick = onOpenCoach
-        )
-        ToolRowCard(
-            glyph = WalletGlyph.DICE,
-            title = "Xúc xắc thời gian",
-            subtitle = "Gợi ý phiên tập trung phù hợp khi chưa biết bắt đầu",
-            onClick = onOpenTimer
-        )
-        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = WalletStroke)
-        ToolRowCard(
-            glyph = WalletGlyph.WALLY_BOT,
-            title = "Chat với Wally AI",
-            subtitle = "Ghi nhiều hoạt động tự nhiên, hỏi dữ liệu & duyệt đề xuất",
-            onClick = onOpenWallyChat
-        )
-        ToolRowCard(
-            glyph = WalletGlyph.SETTINGS,
-            title = "Dữ liệu & sao lưu",
-            subtitle = "Xuất / nhập JSON an toàn, nạp mẫu hoặc dọn dữ liệu",
-            onClick = onOpenDataDialog
-        )
-        ToolRowCard(
-            glyph = WalletGlyph.BOOK,
-            title = "Xuất nhật ký Markdown (Obsidian)",
-            subtitle = "Tóm tắt ngày cục bộ sẵn sàng dán vào kho ghi chú cá nhân",
-            onClick = onOpenMarkdownExport
-        )
-        ToolRowCard(
-            glyph = WalletGlyph.SETTINGS,
-            title = "Giao diện, Module & Quyền AI",
-            subtitle = "Chủ đề Sáng/Tối, module hiển thị, quyền đọc AI và quy tắc tự động",
-            onClick = onOpenProfileSettings
-        )
+        Surface(
+            shape = RoundedCornerShape(18.dp),
+            color = WalletCardBg,
+            border = BorderStroke(1.dp, WalletStroke),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                GroupedToolRow(
+                    glyph = WalletGlyph.SETTINGS,
+                    title = "Dữ liệu & sao lưu",
+                    subtitle = "Xuất / nhập JSON an toàn, nạp mẫu hoặc dọn dữ liệu",
+                    onClick = onOpenDataDialog
+                )
+                HorizontalDivider(color = WalletStroke, modifier = Modifier.padding(horizontal = 14.dp))
+                GroupedToolRow(
+                    glyph = WalletGlyph.BOOK,
+                    title = "Xuất nhật ký Markdown (Obsidian)",
+                    subtitle = "Tóm tắt ngày cục bộ sẵn sàng dán vào kho ghi chú",
+                    onClick = onOpenMarkdownExport
+                )
+                HorizontalDivider(color = WalletStroke, modifier = Modifier.padding(horizontal = 14.dp))
+                GroupedToolRow(
+                    glyph = WalletGlyph.SETTINGS,
+                    title = "Giao diện, Module & Quyền AI",
+                    subtitle = "Chủ đề Sáng/Tối, module hiển thị, quyền đọc AI và quy tắc tự động",
+                    onClick = onOpenProfileSettings
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToolGridTile(
+    glyph: WalletGlyph,
+    title: String,
+    meta: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = WalletCardBg,
+        border = BorderStroke(1.dp, WalletStroke),
+        modifier = modifier
+            .heightIn(min = 98.dp)
+            .walletClickable(onClickLabel = "Mở $title", onClick = onClick)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(WalletMintTint),
+                contentAlignment = Alignment.Center
+            ) {
+                GlyphIcon(glyph = glyph, color = WalletMint, size = 18.dp)
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = title,
+                    fontSize = 13.5.sp,
+                    lineHeight = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = WalletInk,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = meta,
+                    fontSize = 11.5.sp,
+                    color = WalletMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GroupedToolRow(
+    glyph: WalletGlyph,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .walletClickable(onClickLabel = "Mở $title", onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(WalletMintTint),
+            contentAlignment = Alignment.Center
+        ) {
+            GlyphIcon(glyph = glyph, color = WalletMint, size = 18.dp)
+        }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(text = title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = WalletInk)
+            Text(text = subtitle, fontSize = 12.sp, color = WalletMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        GlyphIcon(glyph = WalletGlyph.CHEVRON, color = WalletMuted, size = 18.dp)
     }
 }
 
@@ -934,7 +1074,7 @@ private fun ToolRowCard(
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = title, fontSize = 14.5.sp, fontWeight = FontWeight.Bold, color = WalletInk)
-                Text(text = subtitle, fontSize = 12.sp, color = WalletMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(text = subtitle, fontSize = 12.sp, color = WalletMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             GlyphIcon(glyph = WalletGlyph.CHEVRON, color = WalletMuted, size = 18.dp)
         }

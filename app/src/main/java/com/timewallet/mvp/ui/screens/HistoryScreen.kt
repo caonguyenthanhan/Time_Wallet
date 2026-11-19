@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -170,8 +171,8 @@ fun HistoryScreen(
     }
 
     Column(
-        modifier = if (activeCalendarMode) Modifier.fillMaxSize() else Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -229,7 +230,7 @@ fun HistoryScreen(
         }
 
         if (activeCalendarMode) {
-            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            Box(modifier = Modifier.fillMaxWidth()) {
                 ScheduleCalendarView(
                     todayDateLocal = todayDateLocal,
                     records = records,
@@ -244,7 +245,7 @@ fun HistoryScreen(
                     onMoveOrResizeBlock = onMoveOrResizeBlock,
                     onNavigateToTimer = onNavigateToTimer,
                     showBackButton = false,
-                    embeddedInScrollContainer = false,
+                    embeddedInScrollContainer = true,
                     onAddForSlots = onAddForSlots
                 )
             }
@@ -388,7 +389,7 @@ fun HistoryScreen(
                         ) {
                             Column(
                                 modifier = Modifier
-                                    .width(58.dp)
+                                    .width(62.dp)
                                     .padding(top = 12.dp, end = 2.dp)
                                     .semantics {
                                         contentDescription = "Khung giờ ${oppositeSlot.first} ${oppositeSlot.second}"
@@ -397,7 +398,7 @@ fun HistoryScreen(
                             ) {
                                 Text(
                                     text = oppositeSlot.first,
-                                    fontSize = 12.sp,
+                                    fontSize = 13.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = if (isInProgress) WalletMint else WalletInk,
                                     textAlign = TextAlign.End,
@@ -406,14 +407,14 @@ fun HistoryScreen(
                                 )
                                 Text(
                                     text = oppositeSlot.second,
-                                    fontSize = 10.5.sp,
+                                    fontSize = 11.5.sp,
                                     color = WalletMuted,
                                     textAlign = TextAlign.End,
                                     maxLines = 1,
                                     softWrap = false
                                 )
                             }
-                            Spacer(modifier = Modifier.width(24.dp))
+                            Spacer(modifier = Modifier.width(20.dp))
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
@@ -572,7 +573,10 @@ fun HistoryScreen(
                 Text("Việc Inbox chờ xếp lịch (${inboxTasks.size})", fontWeight = FontWeight.ExtraBold, color = WalletInk)
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     if (inboxTasks.isEmpty()) {
                         Text("Tất cả công việc Inbox đều đã có lịch hoặc hoàn thành.", fontSize = 12.sp, color = WalletMuted)
                     } else {

@@ -72,6 +72,7 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun Compact24hWalletCard(
     todayDateLocal: String,
@@ -110,7 +111,7 @@ fun Compact24hWalletCard(
             ) {
                 Text(
                     text = recordedFormatted,
-                    fontSize = 14.sp,
+                    fontSize = 15.5.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = WalletMintAccent,
                     maxLines = 1,
@@ -118,7 +119,7 @@ fun Compact24hWalletCard(
                 )
                 Text(
                     text = "/ $totalDayHoursLabel",
-                    fontSize = 10.5.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = WalletMuted,
                     modifier = Modifier.padding(bottom = 0.5.dp),
@@ -129,7 +130,7 @@ fun Compact24hWalletCard(
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .height(5.dp)
+                    .height(7.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(WalletUntrackedBar.copy(alpha = 0.55f))
                     .describe("Ví 24h hôm nay ($todayDateLocal): đã ghi nhận $recordedFormatted"),
@@ -186,23 +187,28 @@ fun Compact24hWalletCard(
             )
         }
         AnimatedVisibility(visible = expanded) {
-            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("Có giờ ${fmt(todayStats.timedSeconds)}", fontSize = 12.sp, color = WalletInk, maxLines = 1, softWrap = false)
+                    Text("Chưa ghi ${fmt(todayStats.untrackedPastSeconds)}", fontSize = 12.sp, color = WalletMuted, maxLines = 1, softWrap = false)
+                    Text("Còn lại ${fmt(todayStats.remainingDaySeconds)}", fontSize = 12.sp, color = WalletMintAccent, maxLines = 1, softWrap = false)
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    horizontalArrangement = Arrangement.End
                 ) {
-                    Text("Có giờ ${fmt(todayStats.timedSeconds)}", fontSize = 10.5.sp, color = WalletInk, maxLines = 1, softWrap = false)
-                    Text("Chưa ghi ${fmt(todayStats.untrackedPastSeconds)}", fontSize = 10.5.sp, color = WalletMuted, maxLines = 1, softWrap = false)
-                    Text("Còn lại ${fmt(todayStats.remainingDaySeconds)}", fontSize = 10.5.sp, color = WalletMintAccent, maxLines = 1, softWrap = false)
                     WalletPill(
                         onClickLabel = "Mở phản tư cuối ngày",
                         containerColor = WalletMintDark,
-                        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 3.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                         onClick = onOpenDailyReview
                     ) {
                         Text(
-                            text = "Phản tư",
+                            text = "Phản tư cuối ngày",
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White,

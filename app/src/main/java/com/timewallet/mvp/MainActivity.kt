@@ -11,13 +11,19 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
@@ -27,10 +33,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Scaffold
@@ -41,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -49,6 +59,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -57,8 +68,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -105,11 +118,15 @@ import com.timewallet.mvp.ui.screens.TimeWalletBottomBar
 import com.timewallet.mvp.ui.screens.TimeWalletTopBar
 import com.timewallet.mvp.ui.screens.TimerScreen
 import com.timewallet.mvp.ui.screens.WalletGlyph
+import com.timewallet.mvp.ui.screens.WallyMascotAvatar
 import com.timewallet.mvp.ui.screens.walletClickable
 import com.timewallet.mvp.ui.theme.TimeWalletTheme
 import com.timewallet.mvp.ui.theme.WalletBg
+import com.timewallet.mvp.ui.theme.WalletCardBg
+import com.timewallet.mvp.ui.theme.WalletDangerText
 import com.timewallet.mvp.ui.theme.WalletInk
 import com.timewallet.mvp.ui.theme.WalletMint
+import com.timewallet.mvp.ui.theme.WalletMintDark
 import com.timewallet.mvp.ui.theme.WalletMintTint
 import com.timewallet.mvp.ui.theme.WalletMuted
 import com.timewallet.mvp.ui.theme.WalletStroke
@@ -359,13 +376,16 @@ fun TimeWalletAppRoot(
                 }
             }
         ) { innerPadding ->
-            val lockOuterScroll = (state.currentTab == AppTab.SCHEDULE && journalCalendarMode && !state.isShowingDailyReview)
+            // Để mọi tab (kể cả Lịch trình nhúng trong HistoryScreen) dùng chung cuộn trang ngoài
+            // để header / Ví 24h / chế độ Tháng không bị bóp nghẹt hay cắt mất phần dưới.
+            val lockOuterScroll = false
+            val bodyHorizontalPadding = if (state.currentTab == AppTab.SCHEDULE && journalCalendarMode && !state.isShowingDailyReview) 12.dp else 16.dp
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
                     .then(if (lockOuterScroll) Modifier else Modifier.verticalScroll(scrollState))
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .padding(horizontal = bodyHorizontalPadding, vertical = 4.dp)
             ) {
                 when (state.currentTab) {
                     AppTab.SCHEDULE -> {
@@ -564,6 +584,35 @@ fun TimeWalletAppRoot(
                     embeddedInScrollContainer = false
                 )
             }
+        }
+
+        // Bóng chat Pop-on nổi kéo thả tự do & tự hít mép trái/phải để không che các nút cố định.
+        val modalBlockingPopOn = state.showWallyOverlay ||
+            state.showProfileSettings ||
+            state.isShowingDailyReview ||
+            state.manualEntry != null ||
+            state.editingRecord != null ||
+            state.confirmingRecord != null ||
+            state.pendingOverlapConflict != null ||
+            state.showQuickCaptureDialog ||
+            state.showBudgetDialog ||
+            pendingBudgetDelete != null ||
+            state.pendingTaskLogPrompt != null ||
+            state.exportedMarkdownContent != null ||
+            showDataDialog ||
+            state.showAppIntro ||
+            state.showGoals ||
+            state.goalEditor != null ||
+            state.tagManager != null ||
+            state.showAiSettingsDialog ||
+            state.showProductInfoDialog ||
+            imeBottomPx > 0
+        if (state.customization.enableAiAssistant && !modalBlockingPopOn) {
+            WallyPopOnBubble(
+                hasDrafts = state.proposals.isNotEmpty(),
+                bottomClearanceDp = if (state.showScheduleWorkspace) 18 else 78,
+                onClick = { viewModel.openWallyOverlay() }
+            )
         }
 
         // Toast Banner at Bottom
@@ -879,5 +928,110 @@ fun TimeWalletAppRoot(
             onCopied = { viewModel.showToast("Đã sao chép nhật ký Markdown.") }
         )
     }
+    }
+}
+
+/** Bóng chat Pop-on nổi: kéo tự do theo trục X/Y, thả tay tự hít sát mép gần nhất để không che nội dung, chạm để mở Wally Overlay. */
+@Composable
+private fun WallyPopOnBubble(
+    hasDrafts: Boolean,
+    bottomClearanceDp: Int,
+    onClick: () -> Unit
+) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val density = LocalDensity.current
+        val bubbleSize = 54.dp
+        val bubblePx = with(density) { bubbleSize.toPx() }
+        val edgeMarginPx = with(density) { 10.dp.toPx() }
+        val topMinPx = with(density) { 64.dp.toPx() }
+        val bottomClearancePx = with(density) { bottomClearanceDp.dp.toPx() }
+        val maxWPx = with(density) { maxWidth.toPx() }
+        val maxHPx = with(density) { maxHeight.toPx() }
+        val maxXPx = (maxWPx - bubblePx - edgeMarginPx).coerceAtLeast(edgeMarginPx)
+        val maxYPx = (maxHPx - bubblePx - bottomClearancePx).coerceAtLeast(topMinPx)
+
+        var snapRight by rememberSaveable { mutableStateOf(true) }
+        var normalizedY by rememberSaveable { mutableFloatStateOf(0.86f) }
+        var isDragging by remember { mutableStateOf(false) }
+        var dragXPx by remember { mutableFloatStateOf(maxXPx) }
+        var dragYPx by remember { mutableFloatStateOf((maxYPx * normalizedY).coerceIn(topMinPx, maxYPx)) }
+
+        val targetX = if (isDragging) dragXPx else if (snapRight) maxXPx else edgeMarginPx
+        val targetY = if (isDragging) dragYPx else (topMinPx + (maxYPx - topMinPx) * normalizedY).coerceIn(topMinPx, maxYPx)
+        val animX by animateFloatAsState(
+            targetValue = targetX,
+            animationSpec = spring(stiffness = 500f, dampingRatio = 0.82f),
+            label = "wallyPopOnX"
+        )
+        val animY by animateFloatAsState(
+            targetValue = targetY,
+            animationSpec = spring(stiffness = 500f, dampingRatio = 0.82f),
+            label = "wallyPopOnY"
+        )
+
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(animX.roundToInt(), animY.roundToInt()) }
+                .size(bubbleSize)
+                .pointerInput(maxWPx, maxHPx, bottomClearancePx) {
+                    detectDragGestures(
+                        onDragStart = {
+                            isDragging = true
+                            dragXPx = if (snapRight) maxXPx else edgeMarginPx
+                            dragYPx = (topMinPx + (maxYPx - topMinPx) * normalizedY).coerceIn(topMinPx, maxYPx)
+                        },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            dragXPx = (dragXPx + dragAmount.x).coerceIn(edgeMarginPx, maxXPx)
+                            dragYPx = (dragYPx + dragAmount.y).coerceIn(topMinPx, maxYPx)
+                        },
+                        onDragEnd = {
+                            snapRight = (dragXPx + bubblePx / 2f) >= (maxWPx / 2f)
+                            normalizedY = if (maxYPx > topMinPx) {
+                                ((dragYPx - topMinPx) / (maxYPx - topMinPx)).coerceIn(0f, 1f)
+                            } else 0.85f
+                            isDragging = false
+                        },
+                        onDragCancel = {
+                            isDragging = false
+                        }
+                    )
+                }
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = WalletCardBg,
+                border = BorderStroke(2.dp, WalletMint),
+                shadowElevation = if (isDragging) 12.dp else 6.dp,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .minimumInteractiveComponentSize()
+                    .semantics {
+                        contentDescription = "Bóng chat Wally Pop-on"
+                        role = Role.Button
+                    }
+                    .clickable(onClickLabel = "Mở bóng chat Wally AI", onClick = onClick)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    WallyMascotAvatar(size = 38.dp, contentDescription = null)
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(if (hasDrafts) WalletDangerText else WalletMintDark)
+                    .border(1.5.dp, WalletCardBg, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (hasDrafts) "•" else "✦",
+                    color = Color.White,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            }
+        }
     }
 }

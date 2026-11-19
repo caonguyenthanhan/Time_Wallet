@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -178,12 +180,11 @@ fun TasksHabitsScreen(
             }
         )
 
-        // Thanh chuyển phân hệ (Kanban & Ma trận chỉ hiện khi người dùng bật trong Tùy chỉnh).
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        // Thanh chuyển phân hệ tự xuống dòng gọn để Kanban & Ma trận luôn hiện rõ không bị cắt mép.
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             visibleSections.forEach { sec ->
                 val isSel = activeSection == sec
@@ -193,12 +194,12 @@ fun TasksHabitsScreen(
                     borderColor = if (isSel) WalletMintDark else WalletStroke,
                     selected = isSel,
                     role = Role.Tab,
-                    contentPadding = PaddingValues(horizontal = 13.dp, vertical = 7.dp),
+                    contentPadding = PaddingValues(horizontal = 11.dp, vertical = 6.dp),
                     onClick = { selectedSection = sec }
                 ) {
                     Text(
                         text = sec.label,
-                        fontSize = 12.sp,
+                        fontSize = 11.5.sp,
                         fontWeight = if (isSel) FontWeight.Bold else FontWeight.SemiBold,
                         color = if (isSel) Color.White else WalletMuted,
                         maxLines = 1,
@@ -215,11 +216,10 @@ fun TasksHabitsScreen(
                 }
                 val inboxCount = remember(tasks) { tasks.count { it.status == TaskStatus.INBOX && !it.isDone } }
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     TaskSmartFilter.entries.forEach { f ->
                         val isSel = f == taskFilter
@@ -228,7 +228,7 @@ fun TasksHabitsScreen(
                             containerColor = if (isSel) WalletMintSoft else WalletCardBg,
                             borderColor = if (isSel) WalletMint else WalletStroke,
                             selected = isSel,
-                            contentPadding = PaddingValues(horizontal = 11.dp, vertical = 6.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
                             onClick = { onSelectTaskFilter(f) }
                         ) {
                             Text(
@@ -623,83 +623,97 @@ fun TasksHabitsScreen(
             }
 
             TasksHubSection.KANBAN -> {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    listOf(
-                        TaskStatus.TODO to "Cần làm",
-                        TaskStatus.DOING to "Đang làm",
-                        TaskStatus.DONE to "Đã xong"
-                    ).forEach { (colStatus, colTitle) ->
-                        val colTasks = tasks.filter {
-                            if (colStatus == TaskStatus.TODO) it.status == TaskStatus.TODO || it.status == TaskStatus.INBOX
-                            else it.status == colStatus
-                        }
-                        Column(
-                            modifier = Modifier
-                                .width(248.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(WalletCardBg)
-                                .border(1.dp, WalletStroke, RoundedCornerShape(16.dp))
-                                .padding(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = "$colTitle (${colTasks.size})",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = WalletInk
-                            )
-                            if (colTasks.isEmpty()) {
-                                Text("Trống", fontSize = 11.5.sp, color = WalletMuted)
-                            } else {
-                                colTasks.forEach { task ->
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .background(WalletBg)
-                                            .border(1.dp, WalletStroke, RoundedCornerShape(12.dp))
-                                            .padding(10.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Text(task.title, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = WalletInk)
-                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            if (colStatus != TaskStatus.DOING) {
-                                                Text(
-                                                    text = "→ Đang làm",
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.walletClickable(onClickLabel = "Chuyển Đang làm") {
-                                                        onUpdateTaskStatus(task, TaskStatus.DOING)
-                                                    }
-                                                )
-                                            }
-                                            if (colStatus != TaskStatus.DONE) {
-                                                Text(
-                                                    text = "✓ Xong",
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.walletClickable(onClickLabel = "Đánh dấu Xong") {
-                                                        onToggleTaskDone(task)
-                                                    }
-                                                )
-                                            }
-                                            if (colStatus != TaskStatus.DONE) {
-                                                Text(
-                                                    text = "▶ Đo",
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = WalletInk,
-                                                    modifier = Modifier.walletClickable(onClickLabel = "Tập trung") {
-                                                        onStartFocusOnTask(task)
-                                                    }
-                                                )
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                    val colWidth = (maxWidth * 0.74f).coerceIn(220.dp, 290.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        listOf(
+                            TaskStatus.TODO to "Cần làm",
+                            TaskStatus.DOING to "Đang làm",
+                            TaskStatus.DONE to "Đã xong"
+                        ).forEach { (colStatus, colTitle) ->
+                            val colTasks = tasks.filter {
+                                if (colStatus == TaskStatus.TODO) it.status == TaskStatus.TODO || it.status == TaskStatus.INBOX
+                                else it.status == colStatus
+                            }
+                            Column(
+                                modifier = Modifier
+                                    .width(colWidth)
+                                    .heightIn(min = 140.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(WalletCardBg)
+                                    .border(1.dp, WalletStroke, RoundedCornerShape(16.dp))
+                                    .padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "$colTitle (${colTasks.size})",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = WalletInk
+                                )
+                                if (colTasks.isEmpty()) {
+                                    Text("Trống", fontSize = 11.5.sp, color = WalletMuted)
+                                } else {
+                                    colTasks.forEach { task ->
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(WalletBg)
+                                                .border(1.dp, WalletStroke, RoundedCornerShape(12.dp))
+                                                .padding(10.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = task.title,
+                                                fontSize = 12.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = WalletInk,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            FlowRow(
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                if (colStatus != TaskStatus.DOING) {
+                                                    Text(
+                                                        text = "→ Đang làm",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.walletClickable(onClickLabel = "Chuyển Đang làm") {
+                                                            onUpdateTaskStatus(task, TaskStatus.DOING)
+                                                        }
+                                                    )
+                                                }
+                                                if (colStatus != TaskStatus.DONE) {
+                                                    Text(
+                                                        text = "✓ Xong",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.walletClickable(onClickLabel = "Đánh dấu Xong") {
+                                                            onToggleTaskDone(task)
+                                                        }
+                                                    )
+                                                }
+                                                if (colStatus != TaskStatus.DONE) {
+                                                    Text(
+                                                        text = "▶ Đo",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = WalletInk,
+                                                        modifier = Modifier.walletClickable(onClickLabel = "Tập trung") {
+                                                            onStartFocusOnTask(task)
+                                                        }
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -839,7 +853,7 @@ private fun TaskCard(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Box(
                     modifier = Modifier
@@ -868,13 +882,14 @@ private fun TaskCard(
                         },
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text(
                             text = task.priority.badgeText,
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = if (task.priority == TaskPriority.P1) WalletDangerText else WalletMintAccent,
                             modifier = Modifier
+                                .padding(top = 2.dp)
                                 .clip(RoundedCornerShape(5.dp))
                                 .background(if (task.priority == TaskPriority.P1) WalletDangerBg else WalletMintTint)
                                 .padding(horizontal = 5.dp, vertical = 1.5.dp)
@@ -885,8 +900,9 @@ private fun TaskCard(
                             fontWeight = FontWeight.Bold,
                             color = if (task.isDone) WalletMuted else WalletInk,
                             textDecoration = if (task.isDone) TextDecoration.LineThrough else TextDecoration.None,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
                     }
                     val meta = buildList {
@@ -898,17 +914,17 @@ private fun TaskCard(
                         }
                         task.dueDateLocal?.let { add("Hạn ${it.substring(5)}") }
                     }.joinToString(" · ")
-                    Text(meta, fontSize = 11.sp, color = WalletMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(meta, fontSize = 11.sp, color = WalletMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
 
                 if (!task.isDone) {
                     WalletPill(
                         onClickLabel = "Bắt đầu tập trung ${task.title}",
                         containerColor = WalletMintDark,
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
+                        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 5.dp),
                         onClick = onStartFocus
                     ) {
-                        Text("▶", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("▶", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 }
                 Box {
@@ -1047,7 +1063,10 @@ private fun CreateTaskDialog(
         containerColor = WalletCardBg,
         title = { Text("Thêm công việc", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
@@ -1056,7 +1075,11 @@ private fun CreateTaskDialog(
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     TaskPriority.entries.forEach { p ->
                         val isSel = priority == p
                         Text(
@@ -1178,7 +1201,10 @@ private fun CreateHabitDialog(
         containerColor = WalletCardBg,
         title = { Text("Thêm thói quen", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
@@ -1187,7 +1213,11 @@ private fun CreateHabitDialog(
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     listOf(HabitFrequency.DAILY, HabitFrequency.WEEKDAYS, HabitFrequency.TIMES_PER_WEEK).forEach { f ->
                         val isSel = freq == f
                         Text(

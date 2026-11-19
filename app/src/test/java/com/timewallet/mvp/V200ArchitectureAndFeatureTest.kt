@@ -334,4 +334,25 @@ class V200ArchitectureAndFeatureTest {
         val comp = File("src/main/java/com/timewallet/mvp/ui/screens/ComponentsAndDialogs.kt").readText()
         assertFalse(comp.contains("containerColor = Color.White"))
     }
+
+    @Test
+    fun `Schedule, Tasks, Overlay, PopOn Bubble and Tools layout enforce clean sizing and UX`() {
+        val main = File("src/main/java/com/timewallet/mvp/MainActivity.kt").readText()
+        val history = File("src/main/java/com/timewallet/mvp/ui/screens/HistoryScreen.kt").readText()
+        val sched = File("src/main/java/com/timewallet/mvp/ui/screens/ScheduleCalendarView.kt").readText()
+        val tasks = File("src/main/java/com/timewallet/mvp/ui/screens/TasksHabitsScreen.kt").readText()
+        val chat = File("src/main/java/com/timewallet/mvp/ui/screens/ChatScreen.kt").readText()
+        val insights = File("src/main/java/com/timewallet/mvp/ui/screens/InsightsScreen.kt").readText()
+
+        assertTrue(main.contains("val lockOuterScroll = false"))
+        assertTrue(main.contains("WallyPopOnBubble(") && main.contains("Bóng chat Wally Pop-on"))
+        assertTrue(history.contains("embeddedInScrollContainer = true"))
+        assertFalse(history.contains("Modifier.fillMaxWidth().weight(1f)"))
+        assertTrue(sched.contains("val minColWidth = if (compactColumns) 98.dp else 112.dp"))
+        assertTrue(sched.contains("Modifier.horizontalScroll(hScrollState)"))
+        assertTrue(tasks.contains("FlowRow(") && tasks.contains(".verticalScroll(rememberScrollState())"))
+        assertFalse(tasks.contains("width(248.dp)"))
+        assertTrue(chat.contains(".imePadding()"))
+        assertTrue(insights.contains("ToolGridTile(") && insights.contains("GroupedToolRow("))
+    }
 }

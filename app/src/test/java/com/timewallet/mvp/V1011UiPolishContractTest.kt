@@ -30,7 +30,7 @@ class V1011UiPolishContractTest {
     @Test
     fun `Wally is a conversation with a pinned composer outside the shared scroll column`() {
         val m = main()
-        assertTrue(m.contains("val lockOuterScroll = (state.currentTab == AppTab.SCHEDULE && journalCalendarMode && !state.isShowingDailyReview)"))
+        assertTrue(m.contains("val lockOuterScroll = false"))
         assertTrue(m.contains("WallyAiOverlay"))
         assertTrue(m.contains("if (lockOuterScroll) Modifier else Modifier.verticalScroll(scrollState)"))
         // hội thoại tự cuộn bên trong và có ô nhập ghim dưới
@@ -101,7 +101,7 @@ class V1011UiPolishContractTest {
         val donut = ins.indexOf("Chi tiết Donut 7 ngày")
         val budget = ins.indexOf("private fun BudgetsManagerSheetContent(")
         assertTrue("biểu đồ trong Thống kê đứng trước hộp thoại Ngân sách ở Công cụ", bars in 0 until budget && donut in bars until budget)
-        assertTrue("nhãn cột dùng cỡ chữ có giới hạn và nhãn ngắn", ins.contains("cappedSp(10f)") && ins.contains("compactBarLabel("))
+        assertTrue("nhãn cột dùng cỡ chữ có giới hạn và nhãn ngắn", ins.contains("cappedSp(10.5f)") && ins.contains("compactBarLabel("))
         assertTrue(ins.contains("softWrap = false"))
         // thời lượng chưa gắn giờ vẫn tách riêng, không cộng gộp
         assertTrue(ins.contains("Chưa gắn giờ"))
