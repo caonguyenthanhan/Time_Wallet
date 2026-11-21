@@ -10,14 +10,14 @@
 | Thành phần | Giá trị / Đường dẫn |
 |---|---|
 | APK Production Candidate (Release) | `out/wally_candidate_v200/TimeWallet-MVP-v2.0.0-PRODUCTION-CANDIDATE-release.apk` |
-| Dung lượng Release | `9,009,774` bytes |
-| SHA-256 Release | `BEDEE1904C5805E2C7DEB9D83E8B0AD0A30C385BDD044FDA5B36EB8C610219CA` |
+| Dung lượng Release | `9,058,923` bytes |
+| SHA-256 Release | `9CEA64A0C9C1954A6C09109B406E825A3EC906AE7AB39E4CC19DB826990F5865` |
 | Tệp `.sha256` Release | `out/wally_candidate_v200/TimeWallet-MVP-v2.0.0-PRODUCTION-CANDIDATE-release.apk.sha256` |
-| APK Debug (dành cho cài đè nhánh Debug) | `out/wally_candidate_v200/TimeWallet-MVP-v2.0.0-candidate-debug.apk` (`13,354,580` bytes, SHA-256 `8A6A57BD41F6A0A55646FAC694A9FA37EBFCE8F9985BF324D9DE552825662E23`) |
+| APK Debug (dành cho cài đè nhánh Debug) | `out/wally_candidate_v200/TimeWallet-MVP-v2.0.0-candidate-debug.apk` (`14,656,226` bytes, SHA-256 `45E35EC455415FD7E9F432466265FE1D74AC298C80450640A997EE9EE8627113`) |
 | Package / Version / SDK | `com.timewallet.mvp` · `versionName = "2.0.0"` · `versionCode = 18` (`minSdk 26`, `targetSdk 35`) |
 | Chứng thư Release | `CN=Time Wallet Personal Release, OU=Mobile, O=TimeWallet, L=Hanoi, ST=HN, C=VN` (`SHA-256: 39f5712d139124e05d550458180e69a1919ade5a331d2eadbb9de47da79cdcd0`) |
 | Keystore cá nhân | Lưu **ngoài Git** tại `%USERPROFILE%\.timewallet\` (chặn rò rỉ qua `.gitignore`, `.repomixignore` và `WallySecurityStaticTest`) |
-| Dữ liệu QA & Ảnh chụp | `out/wally_candidate_v200/mock_1week_v200_qa.json`, `docs/screenshots/ui-preview/` (34 ảnh + banner tổng hợp) |
+| Dữ liệu QA & Ảnh chụp | `out/wally_candidate_v200/mock_1week_v200_qa.json`, `docs/screenshots/ui-preview/` (36 ảnh + banner tổng hợp) |
 
 ---
 
@@ -47,19 +47,19 @@
 
 | Hạng mục kiểm chứng | Trạng thái | Bằng chứng đo trực tiếp |
 |---|---|---|
-| Bộ test JVM & Contract (`testDebugUnitTest`) | **PASS (647/649)** | Chạy sau sửa cuối (`task-8132`): `total=649, passed=647, failures=0, errors=0, skipped=2` (2 test live AI skipped offline: `V110CoachLiveEvalTest#coachLiveEval`, `V120LiveAiEvalTest#liveChatAndRouteEval`). |
-| Android Lint Release (`lintRelease`) | **PASS (0 errors)** | `0 errors`, `60 warnings` trên build `BEDEE190…`. |
-| Đóng gói & Ký số Release + Debug (`apksigner`) | **PASS** | Release `BEDEE190…` (`9,009,774` bytes) & Debug `8A6A57BD…` (`13,354,580` bytes) xác thực chữ ký v2 hợp lệ. |
-| Nâng cấp tại chỗ `v1.2.0 -> v2.0.0` (Room `v5 -> v7`) | **PASS (Emulator QA · baseline `50EBDFFF…`)** | Cài `v1.2.0` (`7D703385…`, nạp `2h 15p` mẫu ngày `Th 4`) rồi `adb install -r` đè lên `v2.0.0` Release trên `WallyQA`: giữ nguyên `2h 15p`, `FATAL EXCEPTION = 0`, `SQLiteException = 0`. *(Đường migrate `v5 -> v7` & schema không đổi ở bản sửa UI `BEDEE190…`.)* |
-| Focus Pin Notification (`id=910301`) độc lập | **PASS (Emulator QA)** | Xác minh riêng bằng `dumpsys notification --noredact` + ảnh khay thông báo ở cả trạng thái chờ (`Chưa có kế hoạch giờ này` + `BỎ GHIM`) lẫn khi bấm giờ (`QA_Focus`), tách biệt khỏi thông báo OS `Configure physical keyboard`. |
-| Bóng Pop-on, Sửa Cuộn/Độ rộng, Phóng to Detail & Lưới Công cụ (`BEDEE190…`) | **PASS (Emulator QA)** | Kiểm tra trực quan trên `WallyQA` (`390×844dp`): bóng `WallyPopOnBubble` kéo thả tự hít mép không che nút; `TopBar` đang chạy `● 00:02` giữ đủ `"time wallet."`; Lịch `Ngày` cuộn được header/Ví 24h, `Tuần` cuộn ngang cột `98.dp` hiện chữ + cố định cột giờ, `Tháng` cuộn mượt tới hàng `30` + thẻ chi tiết phóng to; `Công việc` `FlowRow` không cắt chữ; `Mở rộng > Công cụ` xếp lưới 2 cột + nhóm gộp; `Thống kê` cao `228.dp`; `logcat` `0` lỗi từ `com.timewallet.mvp`. |
-| Live AI API trên `v2.0.0` (Foza thật) | **NOT_TESTED (Chưa cấu hình Live Eval đợt v2.0.0)** | Chủ ý giữ offline trong đợt hoàn thiện UX/UI 2.0 để tránh tốn token ngoài phạm vi; tuyến API-First & `CoachGuard` đã qua Live Eval ở `v1.2.0`. |
+| Bộ test JVM & Contract (`testDebugUnitTest`) | **PASS (653/655)** | Chạy sau sửa cuối (`task-8910`): `total=655, passed=653, failures=0, errors=0, skipped=2` (2 test live AI skipped offline: `V110CoachLiveEvalTest#coachLiveEval`, `V120LiveAiEvalTest#liveChatAndRouteEval`). |
+| Android Lint Release (`lintRelease`) | **PASS (0 errors)** | `0 errors`, `60 warnings` trên build `9CEA64A0…`. |
+| Đóng gói & Ký số Release + Debug (`apksigner`) | **PASS** | Release `9CEA64A0…` (`9,058,923` bytes) & Debug `45E35EC4…` (`14,656,226` bytes) xác thực chữ ký v2 hợp lệ. |
+| Nâng cấp tại chỗ `v1.2.0 -> v2.0.0` (Room `v5 -> v7`) | **PASS (Emulator QA · baseline `50EBDFFF…`)** | Cài `v1.2.0` (`7D703385…`, nạp `2h 15p` mẫu ngày `Th 4`) rồi `adb install -r` đè lên `v2.0.0` Release trên `WallyQA`: giữ nguyên `2h 15p`, `FATAL EXCEPTION = 0`, `SQLiteException = 0`. *(Đường migrate `v5 -> v7` & schema không đổi ở bản `9CEA64A0…`.)* |
+| Focus Pin Notification (`id=910301`) độc lập | **PASS (Emulator QA · baseline `BEDEE190…`)** | Xác minh riêng bằng `dumpsys notification --noredact` + ảnh khay thông báo ở cả trạng thái chờ (`Chưa có kế hoạch giờ này` + `BỎ GHIM`) lẫn khi bấm giờ (`QA_Focus`), tách biệt khỏi thông báo OS `Configure physical keyboard`. |
+| Adaptive Context, Thống kê 3 lớp & Bóng Wally (`9CEA64A0…`) | **PASS (Emulator QA)** | Kiểm chứng trực quan trên `WallyQA` (`390×844dp`, dữ liệu synthetic đến `2026-11-22`): chuyển góc nhìn `Hoạt động | Mục tiêu`, `"Đã ghi nhận: X / 24h"`, Tag/hoạt động chi tiết + `% so với tuần trước`, giải thích `0p` khi thiếu gắn Tag (`Học AI: 0p / 1h`), thẻ **Wally kể từ dữ liệu** 4 bước kèm ghi chú độ tin cậy một phần (Light + Dark), kéo thả bóng chat `WallyPopOnBubble`, mở `Trợ lý Wally` và xác minh gửi câu offline vẫn giữ nguyên nháp & `logcat` `0` `FATAL EXCEPTION`. *(Bố cục Tuần/Tháng/Kanban/Công cụ giữ nguyên từ đợt `BEDEE190…`.)* |
+| Live AI API trên `v2.0.0` & Adaptive Context (Foza thật) | **NOT_TESTED (Chưa cấu hình Live Eval đợt v2.0.0)** | Chủ ý giữ offline trong đợt hoàn thiện UX/UI 2.0 để tránh tốn token ngoài phạm vi; tuyến Adaptive Context mới được kiểm bằng mock HTTP + guard tests trên JVM. |
 | Android 13–16 AVD (`TimeWallet_QA`) | **NOT_TESTED (Blocked)** | Tạm dừng theo Rule 14 `.agents/AGENTS.md` (lỗi AEHD `Kernel-Power 41` trên máy chủ Windows). |
-| Khởi động lại lạnh (`BOOT_COMPLETED`) & Máy thật Owner | **NOT_TESTED (Pending Owner)** | Chờ Owner cài APK `BEDEE190…` và dùng thực tế ở giai đoạn **Phase 5 — Real-life Validation**. |
+| Khởi động lại lạnh (`BOOT_COMPLETED`) & Máy thật Owner | **NOT_TESTED (Pending Owner)** | Chờ Owner cài APK `9CEA64A0…` và dùng thực tế ở giai đoạn **Phase 5 — Real-life Validation**. |
 
 ---
 
 ## 4. Hướng dẫn Owner cài đặt & lưu ý nâng cấp
 
-1. **Nếu máy đang cài bản Debug / từ Android Studio (`402f1d41…`):** Xuất JSON sao lưu trước → gỡ bản Debug → cài sạch [TimeWallet-MVP-v2.0.0-PRODUCTION-CANDIDATE-release.apk](out/wally_candidate_v200/TimeWallet-MVP-v2.0.0-PRODUCTION-CANDIDATE-release.apk) (`BEDEE190…`) → vào **⚙ Hồ sơ & Cài đặt › Dữ liệu & Sao lưu JSON › Nhập / khôi phục JSON (`Khôi phục toàn bộ`)**. *(Cài đè khác chữ ký sẽ báo `INSTALL_FAILED_UPDATE_INCOMPATIBLE` / LDPlayer `Error code:5`.)*
+1. **Nếu máy đang cài bản Debug / từ Android Studio (`402f1d41…`):** Xuất JSON sao lưu trước → gỡ bản Debug → cài sạch [TimeWallet-MVP-v2.0.0-PRODUCTION-CANDIDATE-release.apk](out/wally_candidate_v200/TimeWallet-MVP-v2.0.0-PRODUCTION-CANDIDATE-release.apk) (`9CEA64A0…`) → vào **⚙ Hồ sơ & Cài đặt › Dữ liệu & Sao lưu JSON › Nhập / khôi phục JSON (`Khôi phục toàn bộ`)**. *(Cài đè khác chữ ký sẽ báo `INSTALL_FAILED_UPDATE_INCOMPATIBLE` / LDPlayer `Error code:5`.)*
 2. **Nếu máy đang cài sẵn bản Release `v1.2.0` (`39f5712d…`):** Có thể cài đè trực tiếp bản Release `v2.0.0` (vẫn khuyến nghị Xuất JSON dự phòng trước khi nâng cấp).

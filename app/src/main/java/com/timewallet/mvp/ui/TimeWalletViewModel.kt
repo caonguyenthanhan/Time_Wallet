@@ -344,6 +344,13 @@ data class TaskCompletionPrompt(
     val suggestedMinutes: Int
 )
 
+/** Trạng thái nhịp 1 giây tách khỏi [TimeWalletUiState] để tránh recompose cả ứng dụng khi bấm giờ chạy. */
+data class TimerTickState(
+    val elapsedSeconds: Long = 0L,
+    val clockSkewDetected: Boolean = false,
+    val breakNudgeVisible: Boolean = false
+)
+
 data class TimeWalletUiState(
     val currentTab: AppTab = AppTab.SCHEDULE,
     val todayDateLocal: String = LocalDate.now().toString(),
@@ -480,6 +487,11 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _uiState = MutableStateFlow(TimeWalletUiState())
     val uiState: StateFlow<TimeWalletUiState> = _uiState.asStateFlow()
+
+    private val _timerTickState = MutableStateFlow(TimerTickState())
+    val timerTickState: StateFlow<TimerTickState> = _timerTickState.asStateFlow()
+
+    private val wallyIntelligence = WallyIntelligenceCoordinator()
 
     private var toastJob: Job? = null
 
@@ -645,25 +657,21 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch(safeHandler) {
             projectDao.observeAll().collect { entities ->
                 val domainProjects = entities.map(ProjectEntity::toDomain)
-                recomputeStats(records = _uiState.value.records, projects = domainProjects)
+                _uiState.update { it.copy(projects = domainProjects) }
             }
         }
         viewModelScope.launch(safeHandler) {
             combine(taskDao.observeAllTasks(), taskDao.observeAllSubtasks()) { taskEntities, subtaskEntities ->
                 Wally20Coordinator.assembleTasks(taskEntities, subtaskEntities)
             }.collect { assembledTasks ->
-                recomputeStats(records = _uiState.value.records, tasks = assembledTasks)
+                _uiState.update { it.copy(tasks = assembledTasks) }
             }
         }
         viewModelScope.launch(safeHandler) {
             combine(habitDao.observeAllHabits(), habitDao.observeAllLogs()) { habitEntities, logEntities ->
                 habitEntities.map(HabitEntity::toDomain) to logEntities.map(HabitLogEntity::toDomain)
             }.collect { (domainHabits, domainLogs) ->
-                recomputeStats(
-                    records = _uiState.value.records,
-                    habits = domainHabits,
-                    habitLogs = domainLogs
-                )
+                _uiState.update { it.copy(habits = domainHabits, habitLogs = domainLogs) }
             }
         }
 
@@ -679,7 +687,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             while (isActive) {
                 refreshTimerTick()
                 tickCounter++
-                if (tickCounter % 15 == 0) {
+                if (_uiState.value.activeTimer != null && tickCounter % 15 == 0) {
                     recomputeStats(_uiState.value.records)
                 }
                 delay(1000L)
@@ -743,6 +751,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun clearChatHistory() {
+        wallyIntelligence.onChatCleared()
         settingsStore.saveChatHistory(emptyList(), immediate = true)
         _uiState.update { it.copy(chatHistory = emptyList()) }
         showToast("Đã xóa lịch sử trò chuyện với Wally.")
@@ -981,8 +990,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
     private fun refreshTimerTick() {
         val session = _uiState.value.activeTimer
         if (session == null) {
-            if (_uiState.value.timerElapsedSeconds != 0L || _uiState.value.timerClockSkewDetected) {
-                _uiState.update { it.copy(timerElapsedSeconds = 0L, timerClockSkewDetected = false) }
+            if (_timerTickState.value != TimerTickState()) {
+                _timerTickState.value = TimerTickState()
             }
             return
         }
@@ -992,13 +1001,11 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             nowElapsedRealtimeMs = SystemClock.elapsedRealtime(),
             currentBootCount = currentBootCount
         )
-        _uiState.update {
-            it.copy(
-                timerElapsedSeconds = snapshot.elapsedSeconds,
-                timerClockSkewDetected = snapshot.clockSkewDetected,
-                focusBreakNudgeVisible = snapshot.elapsedSeconds >= 90L * 60L
-            )
-        }
+        _timerTickState.value = TimerTickState(
+            elapsedSeconds = snapshot.elapsedSeconds,
+            clockSkewDetected = snapshot.clockSkewDetected,
+            breakNudgeVisible = snapshot.elapsedSeconds >= 90L * 60L
+        )
     }
 
     fun selectTab(tab: AppTab) {
@@ -1145,13 +1152,12 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         )
         settingsStore.saveActiveTimer(session)
         settingsStore.saveTimerInputDraft(null, immediate = true)
+        _timerTickState.value = TimerTickState()
         _uiState.update {
             it.copy(
                 activeTimer = session,
                 timerInputTitle = face.activityTitle,
                 timerInputCategoryKey = face.category.key,
-                timerElapsedSeconds = 0L,
-                timerClockSkewDetected = false,
                 currentTab = AppTab.FOCUS
             )
         }
@@ -1183,11 +1189,10 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         )
         settingsStore.saveActiveTimer(session)
         settingsStore.saveTimerInputDraft(null, immediate = true)
+        _timerTickState.value = TimerTickState()
         _uiState.update {
             it.copy(
-                activeTimer = session,
-                timerElapsedSeconds = 0L,
-                timerClockSkewDetected = false
+                activeTimer = session
             )
         }
         recomputeStats(_uiState.value.records)
@@ -1294,12 +1299,10 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
 
     private fun finishTimerAfterCommit() {
         settingsStore.saveActiveTimer(null)
+        _timerTickState.value = TimerTickState()
         _uiState.update {
             it.copy(
                 activeTimer = null,
-                timerElapsedSeconds = 0L,
-                timerClockSkewDetected = false,
-                focusBreakNudgeVisible = false,
                 currentTab = AppTab.SCHEDULE
             )
         }
@@ -1310,12 +1313,10 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
     fun cancelRunningTimer() {
         if (_uiState.value.activeTimer == null) return
         settingsStore.saveActiveTimer(null)
+        _timerTickState.value = TimerTickState()
         _uiState.update {
             it.copy(
-                activeTimer = null,
-                timerElapsedSeconds = 0L,
-                timerClockSkewDetected = false,
-                focusBreakNudgeVisible = false
+                activeTimer = null
             )
         }
         recomputeStats(_uiState.value.records)
@@ -1418,9 +1419,24 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         // WALLY API-FIRST end
 
         // v1.0.6 (F-V105-04): chống bấm đúp bằng quyền sở hữu theo vé; sau "Hủy" lượt mới chạy ngay, lượt cũ không ghi gì.
-        val lastQuery = _uiState.value.lastQueryContext
+        val snap = _uiState.value
         chatRunner.submit(text) {
-            GeminiProposalClient.analyzeInput(
+            val plan = wallyIntelligence.prepareChatTurn(
+                userText = text,
+                today = today,
+                nowTime = nowTime,
+                zone = zone,
+                perms = snap.aiReadPermissions,
+                lastQueryContext = snap.lastQueryContext,
+                records = snap.records,
+                tags = snap.tags,
+                goals = snap.goals,
+                tasks = snap.tasks,
+                habits = snap.habits,
+                habitLogs = snap.habitLogs,
+                activeTimer = snap.activeTimer
+            )
+            val rawOutcome = GeminiProposalClient.analyzeInput(
                 userText = text,
                 today = today,
                 nowTime = nowTime,
@@ -1430,7 +1446,17 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 apiKey = aiPrefs.apiKey,
                 modelName = aiPrefs.modelName,
                 trustedHost = aiPrefs.trustedHost,
-                lastQuery = lastQuery
+                lastQuery = plan.effectiveLastQuery,
+                adaptiveContext = plan.adaptiveContext
+            )
+            wallyIntelligence.finalizeChatTurn(
+                userText = text,
+                plan = plan,
+                outcome = rawOutcome,
+                perms = snap.aiReadPermissions,
+                records = snap.records,
+                activeTimer = snap.activeTimer,
+                zone = zone
             )
         }
     }
@@ -3293,7 +3319,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             }
             return
         }
-        val digest = Wally20Coordinator.buildFilteredCoachDigest(
+        val digest = wallyIntelligence.buildCoachDigest(
             perms = perms,
             records = s.records,
             tags = s.tags,
@@ -3339,14 +3365,17 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                             tags = fresh.tags
                         )
                     ) {
-                        is CoachStructuredCheck.Ok -> CoachUiState(
-                            rangeDays = days,
-                            facts = digest.facts,
-                            requested = true,
-                            story = structured.story,
-                            brief = structured.brief,
-                            suggestions = CoachGuard.validSuggestions(raw.suggestions, fresh.tags, fresh.goals)
-                        )
+                        is CoachStructuredCheck.Ok -> {
+                            wallyIntelligence.recordVerifiedCoachSummary(structured.story, perms)
+                            CoachUiState(
+                                rangeDays = days,
+                                facts = digest.facts,
+                                requested = true,
+                                story = structured.story,
+                                brief = structured.brief,
+                                suggestions = CoachGuard.validSuggestions(raw.suggestions, fresh.tags, fresh.goals)
+                            )
+                        }
                         is CoachStructuredCheck.Rejected -> CoachUiState(
                             rangeDays = days,
                             facts = digest.facts,
@@ -3731,15 +3760,13 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         )
         settingsStore.saveActiveTimer(session)
         settingsStore.saveTimerInputDraft(null, immediate = true)
+        _timerTickState.value = TimerTickState()
         _uiState.update {
             it.copy(
                 activeTimer = session,
                 timerInputTitle = task.title,
                 timerInputCategoryKey = task.category.key,
                 timerInputTagId = task.tagId,
-                timerElapsedSeconds = 0L,
-                timerClockSkewDetected = false,
-                focusBreakNudgeVisible = false,
                 currentTab = AppTab.FOCUS
             )
         }
@@ -3959,6 +3986,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
 
     fun updateAiReadPermissions(transform: (AiReadPermissions) -> AiReadPermissions) {
         val next = transform(_uiState.value.aiReadPermissions)
+        wallyIntelligence.onPermissionsChanged(next)
         settingsStore.saveAiReadPermissions(next, immediate = true)
         _uiState.update { it.copy(aiReadPermissions = next) }
         showToast("Đã cập nhật quyền đọc dữ liệu cho AI.")

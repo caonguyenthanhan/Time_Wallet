@@ -1,14 +1,14 @@
 # CONTEXT_MANIFEST.md
-Cập nhật lần cuối: 2026-11-19T08:35:00+07:00
+Cập nhật lần cuối: 2026-11-22T04:42:00+07:00
 
 ## Core (luôn nạp vào context)
 - `.agents/` — Quy tắc dự án (`AGENTS.md`, `rules/link-ecosystem.md`)
 - `.gitignore`, `.repomixignore` — Bộ lọc tệp build, output QA, `reference/`, media promo, design vector nguồn lớn, `docs/archive` & tệp tạm
-- `README.md` — Trang giới thiệu tổng quan `v2.0.0`, thư viện ảnh Light/Dark, kiến trúc Room v7 & hướng dẫn build/test
+- `README.md` — Trang giới thiệu tổng quan `v2.0.0`, thư viện ảnh Light/Dark, kiến trúc Room v7, Adaptive Context & Thống kê 3 lớp
 - `promo-video/` — Mã nguồn bố cục HyperFrames (`index.html`, `compositions/*.html`, `SPEC.md`, `STORYLINES.md`, `REVIEW.md`)
 - `Time_Wallet_MVP/` — Đặc tả MVP & HTML Prototype gốc
 - `ai_test/` — Script kiểm thử gateway (`test_foza_ai.ts`, đọc `FOZA_API_KEY` từ biến môi trường; KHÔNG xóa dù có chuỗi `_test`)
-- `app/` — Mã nguồn Kotlin/Compose `v2.0.0`, bộ test JVM (`649` cases) & Room schemas (`v4..v7`)
+- `app/` — Mã nguồn Kotlin/Compose `v2.0.0` (`AdaptiveContextRouter`, `WallyContextEngine`, `WallyIntelligenceCoordinator`, `LedgerAnalyticsCalculator`, `InsightsScreen`), bộ test JVM (`655` cases) & Room schemas (`v4..v7`)
 - `build.gradle.kts`, `settings.gradle.kts`, `gradle/`, `gradle.properties`
 - Tài liệu chính ở root: `WALLY_V200_CANDIDATE.md`, `WALLY_V120_PRODUCTION_CANDIDATE.md`, `WALLY_TECHNICAL_SPEC.md`, `SPEC_TIME_WALLET_WALLY.md`, `WALLY_V110_PLAN.md`, `WALLY_V110_CLOSURE_DIGEST.md`, `WALLY_OWNER_CHECKLIST_V110.md`
 

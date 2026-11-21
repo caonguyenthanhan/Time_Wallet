@@ -203,9 +203,11 @@ fun InsightsScreen(
     onOpenProfileSettings: () -> Unit = {}
 ) {
     var showToolsSegment by rememberSaveable { mutableStateOf(false) }
+    var showActivityView by rememberSaveable { mutableStateOf(true) }
     var selectedDayIndex by remember(weeklyEfficiency.days) {
         mutableIntStateOf((weeklyEfficiency.days.size - 1).coerceAtLeast(0))
     }
+    var activeBucketFilter by remember { mutableStateOf<com.timewallet.mvp.domain.usecase.ActivityBucket?>(null) }
     var activeTierFilter by remember { mutableStateOf<EfficiencyTier?>(null) }
     var showEfficiencyInfoSheet by remember { mutableStateOf(false) }
     var showBudgetsSheet by remember { mutableStateOf(false) }
@@ -266,12 +268,24 @@ fun InsightsScreen(
                 weeklyEfficiency = weeklyEfficiency,
                 selectedDayIndex = selectedDayIndex,
                 onSelectDay = { selectedDayIndex = it },
+                showActivityView = showActivityView,
+                onToggleActivityView = { isAct ->
+                    showActivityView = isAct
+                    if (isAct) activeTierFilter = null else activeBucketFilter = null
+                },
+                activeBucketFilter = activeBucketFilter,
+                onToggleBucketFilter = { clicked ->
+                    activeBucketFilter = if (activeBucketFilter == clicked) null else clicked
+                },
                 activeTierFilter = activeTierFilter,
                 onToggleTierFilter = { clicked ->
                     activeTierFilter = if (activeTierFilter == clicked) null else clicked
                 },
                 onOpenInfo = { showEfficiencyInfoSheet = true },
                 onEditGoals = onOpenGoals,
+                onOpenCoach = { showCoachSheet = true },
+                onOpenWallyChat = onOpenWallyChat,
+                aiEnabled = aiEnabled,
                 peakFocusWindow = peakFocusWindow,
                 planAccuracySummary = planAccuracySummary
             )
@@ -355,17 +369,27 @@ private fun EfficiencyAnalyticsSegment(
     weeklyEfficiency: WeeklyEfficiencySummary,
     selectedDayIndex: Int,
     onSelectDay: (Int) -> Unit,
+    showActivityView: Boolean,
+    onToggleActivityView: (Boolean) -> Unit,
+    activeBucketFilter: com.timewallet.mvp.domain.usecase.ActivityBucket?,
+    onToggleBucketFilter: (com.timewallet.mvp.domain.usecase.ActivityBucket) -> Unit,
     activeTierFilter: EfficiencyTier?,
     onToggleTierFilter: (EfficiencyTier) -> Unit,
     onOpenInfo: () -> Unit,
     onEditGoals: () -> Unit,
+    onOpenCoach: () -> Unit = {},
+    onOpenWallyChat: () -> Unit = {},
+    aiEnabled: Boolean = false,
     peakFocusWindow: PeakFocusWindow? = null,
     planAccuracySummary: PlanAccuracySummary? = null
 ) {
     val fmt = LedgerAnalyticsCalculator::formatHoursMinutesFromSeconds
+    val fmtCompact = LedgerAnalyticsCalculator::formatCompactDurationSeconds
     val days = weeklyEfficiency.days
+    val activityDays = weeklyEfficiency.activityDays
     val safeDayIdx = selectedDayIndex.coerceIn(0, (days.size - 1).coerceAtLeast(0))
     val selectedDay = days.getOrNull(safeDayIdx)
+    val selectedActDay = activityDays.getOrNull(safeDayIdx)
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // Tách riêng tổng chưa gắn giờ (nếu có) theo bất biến sản phẩm, không trộn vào cột 24h.
@@ -398,7 +422,7 @@ private fun EfficiencyAnalyticsSegment(
             }
         }
 
-        // Thẻ 1: Biểu đồ 24h x 7 ngày (Mục tiêu / Phi mục tiêu / Lãng phí / Chưa rõ).
+        // Lớp 1: Biểu đồ 24h x 7 ngày (mặc định chia theo nhóm hoạt động thực tế; chuyển nhanh sang tầng mục tiêu).
         SoftCard(padding = 14.dp) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -407,13 +431,24 @@ private fun EfficiencyAnalyticsSegment(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
+                        text = "THỜI GIAN CỦA BẠN · 7 NGÀY",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.5.sp,
+                        color = WalletMintAccent
+                    )
+                    Text(
                         text = "Phân bổ 24 giờ · 7 ngày",
                         fontSize = 15.5.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = WalletInk
                     )
                     Text(
-                        text = "Chạm ngày xem chi tiết · chạm màu để lọc tầng",
+                        text = if (showActivityView) {
+                            "Mỗi cột = 24 giờ · chạm ngày hoặc nhóm hoạt động"
+                        } else {
+                            "Mỗi cột = 24 giờ · chạm ngày hoặc tầng để lọc"
+                        },
                         fontSize = 11.5.sp,
                         color = WalletMuted
                     )
@@ -432,6 +467,40 @@ private fun EfficiencyAnalyticsSegment(
                 }
             }
 
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Chuyển góc nhìn gọn trong cùng thẻ: Hoạt động (mặc định) vs Mục tiêu (4 tầng).
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(100.dp))
+                    .background(WalletBg)
+                    .border(1.dp, WalletStroke, RoundedCornerShape(100.dp))
+                    .padding(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                listOf(true to "Hoạt động", false to "Mục tiêu").forEach { (isAct, label) ->
+                    val isSel = showActivityView == isAct
+                    WalletPill(
+                        onClickLabel = "Xem theo $label",
+                        containerColor = if (isSel) WalletMintDark else Color.Transparent,
+                        selected = isSel,
+                        role = Role.Tab,
+                        contentDescription = "Góc nhìn $label",
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp),
+                        onClick = { onToggleActivityView(isAct) }
+                    ) {
+                        Text(
+                            text = label,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSel) Color.White else WalletMuted,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
 
             Row(
@@ -442,9 +511,14 @@ private fun EfficiencyAnalyticsSegment(
                 verticalAlignment = Alignment.Bottom
             ) {
                 days.forEachIndexed { idx, day ->
+                    val actDay = activityDays.getOrNull(idx)
                     val isSelectedDay = idx == safeDayIdx
                     val totalDaySecs = day.calendarDaySeconds.coerceAtLeast(1L).toFloat()
-                    val topLabelSecs = day.secondsFor(activeTierFilter)
+                    val topLabelSecs = if (showActivityView && actDay != null) {
+                        actDay.secondsFor(activeBucketFilter)
+                    } else {
+                        day.secondsFor(activeTierFilter)
+                    }
                     val shortDayLabel = remember(day.dateLocal) {
                         try {
                             LocalDate.parse(day.dateLocal).format(DateTimeFormatter.ofPattern("EEE", Locale("vi", "VN")))
@@ -473,7 +547,7 @@ private fun EfficiencyAnalyticsSegment(
                             overflow = TextOverflow.Clip
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                        // Cột luôn biểu diễn trọn 24h: xếp từ dưới lên (Mục tiêu -> Phi mục tiêu -> Lãng phí -> Chưa rõ).
+                        // Cột luôn biểu diễn trọn 24h theo đúng góc nhìn đang chọn.
                         Column(
                             modifier = Modifier
                                 .weight(1f)
@@ -486,29 +560,65 @@ private fun EfficiencyAnalyticsSegment(
                                 ),
                             verticalArrangement = Arrangement.Bottom
                         ) {
-                            val tiersBottomUp = listOf(
-                                EfficiencyTier.UNKNOWN to day.unknownSeconds,
-                                EfficiencyTier.WASTE to day.wasteSeconds,
-                                EfficiencyTier.NEUTRAL to day.neutralSeconds,
-                                EfficiencyTier.GOAL to day.goalSeconds
-                            )
-                            tiersBottomUp.forEach { (tier, secs) ->
-                                if (secs > 0L) {
-                                    val w = (secs.toFloat() / totalDaySecs).coerceAtLeast(0.008f)
-                                    val dimmed = activeTierFilter != null && activeTierFilter != tier
-                                    val segColor = when (tier) {
-                                        EfficiencyTier.GOAL -> EfficiencyGoalMint
-                                        EfficiencyTier.NEUTRAL -> EfficiencyNeutralBlue
-                                        EfficiencyTier.WASTE -> EfficiencyWasteCoral
-                                        EfficiencyTier.UNKNOWN -> EfficiencyUnknownGray
-                                    }
+                            if (showActivityView && actDay != null) {
+                                val unrecSecs = actDay.unrecordedSeconds
+                                if (unrecSecs > 0L) {
+                                    val wUnrec = (unrecSecs.toFloat() / totalDaySecs).coerceAtLeast(0.008f)
+                                    val dimmedUnrec = activeBucketFilter != null
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .weight(w)
-                                            .alpha(if (dimmed) 0.25f else 1f)
-                                            .background(segColor)
+                                            .weight(wUnrec)
+                                            .alpha(if (dimmedUnrec) 0.25f else 1f)
+                                            .background(EfficiencyUnknownGray)
                                     )
+                                }
+                                val bucketsBottomUp = listOf(
+                                    com.timewallet.mvp.domain.usecase.ActivityBucket.FUN_SOCIAL,
+                                    com.timewallet.mvp.domain.usecase.ActivityBucket.HEALTH_LIFE,
+                                    com.timewallet.mvp.domain.usecase.ActivityBucket.LEARN,
+                                    com.timewallet.mvp.domain.usecase.ActivityBucket.WORK,
+                                    com.timewallet.mvp.domain.usecase.ActivityBucket.SLEEP_REST
+                                )
+                                bucketsBottomUp.forEach { bucket ->
+                                    val secs = actDay.bucketSeconds[bucket] ?: 0L
+                                    if (secs > 0L) {
+                                        val w = (secs.toFloat() / totalDaySecs).coerceAtLeast(0.008f)
+                                        val dimmed = activeBucketFilter != null && activeBucketFilter != bucket
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .weight(w)
+                                                .alpha(if (dimmed) 0.22f else 1f)
+                                                .background(Color(bucket.colorHex))
+                                        )
+                                    }
+                                }
+                            } else {
+                                val tiersBottomUp = listOf(
+                                    EfficiencyTier.UNKNOWN to day.unknownSeconds,
+                                    EfficiencyTier.WASTE to day.wasteSeconds,
+                                    EfficiencyTier.NEUTRAL to day.neutralSeconds,
+                                    EfficiencyTier.GOAL to day.goalSeconds
+                                )
+                                tiersBottomUp.forEach { (tier, secs) ->
+                                    if (secs > 0L) {
+                                        val w = (secs.toFloat() / totalDaySecs).coerceAtLeast(0.008f)
+                                        val dimmed = activeTierFilter != null && activeTierFilter != tier
+                                        val segColor = when (tier) {
+                                            EfficiencyTier.GOAL -> EfficiencyGoalMint
+                                            EfficiencyTier.NEUTRAL -> EfficiencyNeutralBlue
+                                            EfficiencyTier.WASTE -> EfficiencyWasteCoral
+                                            EfficiencyTier.UNKNOWN -> EfficiencyUnknownGray
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .weight(w)
+                                                .alpha(if (dimmed) 0.25f else 1f)
+                                                .background(segColor)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -533,87 +643,308 @@ private fun EfficiencyAnalyticsSegment(
                         LocalDate.parse(selectedDay.dateLocal).format(DateTimeFormatter.ofPattern("EEE, dd/MM", Locale("vi", "VN")))
                     }.getOrDefault(selectedDay.dateLocal)
                 }
-                val tierName = activeTierFilter?.labelVi ?: "Đã dùng"
-                val shownSecs = selectedDay.secondsFor(activeTierFilter)
-                val shownLabel = if (shownSecs > 0L) LedgerAnalyticsCalculator.formatCompactDurationSeconds(shownSecs) else "0p"
-                Box(
+                val filteredActDay = selectedActDay.takeIf { showActivityView }
+                val filterLabel = when {
+                    filteredActDay != null -> activeBucketFilter?.labelVi ?: "Đã ghi nhận"
+                    else -> activeTierFilter?.labelVi ?: "Đã ghi nhận"
+                }
+                val shownSecs = when {
+                    filteredActDay != null -> filteredActDay.secondsFor(activeBucketFilter)
+                    activeTierFilter == null -> (selectedDay.calendarDaySeconds - selectedDay.unknownSeconds).coerceAtLeast(0L)
+                    else -> selectedDay.secondsFor(activeTierFilter)
+                }
+                val shownLabel = if (shownSecs > 0L) fmtCompact(shownSecs) else "0p"
+
+                val prevCompSecs = if (filteredActDay != null) {
+                    if (activeBucketFilter != null) filteredActDay.prevWeekBucketSeconds[activeBucketFilter] ?: 0L
+                    else filteredActDay.prevWeekRecordedTimedSeconds
+                } else 0L
+                val prevDeltaPct = if (prevCompSecs >= 600L) {
+                    kotlin.math.round(((shownSecs - prevCompSecs).toDouble() / prevCompSecs.toDouble()) * 100.0).toInt()
+                } else null
+
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
                         .background(WalletBg)
-                        .padding(horizontal = 12.dp, vertical = 9.dp)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = dayTitle,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = WalletMuted,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (prevDeltaPct != null) {
+                            val sign = if (prevDeltaPct > 0) "+$prevDeltaPct%" else "$prevDeltaPct%"
+                            Text(
+                                text = "$sign so với t.trước",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (prevDeltaPct >= 0) WalletMintAccent else WalletMuted,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
                     Text(
-                        text = "$dayTitle · $tierName: $shownLabel / 24h",
+                        text = "$filterLabel: $shownLabel / 24h",
                         fontSize = 13.5.sp,
                         fontWeight = FontWeight.Bold,
-                        color = WalletInk
+                        color = WalletInk,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
                     )
+
+                    if (filteredActDay != null) {
+                        val filteredItems = remember(filteredActDay, activeBucketFilter) {
+                            filteredActDay.topItems.filter { activeBucketFilter == null || it.bucket == activeBucketFilter }
+                        }
+                        if (filteredItems.isNotEmpty()) {
+                            filteredItems.take(4).forEach { item ->
+                                val timedStr = if (item.durationSeconds > 0L) fmtCompact(item.durationSeconds) else ""
+                                val untimedStr = if (item.untimedSeconds > 0L) "${fmtCompact(item.untimedSeconds)} chưa gắn giờ" else ""
+                                val durCombined = listOf(timedStr, untimedStr).filter { it.isNotEmpty() }.joinToString(" · ")
+                                val prefix = if (item.tagName != null) "Tag: ${item.tagName}" else item.category.displayName
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        modifier = Modifier.weight(1f),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(7.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(item.bucket.colorHex))
+                                        )
+                                        Text(
+                                            text = when {
+                                                item.tagName != null && item.tagName == item.label -> "Tag: ${item.tagName}"
+                                                item.tagName != null -> "${item.label} · Tag: ${item.tagName}"
+                                                item.label != prefix -> "$prefix · ${item.label}"
+                                                else -> prefix
+                                            },
+                                            fontSize = 11.5.sp,
+                                            color = WalletInk,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Text(
+                                        text = durCombined,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = WalletMuted,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+                        } else {
+                            Text(
+                                text = if (activeBucketFilter != null) {
+                                    "Ngày này chưa ghi nhận hoạt động thuộc nhóm ${activeBucketFilter.labelVi}."
+                                } else {
+                                    "Chưa có hoạt động được ghi nhận trong ngày này (phần còn lại là chưa ghi nhận)."
+                                },
+                                fontSize = 11.5.sp,
+                                color = WalletMuted
+                            )
+                        }
+                        if (filteredActDay.uncategorizedOrUntaggedSeconds > 0L && activeBucketFilter == null) {
+                            Text(
+                                text = "Đã ghi nhận nhưng chưa gắn Tag: ${fmtCompact(filteredActDay.uncategorizedOrUntaggedSeconds)} · Chưa ghi nhận: ${fmtCompact(filteredActDay.unrecordedSeconds)}",
+                                fontSize = 10.5.sp,
+                                color = WalletMuted
+                            )
+                        }
+                    } else if (!showActivityView && weeklyEfficiency.totalGoalSeconds == 0L && weeklyEfficiency.totalNeutralSeconds > 0L) {
+                        Text(
+                            text = "Mục tiêu 0p không đồng nghĩa bỏ trống — phần lớn thời gian hiện nằm ở sinh hoạt & nghỉ ngơi cần thiết.",
+                            fontSize = 11.sp,
+                            color = WalletMuted
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Chú giải 2x2 tương tác lọc theo từng tầng (tổng cả 7 ngày).
-            Text(
-                text = "Tổng 7 ngày theo tầng · Chạm để lọc",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = WalletMuted,
-                modifier = Modifier.padding(bottom = 2.dp)
-            )
-            val legendItems = listOf(
-                Triple(EfficiencyTier.GOAL, EfficiencyGoalMint, weeklyEfficiency.totalGoalSeconds),
-                Triple(EfficiencyTier.NEUTRAL, EfficiencyNeutralBlue, weeklyEfficiency.totalNeutralSeconds),
-                Triple(EfficiencyTier.WASTE, EfficiencyWasteCoral, weeklyEfficiency.totalWasteSeconds),
-                Triple(EfficiencyTier.UNKNOWN, EfficiencyUnknownGray, weeklyEfficiency.totalUnknownSeconds)
-            )
-            legendItems.chunked(2).forEach { pair ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 3.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    pair.forEach { (tier, color, weekSecs) ->
-                        val isActive = activeTierFilter == tier
-                        Row(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(11.dp))
-                                .background(if (isActive) WalletMintTint else WalletBg)
-                                .border(1.dp, if (isActive) WalletMint else WalletStroke, RoundedCornerShape(11.dp))
-                                .semantics { this.selected = isActive }
-                                .walletClickable(onClickLabel = "Lọc tầng ${tier.labelVi}") { onToggleTierFilter(tier) }
-                                .padding(horizontal = 9.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(modifier = Modifier.size(9.dp).clip(CircleShape).background(color))
-                            Text(
-                                text = tier.labelVi,
-                                fontSize = 11.5.sp,
-                                fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.SemiBold,
-                                color = WalletInk,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Text(
-                                text = if (weekSecs > 0L) LedgerAnalyticsCalculator.formatCompactDurationSeconds(weekSecs) else "0p",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = WalletMuted,
-                                maxLines = 1,
-                                softWrap = false
-                            )
+            if (showActivityView) {
+                val wowText = weeklyEfficiency.weekOverWeekDeltaPercent?.let { d ->
+                    val sign = if (d > 0) "+$d%" else "$d%"
+                    " · $sign so với tuần trước"
+                }.orEmpty()
+                Text(
+                    text = "Phân tích hoạt động 7 ngày$wowText · Chạm để lọc",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = WalletMuted,
+                    modifier = Modifier.padding(bottom = 2.dp)
+                )
+                val totalsByBucket = remember(weeklyEfficiency.activityTotals) {
+                    weeklyEfficiency.activityTotals.associateBy { it.bucket }
+                }
+                val legendCells: List<Pair<com.timewallet.mvp.domain.usecase.ActivityBucket?, String>> = listOf(
+                    com.timewallet.mvp.domain.usecase.ActivityBucket.SLEEP_REST to "Ngủ, nghỉ",
+                    com.timewallet.mvp.domain.usecase.ActivityBucket.WORK to "Công việc",
+                    com.timewallet.mvp.domain.usecase.ActivityBucket.LEARN to "Học tập",
+                    com.timewallet.mvp.domain.usecase.ActivityBucket.HEALTH_LIFE to "Sức khỏe",
+                    com.timewallet.mvp.domain.usecase.ActivityBucket.FUN_SOCIAL to "Giải trí",
+                    null to "Chưa ghi nhận"
+                )
+                legendCells.chunked(2).forEach { pair ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        pair.forEach { (bucket, label) ->
+                            val stats = bucket?.let { totalsByBucket[it] }
+                            val weekSecs = if (bucket == null) weeklyEfficiency.totalUnknownSeconds else (stats?.durationSeconds ?: 0L)
+                            val deltaPct = stats?.deltaPercentVsPrevWeek
+                            val isActive = bucket != null && activeBucketFilter == bucket
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(11.dp))
+                                    .background(if (isActive) WalletMintTint else WalletBg)
+                                    .border(1.dp, if (isActive) WalletMint else WalletStroke, RoundedCornerShape(11.dp))
+                                    .then(
+                                        if (bucket != null) {
+                                            Modifier
+                                                .semantics { this.selected = isActive }
+                                                .walletClickable(onClickLabel = "Lọc nhóm $label") { onToggleBucketFilter(bucket) }
+                                        } else Modifier
+                                    )
+                                    .padding(horizontal = 8.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                val dotColor = bucket?.let { Color(it.colorHex) } ?: EfficiencyUnknownGray
+                                Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(dotColor))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = label,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                        color = WalletInk,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (deltaPct != null) {
+                                        val s = if (deltaPct > 0) "+$deltaPct%" else "$deltaPct%"
+                                        Text(
+                                            text = "$s t.trước",
+                                            fontSize = 9.sp,
+                                            color = WalletMuted,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = if (weekSecs > 0L) fmtCompact(weekSecs) else "0p",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = WalletMuted,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+                    }
+                }
+                val selectedBucketTotal = activeBucketFilter?.let { totalsByBucket[it] }
+                if (selectedBucketTotal != null && selectedBucketTotal.topItems.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    val itemsLine = selectedBucketTotal.topItems.take(3).joinToString(" · ") { it ->
+                        val t = if (it.durationSeconds > 0L) fmtCompact(it.durationSeconds) else fmtCompact(it.untimedSeconds)
+                        "${it.tagName ?: it.label} ($t)"
+                    }
+                    Text(
+                        text = "${selectedBucketTotal.bucket.labelVi} 7 ngày: $itemsLine",
+                        fontSize = 11.sp,
+                        color = WalletInk
+                    )
+                }
+            } else {
+                // Chú giải 2x2 tương tác lọc theo từng tầng (tổng cả 7 ngày).
+                Text(
+                    text = "Tổng 7 ngày theo tầng · Chạm để lọc",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = WalletMuted,
+                    modifier = Modifier.padding(bottom = 2.dp)
+                )
+                val legendItems = listOf(
+                    Triple(EfficiencyTier.GOAL, EfficiencyGoalMint, weeklyEfficiency.totalGoalSeconds),
+                    Triple(EfficiencyTier.NEUTRAL, EfficiencyNeutralBlue, weeklyEfficiency.totalNeutralSeconds),
+                    Triple(EfficiencyTier.WASTE, EfficiencyWasteCoral, weeklyEfficiency.totalWasteSeconds),
+                    Triple(EfficiencyTier.UNKNOWN, EfficiencyUnknownGray, weeklyEfficiency.totalUnknownSeconds)
+                )
+                legendItems.chunked(2).forEach { pair ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        pair.forEach { (tier, color, weekSecs) ->
+                            val isActive = activeTierFilter == tier
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(11.dp))
+                                    .background(if (isActive) WalletMintTint else WalletBg)
+                                    .border(1.dp, if (isActive) WalletMint else WalletStroke, RoundedCornerShape(11.dp))
+                                    .semantics { this.selected = isActive }
+                                    .walletClickable(onClickLabel = "Lọc tầng ${tier.labelVi}") { onToggleTierFilter(tier) }
+                                    .padding(horizontal = 9.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(modifier = Modifier.size(9.dp).clip(CircleShape).background(color))
+                                Text(
+                                    text = tier.labelVi,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                    color = WalletInk,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = if (weekSecs > 0L) fmtCompact(weekSecs) else "0p",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = WalletMuted,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Thẻ 2: Tiến độ mục tiêu trực quan (không văn bản giải thích dài dòng).
+        // Lớp 2: Tiến độ mục tiêu & ý nghĩa thực tế của các hoạt động khác.
         SoftCard(padding = 14.dp) {
             SectionTitle(
                 text = "Tiến độ mục tiêu",
@@ -623,7 +954,7 @@ private fun EfficiencyAnalyticsSegment(
             Spacer(modifier = Modifier.height(8.dp))
             if (weeklyEfficiency.goalItems.isEmpty()) {
                 Text(
-                    text = "Chưa có mục tiêu nào. Chạm 'Sửa ›' để đặt mục tiêu đầu tiên.",
+                    text = "Chưa đặt mục tiêu để đối chiếu. Bạn có thể chạm 'Sửa ›' để thêm mục tiêu học tập, vận động hoặc dự án.",
                     fontSize = 12.5.sp,
                     color = WalletMuted
                 )
@@ -661,34 +992,133 @@ private fun EfficiencyAnalyticsSegment(
                                 color = Color(item.accentHex),
                                 trackColor = WalletRing
                             )
+                            if (!item.hintVi.isNullOrBlank()) {
+                                Text(
+                                    text = item.hintVi,
+                                    fontSize = 11.sp,
+                                    color = WalletMintAccent
+                                )
+                            }
                         }
                     }
                 }
             }
+            if (weeklyEfficiency.totalNeutralSeconds > 0L) {
+                Spacer(modifier = Modifier.height(8.dp))
+                val recoverySecs = weeklyEfficiency.activityTotals
+                    .filter {
+                        it.bucket == com.timewallet.mvp.domain.usecase.ActivityBucket.SLEEP_REST ||
+                            it.bucket == com.timewallet.mvp.domain.usecase.ActivityBucket.HEALTH_LIFE
+                    }
+                    .sumOf { it.durationSeconds }
+                val valueLine = if (recoverySecs > 0L) {
+                    "Ngoài mục tiêu chính còn ${fmtCompact(weeklyEfficiency.totalNeutralSeconds)} sinh hoạt/phục hồi (gồm ${fmtCompact(recoverySecs)} ngủ, nghỉ, sức khỏe) — vẫn cần thiết và không phải lãng phí."
+                } else {
+                    "Thời gian ngoài mục tiêu (${fmtCompact(weeklyEfficiency.totalNeutralSeconds)}) chủ yếu là sinh hoạt bình thường, không bị xem là kém hiệu quả."
+                }
+                Text(
+                    text = valueLine,
+                    fontSize = 11.sp,
+                    color = WalletMuted,
+                    lineHeight = 15.5.sp
+                )
+            }
         }
 
-        // Thẻ 3: Một nhận định ngắn, có giá trị hành động từ Wally (không chú thích mô phỏng, không nút đặt giờ).
+        // Lớp 3: Wally kể từ dữ liệu (Điều gì xảy ra -> Đáng chú ý -> Ảnh hưởng mục tiêu -> Gợi ý tiếp theo).
         SoftCard(padding = 14.dp, tint = WalletMintTint) {
-            Row(
-                verticalAlignment = Alignment.Top,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(100.dp))
-                        .background(WalletMintDark)
-                        .padding(horizontal = 9.dp, vertical = 3.dp)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("✦ Wally", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, maxLines = 1, softWrap = false)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(100.dp))
+                                .background(WalletMintDark)
+                                .padding(horizontal = 9.dp, vertical = 3.dp)
+                        ) {
+                            Text("✦ Wally", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, maxLines = 1, softWrap = false)
+                        }
+                        Text(
+                            text = "Wally kể từ dữ liệu",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = WalletInk
+                        )
+                    }
+                    WalletPill(
+                        onClickLabel = if (aiEnabled) "Mở AI Coach" else "Hỏi Wally AI",
+                        containerColor = WalletCardBg,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        onClick = if (aiEnabled) onOpenCoach else onOpenWallyChat
+                    ) {
+                        Text(
+                            text = if (aiEnabled) "Phân tích AI ›" else "Hỏi Wally ›",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = WalletMintAccent,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
                 }
+
                 Text(
                     text = weeklyEfficiency.actionableInsight,
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = FontWeight.SemiBold,
                     color = WalletInk,
-                    lineHeight = 18.sp,
-                    modifier = Modifier.weight(1f)
+                    lineHeight = 18.sp
                 )
+
+                val story = weeklyEfficiency.wallyStory
+                if (story != null) {
+                    HorizontalDivider(color = WalletStroke)
+                    listOf(
+                        "Điều gì xảy ra" to story.whatHappened,
+                        "Đáng chú ý" to story.notable,
+                        "Ảnh hưởng mục tiêu" to story.goalImpact,
+                        "Có thể làm tiếp" to story.nextAction
+                    ).forEach { (stepLabel, stepText) ->
+                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Text(
+                                text = stepLabel,
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = WalletMintAccent
+                            )
+                            Text(
+                                text = stepText,
+                                fontSize = 12.sp,
+                                color = WalletInk,
+                                lineHeight = 17.sp
+                            )
+                        }
+                    }
+                    if (!story.uncertaintyNote.isNullOrBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(WalletCardBg)
+                                .border(1.dp, WalletStroke, RoundedCornerShape(10.dp))
+                                .padding(horizontal = 10.dp, vertical = 7.dp)
+                        ) {
+                            Text(
+                                text = story.uncertaintyNote,
+                                fontSize = 11.sp,
+                                color = WalletMuted,
+                                lineHeight = 15.sp
+                            )
+                        }
+                    }
+                }
             }
         }
 

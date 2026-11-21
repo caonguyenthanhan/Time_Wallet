@@ -21,7 +21,9 @@ data class ParseChatOutcome(
     /** Số token/nhận trạng thái đệm do nhà cung cấp báo (null nếu không có usage). */
     val usage: AiUsage? = null,
     val retryCount: Int = 0,
-    val intent: WallyIntentKind? = null
+    val intent: WallyIntentKind? = null,
+    /** true nếu lượt này có đính kèm ngữ cảnh thích ứng từ [WallyContextEngine]. */
+    val usedAdaptiveContext: Boolean = false
 )
 
 /**

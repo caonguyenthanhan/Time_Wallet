@@ -131,11 +131,22 @@ object WallyTurnPolicy {
         question: String,
         outcome: ParseChatOutcome,
         answers: List<QueryAnswer>,
-        pendingDrafts: Int
+        pendingDrafts: Int,
+        allowAdvisoryCard: Boolean = false
     ): ChatAnswer? {
         val kind = classify(question, outcome.proposals.size, outcome.queries.size, pendingDrafts)
         return when (kind) {
-            Kind.RECORD -> null // thẻ đề xuất + toast do ứng dụng tạo; không dựng thẻ lời đáp AI
+            Kind.RECORD -> {
+                if (allowAdvisoryCard && !outcome.reply.isNullOrBlank()) {
+                    WallyAnswerBuilder.build(
+                        question = question,
+                        reply = outcome.reply,
+                        answers = emptyList(),
+                        notes = (outcome.warnings + "Các đề xuất bên dưới chỉ là bản nháp chờ bạn bấm Xác nhận.").distinct(),
+                        proposalCount = 0
+                    )
+                } else null
+            }
             Kind.MIXED -> WallyAnswerBuilder.build(question, null, answers, outcome.warnings, proposalCount = 0, leadLines = listOf(MIXED_LEAD_LINE))
             Kind.QUERY -> {
                 val reply = outcome.reply?.takeUnless { pendingDrafts > 0 && hasCompletionSemantics(it) }

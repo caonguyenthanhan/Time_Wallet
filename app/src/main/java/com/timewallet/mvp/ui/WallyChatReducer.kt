@@ -102,7 +102,13 @@ object WallyChatReducer {
             )
         }
         // v1.0.8: trạng thái giao dịch do ỨNG DỤNG phát ngôn (xem WallyTurnPolicy); AI không phải nguồn của "đã lưu / chưa lưu / đang chờ".
-        val card = WallyTurnPolicy.buildCard(question, outcome, answers, pendingDrafts = merged.size)
+        val card = WallyTurnPolicy.buildCard(
+            question = question,
+            outcome = outcome,
+            answers = answers,
+            pendingDrafts = merged.size,
+            allowAdvisoryCard = outcome.usedAdaptiveContext
+        )
         return state.copy(
             isAnalyzingChat = false,
             proposals = merged,

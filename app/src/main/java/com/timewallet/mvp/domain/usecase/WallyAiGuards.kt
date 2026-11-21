@@ -696,11 +696,12 @@ object ReplyGuard {
         rawText: String,
         proposals: List<ActivityProposal>,
         allowProposalDurations: Boolean,
-        userMinutes: Set<Int> = emptySet()
+        userMinutes: Set<Int> = emptySet(),
+        contextBackedMinutes: Set<Int> = emptySet()
     ): Boolean {
         val text = nfc(rawText)
         if (percent.containsMatchIn(text) || wordFigure.containsMatchIn(text) || enWordFigure.containsMatchIn(text) || halfWord.containsMatchIn(text)) return true
-        val allowed: Set<Int> = userMinutes + (if (allowProposalDurations) {
+        val allowed: Set<Int> = userMinutes + contextBackedMinutes + (if (allowProposalDurations) {
             buildSet {
                 proposals.forEach { p ->
                     add(p.durationMinutes)
@@ -710,7 +711,10 @@ object ReplyGuard {
             }
         } else emptySet())
         val f = figuresIn(text)
-        return f.minutes.any { it !in allowed } || f.counts.any { it == null || proposals.isEmpty() || it != proposals.size }
+        val invalidCount = f.counts.any { cnt ->
+            cnt == null || ((proposals.isEmpty() || cnt != proposals.size) && cnt !in contextBackedMinutes)
+        }
+        return f.minutes.any { it !in allowed } || invalidCount
     }
 
     /** @return (lời đáp đã làm sạch hoặc null, ghi chú nếu đã bỏ). */
@@ -719,7 +723,8 @@ object ReplyGuard {
         userText: String,
         proposals: List<ActivityProposal>,
         hasQueries: Boolean,
-        nowTime: LocalTime? = null
+        nowTime: LocalTime? = null,
+        contextBackedMinutes: Set<Int> = emptySet()
     ): Pair<String?, String?> {
         val text = reply?.replace(Rx.ascii("""\s+"""), " ")?.trim()?.take(MAX_LENGTH)?.takeIf { it.isNotEmpty() }
             ?: return null to null
@@ -728,7 +733,7 @@ object ReplyGuard {
             return null to "Đã bỏ lời đáp của AI vì khẳng định đã ghi/sửa/xóa. Chỉ ứng dụng mới báo thành công, sau khi bạn xác nhận và bản ghi được lưu."
         }
         // Có query: mọi số liệu thời gian/phần trăm phải đến từ engine, nên lời đáp của AI không được tự nêu.
-        // Không có query: chỉ thời lượng/giờ của đề xuất đang chờ xác nhận mới được nhắc lại.
+        // Không có query: chỉ thời lượng/giờ của đề xuất đang chờ xác nhận hoặc số liệu xác định từ ContextEngine mới được nhắc lại.
         // Ngoại lệ chung: CÂU HỎI được nhắc lại số của chính người dùng (mục 2b). Chỉ cần một câu có số không căn cứ là bỏ cả lời đáp (mục 4).
         val userMinutes by lazy { userFigureMinutes(userText) }
         val unbacked = splitSentences(nfc(text)).any { s ->
@@ -736,9 +741,20 @@ object ReplyGuard {
             // v1.0.13 (C3a): trong CÂU HỎI, AI được nhắc lại giờ hiện tại mà ứng dụng đã đưa cho nó (không phải số của sổ cái).
             val t = if (question && nowTime != null) stripNowClock(s, nowTime) else s
             if (question && userMinutes.isNotEmpty()) {
-                hasUnbackedFigure(VietnameseChatParser.normalizeSpelledDurations(t), proposals, allowProposalDurations = !hasQueries, userMinutes = userMinutes)
+                hasUnbackedFigure(
+                    VietnameseChatParser.normalizeSpelledDurations(t),
+                    proposals,
+                    allowProposalDurations = !hasQueries,
+                    userMinutes = userMinutes,
+                    contextBackedMinutes = if (hasQueries) emptySet() else contextBackedMinutes
+                )
             } else {
-                hasUnbackedFigure(t, proposals, allowProposalDurations = !hasQueries)
+                hasUnbackedFigure(
+                    t,
+                    proposals,
+                    allowProposalDurations = !hasQueries,
+                    contextBackedMinutes = if (hasQueries) emptySet() else contextBackedMinutes
+                )
             }
         }
         if (unbacked) {

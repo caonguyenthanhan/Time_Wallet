@@ -351,9 +351,10 @@ fun TimeWalletAppRoot(
                 .fillMaxSize(),
             containerColor = WalletBg,
             topBar = {
+                val timerTick by viewModel.timerTickState.collectAsStateWithLifecycle()
                 TimeWalletTopBar(
                     isTimerRunning = state.activeTimer != null,
-                    timerSeconds = state.timerElapsedSeconds,
+                    timerSeconds = timerTick.elapsedSeconds,
                     onTimerBadgeClick = { viewModel.selectTab(AppTab.FOCUS) },
                     onDataClick = { showDataDialog = true },
                     onAiSettingsClick = { viewModel.toggleAiSettingsDialog(true) },
@@ -436,41 +437,44 @@ fun TimeWalletAppRoot(
                         }
                     }
 
-                    AppTab.FOCUS -> TimerScreen(
-                        activeTimer = state.activeTimer,
-                        elapsedSeconds = state.timerElapsedSeconds,
-                        clockSkewDetected = state.timerClockSkewDetected,
-                        inputTitle = state.timerInputTitle,
-                        inputCategoryKey = state.timerInputCategoryKey,
-                        diceCognitiveState = state.diceCognitiveState,
-                        diceFaceProbabilities = state.diceFaceProbabilities,
-                        isRollingDice = state.isRollingDice,
-                        rollingPreviewFaceNumber = state.rollingPreviewFaceNumber,
-                        lastDiceRoll = state.lastDiceRoll,
-                        onTitleChange = viewModel::onTimerTitleChange,
-                        onCategoryChange = viewModel::onTimerCategoryChange,
-                        onRollDice = viewModel::rollTimeDice,
-                        onApplyDiceAndStartTimer = viewModel::applyDiceRollAndStartTimer,
-                        onStartTimer = viewModel::startTimer,
-                        onStopAndSaveTimer = viewModel::stopAndSaveTimer,
-                        onCancelTimer = viewModel::cancelRunningTimer,
-                        tagSuggestions = tagSuggestions,
-                        selectedTagId = state.timerInputTagId,
-                        onSelectTag = viewModel::selectTimerTag,
-                        onCleanDraft = viewModel::cleanTimerDraft,
-                        focusPinEnabled = state.focusPinEnabled,
-                        focusPinPreview = state.focusPinPreview,
-                        onToggleFocusPin = viewModel::toggleFocusPin,
-                        onApplyFocusSuggestion = viewModel::openFocusFromNotification,
-                        pomodoroMode = state.pomodoroMode,
-                        pomodoroTargetMinutes = state.pomodoroTargetMinutes,
-                        enablePomodoro = state.customization.enablePomodoro,
-                        enableDice = state.customization.enableDice,
-                        onSetPomodoroMode = viewModel::setPomodoroMode,
-                        activeTask = activeTask,
-                        onToggleSubtaskDone = viewModel::toggleSubtaskDone,
-                        focusBreakNudgeVisible = state.focusBreakNudgeVisible
-                    )
+                    AppTab.FOCUS -> {
+                        val timerTick by viewModel.timerTickState.collectAsStateWithLifecycle()
+                        TimerScreen(
+                            activeTimer = state.activeTimer,
+                            elapsedSeconds = timerTick.elapsedSeconds,
+                            clockSkewDetected = timerTick.clockSkewDetected,
+                            inputTitle = state.timerInputTitle,
+                            inputCategoryKey = state.timerInputCategoryKey,
+                            diceCognitiveState = state.diceCognitiveState,
+                            diceFaceProbabilities = state.diceFaceProbabilities,
+                            isRollingDice = state.isRollingDice,
+                            rollingPreviewFaceNumber = state.rollingPreviewFaceNumber,
+                            lastDiceRoll = state.lastDiceRoll,
+                            onTitleChange = viewModel::onTimerTitleChange,
+                            onCategoryChange = viewModel::onTimerCategoryChange,
+                            onRollDice = viewModel::rollTimeDice,
+                            onApplyDiceAndStartTimer = viewModel::applyDiceRollAndStartTimer,
+                            onStartTimer = viewModel::startTimer,
+                            onStopAndSaveTimer = viewModel::stopAndSaveTimer,
+                            onCancelTimer = viewModel::cancelRunningTimer,
+                            tagSuggestions = tagSuggestions,
+                            selectedTagId = state.timerInputTagId,
+                            onSelectTag = viewModel::selectTimerTag,
+                            onCleanDraft = viewModel::cleanTimerDraft,
+                            focusPinEnabled = state.focusPinEnabled,
+                            focusPinPreview = state.focusPinPreview,
+                            onToggleFocusPin = viewModel::toggleFocusPin,
+                            onApplyFocusSuggestion = viewModel::openFocusFromNotification,
+                            pomodoroMode = state.pomodoroMode,
+                            pomodoroTargetMinutes = state.pomodoroTargetMinutes,
+                            enablePomodoro = state.customization.enablePomodoro,
+                            enableDice = state.customization.enableDice,
+                            onSetPomodoroMode = viewModel::setPomodoroMode,
+                            activeTask = activeTask,
+                            onToggleSubtaskDone = viewModel::toggleSubtaskDone,
+                            focusBreakNudgeVisible = timerTick.breakNudgeVisible
+                        )
+                    }
 
                     AppTab.TASKS -> TasksHabitsScreen(
                         todayDateLocal = state.todayDateLocal,

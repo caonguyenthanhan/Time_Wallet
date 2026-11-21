@@ -18,7 +18,7 @@ import com.timewallet.mvp.domain.model.Tag
 import com.timewallet.mvp.domain.model.TaskItem
 import com.timewallet.mvp.domain.model.TaskStatus
 import com.timewallet.mvp.domain.model.TimeCategory
-import com.timewallet.mvp.domain.usecase.CoachDigestBuilder
+import com.timewallet.mvp.domain.usecase.WallyContextEngine
 import com.timewallet.mvp.domain.usecase.GoalRules
 import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
 import com.timewallet.mvp.domain.usecase.MarkdownSummaryExporter
@@ -131,24 +131,18 @@ object Wally20Coordinator {
         days: Int,
         nowMs: Long,
         zone: ZoneId
-    ) = CoachDigestBuilder.build(
-        records = if (perms.readLedger) records else emptyList(),
+    ) = WallyContextEngine.buildFilteredCoachDigest(
+        perms = perms,
+        records = records,
         tags = tags,
-        goals = if (perms.readGoals) goals else emptyList(),
+        goals = goals,
+        tasks = tasks,
+        habits = habits,
+        habitLogs = habitLogs,
         days = days,
-        nowEpochMs = nowMs,
+        nowMs = nowMs,
         zone = zone
-    ).let { base ->
-        val extra = TaskHabitEngine.buildPermissionAwareContextSuffix(
-            perms = perms,
-            tasks = tasks,
-            habits = habits,
-            habitLogs = habitLogs,
-            records = records,
-            todayDateLocal = LocalDate.now(zone).toString()
-        )
-        if (extra.isBlank()) base else base.copy(text = "${base.text}\n$extra")
-    }
+    )
 
     fun proposeSubtasksOffline(task: TaskItem): List<String> {
         val clean = task.title.trim()
