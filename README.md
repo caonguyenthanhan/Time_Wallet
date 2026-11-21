@@ -1,10 +1,10 @@
-# Wally — Time Wallet (`v2.0.0`)
+# Wally — Time Wallet (`v2.1.0`)
 
 **Trung tâm Quản lý Thời gian & Năng suất Cá nhân · Riêng tư tại máy · AI đề xuất có kiểm soát**  
 *Your time. Your choices. Your life.*
 
 <p align="left">
-  <img src="https://img.shields.io/badge/Version-v2.0.0%20(code%2018)-1F8066?style=flat-square" alt="Version v2.0.0" />
+  <img src="https://img.shields.io/badge/Version-v2.1.0%20(code%2019)-1F8066?style=flat-square" alt="Version v2.1.0" />
   <img src="https://img.shields.io/badge/Kotlin-2.0.21-7F52FF?style=flat-square&logo=kotlin&logoColor=white" alt="Kotlin 2.0.21" />
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white" alt="Jetpack Compose" />
   <img src="https://img.shields.io/badge/Android-API%2026%E2%80%9335-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android API 26-35" />
@@ -20,8 +20,8 @@
     </td>
     <td valign="middle">
       <p><b>Ai cũng chỉ có 24 giờ mỗi ngày — điều quan trọng không phải là nhồi nhét cho kín lịch, mà là nhìn rõ thời gian thực sự đi đâu để sống chủ động hơn.</b></p>
-      <p><b>Time Wallet (Wally 2.0)</b> kết nối lịch trình, công việc, thói quen, mục tiêu và các phiên tập trung vào một không gian Android bản địa — gọn gàng, chạy mượt khi ngoại tuyến, tôn trọng sự nghỉ ngơi và luôn giữ dữ liệu thuộc toàn quyền sở hữu của bạn.</p>
-      <p><i><b>English summary:</b> Wally 2.0 is a local-first Android productivity &amp; time hub unifying Calendar, Tasks &amp; Subtasks, Habits, Goals, Focus Pin, 24h analytics, and permission-scoped AI assistance — built for clarity without guilt, fake productivity scores, or lock-in.</i></p>
+      <p><b>Time Wallet (Wally v2.1)</b> kết nối lịch trình, công việc, thói quen, mục tiêu, phân tích hoạt động 3 lớp và trợ lý AI thích ứng vào một không gian Android bản địa — gọn gàng, chạy mượt khi ngoại tuyến, tôn trọng sự nghỉ ngơi và luôn giữ dữ liệu thuộc toàn quyền sở hữu của bạn.</p>
+      <p><i><b>English summary:</b> Time Wallet v2.1 builds on Wally 2.0's local-first Android productivity &amp; time hub (Calendar, Tasks &amp; Subtasks, Habits, Goals, Focus Pin) with Method A Adaptive AI Context, 3-layer 24h activity/goal analytics, and grounded data storytelling — clarity without guilt, fake productivity scores, or lock-in.</i></p>
     </td>
   </tr>
 </table>
@@ -40,16 +40,16 @@
 
 ## Why Time Wallet? · Vì sao chọn Time Wallet?
 
-| Vấn đề thường gặp ở app truyền thống | Cách Wally `v2.0.0` giải quyết |
+| Vấn đề thường gặp ở app truyền thống | Cách Wally `v2.1.0` giải quyết |
 |---|---|
 | Bắt ghi quá nhiều nơi: app lịch riêng, to-do riêng, bấm giờ riêng → ngại mở hoặc nhập trùng | **Một vòng khép kín tự nhiên:** từ *Inbox / Việc cần làm* đẩy lên *Lịch*, bấm `▶` đo ngay kèm checklist *Subtasks*, và tự khớp hoàn thành *Thói quen* nếu đúng Tag & đủ phút. |
 | Gộp chung dự kiến với thực tế, hoặc tự đoán khung giờ cho ghi nhận rời rạc | **Trung thực tuyệt đối với dữ liệu 24h:** tách rõ *Đã đo (`MEASURED`)*, *Có mốc giờ (`REPORTED_TIMED`)*, *Chỉ thời lượng (`Chưa gắn giờ`)* và *Kế hoạch (`PLANNED`)*. |
-| Chấm điểm năng suất gây áp lực khi nghỉ ngơi | **Nhìn rõ không phán xét:** phân 4 tầng *Mục tiêu · Phi mục tiêu · Lãng phí (chỉ khi bạn tự đánh dấu) · Chưa rõ*, tách nghỉ ngơi hợp lý khỏi lãng phí. |
-| Phụ thuộc cloud, đòi nhiều quyền hệ thống, khó biết AI đang đọc gì | **Local-first & Privacy-first:** chỉ dùng **3 quyền Android tối thiểu** (`INTERNET`, `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`), bật/tắt chi tiết **4 phạm vi đọc của AI**, khóa API mã hóa AES-GCM trong Android Keystore và không xuất ra sao lưu. |
+| Chấm điểm năng suất gây áp lực khi nghỉ ngơi | **Nhìn rõ không phán xét:** mặc định biểu đồ **5 nhóm hoạt động thực tế** đối chiếu với `Chưa ghi nhận`, tách nghỉ ngơi hợp lý khỏi lãng phí, và chỉ đánh dấu lãng phí khi bạn chọn. |
+| Phụ thuộc cloud, đòi nhiều quyền hệ thống, khó biết AI đang đọc gì | **Local-first & Privacy-first:** chỉ dùng **3 quyền Android tối thiểu** (`INTERNET`, `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`), bật/tắt chi tiết **4 phạm vi đọc của AI**, `AdaptiveContextRouter` chỉ gửi ngữ cảnh giới hạn khi cần, khóa API mã hóa AES-GCM trong Android Keystore và không xuất ra sao lưu. |
 
 ---
 
-## Key Capabilities in `v2.0.0`
+## Key Capabilities in `v2.1.0`
 
 - **Lịch trình là trung tâm (`Lịch trình · Ngày / 3 ngày / Tuần / Tháng`):** Xem ngay thanh **Ví 24h thu gọn 1 dòng** ở đầu trang, đối chiếu song song **Kế hoạch vs Thực tế**, xử lý vắt nửa đêm (`UC-15`), chọn ô giờ trống tạo nhanh kế hoạch, cuộn ngang lịch Tuần với cột giờ cố định, phóng to thẻ chi tiết ngày/hoạt động và thu gọn bộ lọc/chú giải vào menu `⋮`.
 - **Việc cần làm, Subtasks, Thói quen & Mục tiêu hợp nhất:** Chụp nhanh ý tưởng vào *Inbox*, quản lý *Priority (`P1–P3`)*, mở rộng *Subtasks* ngay trên thẻ, theo dõi chuỗi *Thói quen* 7 ngày (`T2–CN`) tự khớp từ sổ cái (`⚡`), và gộp *Mục tiêu tối thiểu (`MIN`)* cùng *Ngân sách giới hạn (`MAX`)* theo chu kỳ. Bật thêm *Kanban* hoặc *Ma trận Eisenhower* trong Cài đặt nếu cần.
@@ -60,14 +60,14 @@
 
 ---
 
-## UI Preview (`v2.0.0` · Light & Dark Mode)
+## UI Preview (`v2.1.0` / `v2.0` · Light & Dark Mode)
 
 <p align="center">
-  <img src="docs/screenshots/ui-preview/_tong-hop_wally-2.0.jpg" alt="Time Wallet v2.0.0 — Light & Dark 5-Screen Overview" width="960" />
+  <img src="docs/screenshots/ui-preview/_tong-hop_wally-2.0.jpg" alt="Time Wallet v2.1.0 — Light & Dark 5-Screen Overview" width="960" />
 </p>
 
 <p align="center">
-  <sub><i>Gallery covers 36 screenshots (plus 5-panel overview banner) captured on the isolated <code>WallyQA</code> emulator (Android 9, <code>780×1688 @320dpi</code>) using synthetic QA data: refreshed Day Schedule, 3-Layer Activity/Wally Story Stats &amp; Wally Overlay captures (<code>01</code>, <code>15</code>, <code>15b</code>, <code>24</code>, <code>26</code>, <code>26b</code>, banner) come directly from the latest signed Release APK <code>9CEA64A0C9C1…</code> (<code>v2.0.0</code> · <code>versionCode 18</code>), alongside unchanged screens from prior <code>BEDEE1904C58…</code> / <code>50EBDFFF…</code> baseline checks. Owner personal instance (<code>index 0</code>), live AI eval on <code>v2.0.0</code> / Adaptive Context, Android 13–16 AEHD, cold-boot, and physical device remain untouched / <code>NOT_TESTED</code>.</i></sub>
+  <sub><i>Gallery covers 36 screenshots (plus 5-panel overview banner) captured on the isolated <code>WallyQA</code> emulator (Android 9, <code>780×1688 @320dpi</code>) using synthetic QA data: refreshed Day Schedule, 3-Layer Activity/Wally Story Stats &amp; Wally Overlay captures (<code>01</code>, <code>15</code>, <code>15b</code>, <code>24</code>, <code>26</code>, <code>26b</code>, banner) were captured from Release APK <code>9CEA64A0C9C1…</code> (identical UI source to <code>v2.1.0</code> <code>005378EF…</code> right before the <code>versionCode 18 → 19</code> bump), alongside unchanged screens from prior <code>BEDEE1904C58…</code> / <code>50EBDFFF…</code> <code>v2.0.0</code> baseline checks. Owner personal instance (<code>index 0</code>), live AI eval on Adaptive Context, Android 13–16 AEHD, cold-boot, and physical device remain untouched / <code>NOT_TESTED</code>.</i></sub>
 </p>
 
 <details>
@@ -95,19 +95,19 @@ See capture details in [docs/screenshots/ui-preview/README.md](docs/screenshots/
 
 ---
 
-## Verification & Quality Status (`v2.0.0` · `9CEA64A0…`)
+## Verification & Quality Status (`v2.1.0` · `005378EF…`)
 
 - **JVM & Contract Tests:** `653/655` PASS (`0` failed, `0` errors; 2 Live API suites `V110CoachLiveEvalTest#coachLiveEval` and `V120LiveAiEvalTest#liveChatAndRouteEval` skipped offline), including `WallyContextEngineTest` (Adaptive Context routing, permission zero-leak, TTL invalidation, 24h activity bucket conservation & 3-layer Stats contract).
-- **Static Analysis & Packaging:** `lintRelease` reports **0 errors** (`60` warnings); Release APK (`9,058,923` bytes, SHA-256 `9CEA64A0C9C1954A6C09109B406E825A3EC906AE7AB39E4CC19DB826990F5865`) and Debug APK (`14,656,226` bytes, SHA-256 `45E35EC455415FD7E9F432466265FE1D74AC298C80450640A997EE9EE8627113`) signed and verified with `apksigner`.
-- **QA Emulator Validation (`WallyQA`):** Verified `9CEA64A0…` visually on `WallyQA` (`390×844dp` @320dpi, causal `2026-11-22` synthetic dataset) for Day Schedule, 3-Layer `Thống kê` (Light + Dark, `Hoạt động | Mục tiêu` switch, `"Đã ghi nhận: X / 24h"`, Tag & `% vs tuần trước`, `0p` untagged hint, 4-step `Wally kể từ dữ liệu` + partial confidence note), draggable Pop-on bubble & `Trợ lý Wally` overlay + offline API-First guard with `0` crashes in `logcat`, alongside prior `BEDEE190…` / `50EBDFFF…` checks (`v1.2.0 → v2.0.0` upgrade, standalone Focus Pin `id=910301`, Week/Month scroll, `Task → Subtasks → Focus`). *(Live AI eval on `v2.0.0` & Adaptive Context, cold-boot `BOOT_COMPLETED`, Android 13–16 AEHD, and Owner physical device remain `NOT_TESTED`.)*
+- **Static Analysis & Packaging:** `lintRelease` reports **0 errors** (`60` warnings); Release APK (`9,058,921` bytes, SHA-256 `005378EFD99484A82BB3D22C8510BBD6B3D9285FD9843F748BBA74BAA4AB51D0`) and Debug APK (`13,452,888` bytes, SHA-256 `78A3455E6F0049777C0AC08B5CD7B53C471A3C98CEC97A5D03D9C7B68857CDDF`) signed and verified with `apksigner` (`39f5712d…`).
+- **QA Emulator Validation (`WallyQA`):** Visually verified `9CEA64A0…` (identical UI source right prior to the `versionCode 18 → 19` bump to `v2.1.0`) on `WallyQA` (`390×844dp` @320dpi, causal `2026-11-22` synthetic dataset) for Day Schedule, 3-Layer `Thống kê` (Light + Dark, `Hoạt động | Mục tiêu` switch, `"Đã ghi nhận: X / 24h"`, Tag & `% vs tuần trước`, `0p / 1h` untagged hint, 4-step `Wally kể từ dữ liệu` + partial confidence note), draggable Pop-on bubble & `Trợ lý Wally` overlay + offline API-First guard with `0` crashes in `logcat`, alongside prior `v2.0.0` (`BEDEE190…` / `50EBDFFF…`) checks (`v1.2.0 → v2.0.0` upgrade, standalone Focus Pin `id=910301`, Week/Month scroll, `Task → Subtasks → Focus`). *(Live AI eval on Adaptive Context, cold-boot `BOOT_COMPLETED`, Android 13–16 AEHD, and Owner physical device remain `NOT_TESTED`.)*
 
 ---
 
 ## Technical Architecture & Repository Structure
 
 - **Platform:** Android Native · Kotlin (`2.0.21`) · Jetpack Compose M3 · Room SQLite (`v7`, `MIGRATION_1_7`)
-- **Current Release Candidate:** Wally `v2.0.0` (`versionCode 18`) — [WALLY_V200_CANDIDATE.md](WALLY_V200_CANDIDATE.md)
-- **Previous `1.x` Baseline:** [WALLY_V120_PRODUCTION_CANDIDATE.md](WALLY_V120_PRODUCTION_CANDIDATE.md)
+- **Current Release Candidate:** Wally `v2.1.0` (`versionCode 19`) — [WALLY_V210_CANDIDATE.md](WALLY_V210_CANDIDATE.md)
+- **Previous Baselines:** [WALLY_V200_CANDIDATE.md](WALLY_V200_CANDIDATE.md) (`v2.0.0`) · [WALLY_V120_PRODUCTION_CANDIDATE.md](WALLY_V120_PRODUCTION_CANDIDATE.md) (`v1.2.0`)
 
 <details>
 <summary>Expand architecture layers, Room v7 schema, and directory tree</summary>
@@ -131,7 +131,7 @@ Time_Wallet/
 ├── docs/
 │   ├── archive/                    # Historical dossiers, reviews & QA records (v1.0.5–v1.0.13)
 │   ├── brand/                      # Icon Design System v3 SVG & Wally WebP showcase
-│   └── screenshots/                # v2.0.0 Light/Dark UI previews & v1.0.11 baseline
+│   └── screenshots/                # v2.1 / v2.0 Light/Dark UI previews & v1.0.11 baseline
 ├── promo-video/                    # HyperFrames product intro video project
 ├── app/
 │   ├── build.gradle.kts            # Kotlin, Compose, Room schema export, external Release signing
@@ -140,12 +140,13 @@ Time_Wallet/
 │       ├── main/java/com/timewallet/mvp/
 │       │   ├── MainActivity.kt
 │       │   ├── data/               # AI client, Diagnostics, Room DAO/Entities (v7), Backup JSON v2, Settings
-│       │   ├── domain/             # Pure Kotlin models & engines (Task/Habit, FocusPin, Calendar, Analytics, Guards)
+│       │   ├── domain/             # Pure Kotlin models & engines (AdaptiveContext, Analytics 3-layer, Task/Habit, Guards)
 │       │   ├── notifications/      # Focus Pin & AlarmManager CompletionReminder + CompletionBootReceiver
-│       │   └── ui/                 # TimeWalletViewModel, Wally20Coordinator, Screens, Theme, UiKit
+│       │   └── ui/                 # TimeWalletViewModel, WallyIntelligenceCoordinator, Wally20Coordinator, Screens, Theme
 │       └── test/java/com/timewallet/mvp/  # JVM unit & static contract test suites (655 test cases)
 ├── WALLY_TECHNICAL_SPEC.md         # Detailed technical spec & Mermaid diagrams
-├── WALLY_V200_CANDIDATE.md         # v2.0.0 Candidate handoff, SHA-256 & Acceptance Checklist
+├── WALLY_V210_CANDIDATE.md         # v2.1.0 Candidate handoff, SHA-256 & Acceptance Checklist
+├── WALLY_V200_CANDIDATE.md         # v2.0.0 baseline handoff & Acceptance Checklist
 ├── WALLY_V120_PRODUCTION_CANDIDATE.md  # v1.2.0 historical baseline handoff
 └── CONTEXT_MANIFEST.md
 ```
@@ -166,7 +167,8 @@ Time_Wallet/
    .\gradlew.bat assembleRelease
    ```
 4. **Documentation:**
-   - [Candidate `v2.0.0` Handoff & Acceptance Matrix](WALLY_V200_CANDIDATE.md)
+   - [Candidate `v2.1.0` Handoff & Acceptance Matrix](WALLY_V210_CANDIDATE.md)
+   - [Baseline `v2.0.0` Candidate Handoff](WALLY_V200_CANDIDATE.md)
    - [Historical `v1.2.0` Production Candidate](WALLY_V120_PRODUCTION_CANDIDATE.md)
    - [Technical Specification](WALLY_TECHNICAL_SPEC.md)
    - [MVP Specification](Time_Wallet_MVP/Time_Wallet_MVP_Spec.md)
