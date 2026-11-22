@@ -84,7 +84,10 @@ import com.timewallet.mvp.domain.model.TaskStatus
 import com.timewallet.mvp.domain.model.ThemeModePreference
 import com.timewallet.mvp.ui.screens.ActivityConfirmationDialog
 import com.timewallet.mvp.ui.screens.AiSettingsDialog
+import com.timewallet.mvp.ui.screens.AppUpdateDialog
 import com.timewallet.mvp.ui.screens.OverlapResolutionDialog
+import com.timewallet.mvp.data.update.AndroidApkInstallerLauncher
+import java.io.File
 import com.timewallet.mvp.ui.screens.BudgetDeleteConfirmDialog
 import com.timewallet.mvp.ui.screens.BudgetEditorDraft
 import com.timewallet.mvp.ui.screens.DailyReviewScreen
@@ -293,6 +296,25 @@ fun TimeWalletAppRoot(
         }
     }
 
+    LaunchedEffect(state.pendingApkInstallPath) {
+        val apkPath = state.pendingApkInstallPath ?: return@LaunchedEffect
+        viewModel.consumePendingApkInstall()
+        if (!AndroidApkInstallerLauncher.canRequestPackageInstalls(context)) {
+            viewModel.showToast("Hãy bật quyền \"Cài đặt ứng dụng không xác định\" cho Time Wallet rồi bấm Cài đặt ngay lại.")
+            runCatching {
+                context.startActivity(AndroidApkInstallerLauncher.buildUnknownSourcesPermissionIntent(context))
+            }.onFailure {
+                viewModel.showToast("Không mở được màn hình cấp quyền cài đặt của hệ thống.")
+            }
+        } else {
+            runCatching {
+                context.startActivity(AndroidApkInstallerLauncher.buildInstallIntent(context, File(apkPath)))
+            }.onFailure {
+                viewModel.showToast("Không mở được trình cài đặt APK hệ thống.")
+            }
+        }
+    }
+
     LaunchedEffect(pendingNotificationRecordId) {
         val targetId = pendingNotificationRecordId ?: return@LaunchedEffect
         viewModel.openActivityConfirmationFromNotification(targetId)
@@ -336,7 +358,10 @@ fun TimeWalletAppRoot(
         ThemeModePreference.SYSTEM -> isSystemInDarkTheme()
     }
 
-    TimeWalletTheme(darkTheme = isDark) {
+    TimeWalletTheme(
+        darkTheme = isDark,
+        fontScaleMultiplier = state.customization.fontScale.multiplier
+    ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -386,7 +411,7 @@ fun TimeWalletAppRoot(
                     .fillMaxSize()
                     .padding(innerPadding)
                     .then(if (lockOuterScroll) Modifier else Modifier.verticalScroll(scrollState))
-                    .padding(horizontal = bodyHorizontalPadding, vertical = 4.dp)
+                    .padding(horizontal = bodyHorizontalPadding, vertical = 2.dp)
             ) {
                 when (state.currentTab) {
                     AppTab.SCHEDULE -> {
@@ -424,6 +449,7 @@ fun TimeWalletAppRoot(
                                 },
                                 onAddForSlots = viewModel::openManualFormForSlots,
                                 onMoveOrResizeBlock = viewModel::moveOrResizeScheduleRecord,
+                                onPlaceUntimedOnSlot = viewModel::placeUntimedRecordOnSlot,
                                 onNavigateToTimer = { viewModel.selectTab(AppTab.FOCUS) },
                                 showCalendarMode = journalCalendarMode,
                                 onShowCalendarModeChange = { journalCalendarMode = it },
@@ -527,6 +553,7 @@ fun TimeWalletAppRoot(
                             tagsCount = activeTags.size,
                             coach = state.coach,
                             aiEnabled = state.aiPreferences.optInEnabled && state.aiPreferences.apiKey.isNotBlank(),
+                            aiModeLabel = "${state.aiPreferences.modeTitle()} · ${state.aiPreferences.actualModelDisplay()}",
                             hasSavedTodayReview = hasSavedTodayReview,
                             onOpenBudgetEditor = viewModel::openBudgetEditor,
                             onDeleteBudget = { pendingBudgetDelete = it },
@@ -553,7 +580,8 @@ fun TimeWalletAppRoot(
                     }
                 }
                 if (!lockOuterScroll) {
-                    Spacer(modifier = Modifier.height(14.dp))
+                    val bottomSpacer = if (state.customization.enableAiAssistant && !state.showScheduleWorkspace) 76.dp else 14.dp
+                    Spacer(modifier = Modifier.height(bottomSpacer))
                 }
             }
         }
@@ -579,6 +607,8 @@ fun TimeWalletAppRoot(
                     onEditRecord = viewModel::openEditRecord,
                     onConfirmPlannedOrActiveRecord = viewModel::confirmPlannedOrActiveRecord,
                     onMoveOrResizeBlock = viewModel::moveOrResizeScheduleRecord,
+                    onDeleteRecord = viewModel::deleteRecord,
+                    onPlaceUntimedOnSlot = viewModel::placeUntimedRecordOnSlot,
                     onNavigateToTimer = {
                         viewModel.closeScheduleWorkspace()
                         viewModel.selectTab(AppTab.FOCUS)
@@ -610,6 +640,7 @@ fun TimeWalletAppRoot(
             state.tagManager != null ||
             state.showAiSettingsDialog ||
             state.showProductInfoDialog ||
+            state.appUpdate.showDialog ||
             imeBottomPx > 0
         if (state.customization.enableAiAssistant && !modalBlockingPopOn) {
             WallyPopOnBubble(
@@ -801,9 +832,23 @@ fun TimeWalletAppRoot(
         )
     }
 
+    if (state.appUpdate.showDialog) {
+        AppUpdateDialog(
+            state = state.appUpdate,
+            onCheckAgain = { viewModel.checkForAppUpdates(manual = true) },
+            onDownloadAndInstall = viewModel::downloadAndVerifyUpdate,
+            onLaunchVerifiedInstaller = viewModel::launchVerifiedInstaller,
+            onSkipCandidate = viewModel::skipAvailableAppUpdate,
+            onToggleAutoCheck = viewModel::setAutoUpdateCheckEnabled,
+            onDismiss = viewModel::dismissAppUpdateDialog
+        )
+    }
+
     if (state.showProfileSettings) {
         ProfileSettingsScreen(
             aiEnabled = state.aiPreferences.optInEnabled && state.aiPreferences.apiKey.isNotBlank(),
+            aiPreferences = state.aiPreferences,
+            onSelectWallyPreset = viewModel::selectWallyPreset,
             hasCrashReport = !state.lastCrashReport.isNullOrBlank(),
             tagsCount = activeTags.size,
             goalsCount = goalSummaries.size,
@@ -823,7 +868,9 @@ fun TimeWalletAppRoot(
             onUpdateCustomization = viewModel::updateCustomizationSettings,
             onUpdateAiPermissions = viewModel::updateAiReadPermissions,
             onAddLocalRule = { kw, catKey, markWaste -> viewModel.addLocalCategoryRule(kw, catKey, markWaste = markWaste) },
-            onDeleteLocalRule = viewModel::deleteLocalCategoryRule
+            onDeleteLocalRule = viewModel::deleteLocalCategoryRule,
+            appUpdate = state.appUpdate,
+            onOpenAppUpdate = viewModel::openAppUpdateDialog
         )
     }
 
@@ -891,6 +938,7 @@ fun TimeWalletAppRoot(
             onApplyExample = viewModel::applyChatExample,
             onAnalyzeClick = viewModel::analyzeChatInput,
             onOpenAiSettings = { viewModel.toggleAiSettingsDialog(true) },
+            onSelectWallyPreset = viewModel::selectWallyPreset,
             onToggleExpandProposal = viewModel::toggleExpandProposal,
             onUpdateProposal = viewModel::updateProposalDraft,
             onDiscardProposal = viewModel::discardProposal,
@@ -944,9 +992,9 @@ private fun WallyPopOnBubble(
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val density = LocalDensity.current
-        val bubbleSize = 54.dp
+        val bubbleSize = 48.dp
         val bubblePx = with(density) { bubbleSize.toPx() }
-        val edgeMarginPx = with(density) { 10.dp.toPx() }
+        val edgeMarginPx = with(density) { 6.dp.toPx() }
         val topMinPx = with(density) { 64.dp.toPx() }
         val bottomClearancePx = with(density) { bottomClearanceDp.dp.toPx() }
         val maxWPx = with(density) { maxWidth.toPx() }
@@ -955,7 +1003,7 @@ private fun WallyPopOnBubble(
         val maxYPx = (maxHPx - bubblePx - bottomClearancePx).coerceAtLeast(topMinPx)
 
         var snapRight by rememberSaveable { mutableStateOf(true) }
-        var normalizedY by rememberSaveable { mutableFloatStateOf(0.86f) }
+        var normalizedY by rememberSaveable { mutableFloatStateOf(1.0f) }
         var isDragging by remember { mutableStateOf(false) }
         var dragXPx by remember { mutableFloatStateOf(maxXPx) }
         var dragYPx by remember { mutableFloatStateOf((maxYPx * normalizedY).coerceIn(topMinPx, maxYPx)) }
@@ -993,7 +1041,7 @@ private fun WallyPopOnBubble(
                             snapRight = (dragXPx + bubblePx / 2f) >= (maxWPx / 2f)
                             normalizedY = if (maxYPx > topMinPx) {
                                 ((dragYPx - topMinPx) / (maxYPx - topMinPx)).coerceIn(0f, 1f)
-                            } else 0.85f
+                            } else 1.0f
                             isDragging = false
                         },
                         onDragCancel = {
@@ -1004,9 +1052,9 @@ private fun WallyPopOnBubble(
         ) {
             Surface(
                 shape = CircleShape,
-                color = WalletCardBg,
-                border = BorderStroke(2.dp, WalletMint),
-                shadowElevation = if (isDragging) 12.dp else 6.dp,
+                color = WalletCardBg.copy(alpha = 0.96f),
+                border = BorderStroke(1.75.dp, WalletMint),
+                shadowElevation = if (isDragging) 12.dp else 5.dp,
                 modifier = Modifier
                     .fillMaxSize()
                     .minimumInteractiveComponentSize()
@@ -1017,13 +1065,13 @@ private fun WallyPopOnBubble(
                     .clickable(onClickLabel = "Mở bóng chat Wally AI", onClick = onClick)
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    WallyMascotAvatar(size = 38.dp, contentDescription = null)
+                    WallyMascotAvatar(size = 34.dp, contentDescription = null)
                 }
             }
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .size(20.dp)
+                    .size(18.dp)
                     .clip(CircleShape)
                     .background(if (hasDrafts) WalletDangerText else WalletMintDark)
                     .border(1.5.dp, WalletCardBg, CircleShape),
@@ -1032,7 +1080,7 @@ private fun WallyPopOnBubble(
                 Text(
                     text = if (hasDrafts) "•" else "✦",
                     color = Color.White,
-                    fontSize = 10.sp,
+                    fontSize = 9.sp,
                     fontWeight = FontWeight.ExtraBold
                 )
             }

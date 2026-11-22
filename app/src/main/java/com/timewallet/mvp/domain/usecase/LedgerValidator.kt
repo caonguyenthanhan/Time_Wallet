@@ -92,14 +92,20 @@ object LedgerValidator {
         return try {
             val localDate = LocalDate.parse(dateLocal.trim())
             val startTime = parseFlexibleLocalTime(startHm) ?: return null
-            val endTime = parseFlexibleLocalTime(endHm) ?: return null
-            if (endTime == startTime) return null
-            if (endTime == startTime) return null
-
             val startZoned = ZonedDateTime.of(localDate, startTime, zoneId)
-            var endZoned = ZonedDateTime.of(localDate, endTime, zoneId)
-            if (!endZoned.isAfter(startZoned)) {
-                endZoned = ZonedDateTime.of(localDate.plusDays(1), endTime, zoneId)
+            val cleanEnd = endHm.trim().lowercase()
+            val isEndMidnight24 = cleanEnd in setOf("24:00", "2400", "24h", "24h00", "24:0")
+            val endZoned = if (isEndMidnight24) {
+                ZonedDateTime.of(localDate.plusDays(1), LocalTime.MIDNIGHT, zoneId)
+            } else {
+                val endTime = parseFlexibleLocalTime(endHm) ?: return null
+                if (endTime == startTime) return null
+                val sameDay = ZonedDateTime.of(localDate, endTime, zoneId)
+                if (!sameDay.isAfter(startZoned)) {
+                    ZonedDateTime.of(localDate.plusDays(1), endTime, zoneId)
+                } else {
+                    sameDay
+                }
             }
             startZoned.toInstant().toEpochMilli() to endZoned.toInstant().toEpochMilli()
         } catch (_: Exception) {

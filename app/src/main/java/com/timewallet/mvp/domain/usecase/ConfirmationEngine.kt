@@ -217,6 +217,11 @@ object ConfirmationEngine {
             is ValidationResult.Invalid -> return ConfirmationActionResult.Invalid(validatedNoOverlap.message)
             is ValidationResult.Valid -> validatedNoOverlap.record
         }
+        if (!allowFutureAsPlanned && existing.layer != TimeLayer.PLANNED && built.layer == TimeLayer.PLANNED) {
+            return ConfirmationActionResult.Invalid(
+                "Không thể dời hoạt động thực tế sang khung giờ tương lai (tránh tự chuyển thành Dự kiến). Hãy tạo mới ở mục Dự kiến."
+            )
+        }
         val confState = when (built.layer) {
             TimeLayer.PLANNED -> ConfirmationState.PLANNED.name
             TimeLayer.ACTIVE -> ConfirmationState.DOING.name

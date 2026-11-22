@@ -36,9 +36,10 @@ class WallySecurityStaticTest {
         val allowedPerms = setOf(
             "android.permission.INTERNET",
             "android.permission.POST_NOTIFICATIONS",
-            "android.permission.RECEIVE_BOOT_COMPLETED"
+            "android.permission.RECEIVE_BOOT_COMPLETED",
+            "android.permission.REQUEST_INSTALL_PACKAGES"
         )
-        assertTrue("chỉ xin quyền INTERNET, POST_NOTIFICATIONS và RECEIVE_BOOT_COMPLETED, phát hiện: $perms", perms.isNotEmpty() && perms.all { it in allowedPerms })
+        assertTrue("chỉ xin quyền hợp lệ tối thiểu cho mạng/thông báo/cài APK cập nhật, phát hiện: $perms", perms.isNotEmpty() && perms.all { it in allowedPerms })
     }
 
     @Test

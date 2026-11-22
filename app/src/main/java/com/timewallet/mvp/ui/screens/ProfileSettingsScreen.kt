@@ -50,11 +50,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.timewallet.mvp.data.local.AiPreferences
+import com.timewallet.mvp.data.local.WallyModelPreset
 import com.timewallet.mvp.domain.model.AiReadPermissions
 import com.timewallet.mvp.domain.model.CustomizationSettings
+import com.timewallet.mvp.domain.model.FontScalePreference
 import com.timewallet.mvp.domain.model.LocalCategoryRule
 import com.timewallet.mvp.domain.model.ThemeModePreference
 import com.timewallet.mvp.domain.model.TimeCategory
+import com.timewallet.mvp.domain.usecase.AppUpdateUiState
 import com.timewallet.mvp.domain.usecase.FocusPinPolicy
 import com.timewallet.mvp.domain.usecase.FocusPinState
 import com.timewallet.mvp.ui.theme.WalletBg
@@ -77,6 +81,8 @@ import com.timewallet.mvp.ui.theme.WalletStroke
 @Composable
 fun ProfileSettingsScreen(
     aiEnabled: Boolean,
+    aiPreferences: AiPreferences = AiPreferences(),
+    onSelectWallyPreset: (WallyModelPreset) -> Unit = {},
     hasCrashReport: Boolean,
     tagsCount: Int,
     goalsCount: Int,
@@ -96,7 +102,9 @@ fun ProfileSettingsScreen(
     onUpdateCustomization: ((CustomizationSettings) -> CustomizationSettings) -> Unit = {},
     onUpdateAiPermissions: ((AiReadPermissions) -> AiReadPermissions) -> Unit = {},
     onAddLocalRule: (keyword: String, categoryKey: String, markWaste: Boolean) -> Unit = { _, _, _ -> },
-    onDeleteLocalRule: (String) -> Unit = {}
+    onDeleteLocalRule: (String) -> Unit = {},
+    appUpdate: AppUpdateUiState = AppUpdateUiState(),
+    onOpenAppUpdate: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val versionLabel = remember {
@@ -210,6 +218,41 @@ fun ProfileSettingsScreen(
                                 }
                             }
                         }
+                        HorizontalDivider(color = WalletDivider, modifier = Modifier.padding(vertical = 2.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Cỡ chữ hiển thị", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = WalletInk)
+                            Text(
+                                text = "Hiện tại: ${customization.fontScale.labelVi}",
+                                fontSize = 11.sp,
+                                color = WalletMuted
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            FontScalePreference.entries.forEach { scale ->
+                                val isSel = customization.fontScale == scale
+                                WalletPill(
+                                    onClickLabel = "Cỡ chữ ${scale.labelVi}",
+                                    containerColor = if (isSel) WalletMintDark else WalletSoftNeutral,
+                                    borderColor = if (isSel) WalletMintDark else WalletStroke,
+                                    selected = isSel,
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),
+                                    onClick = { onUpdateCustomization { it.copy(fontScale = scale) } }
+                                ) {
+                                    Text(
+                                        text = scale.labelVi,
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSel) Color.White else WalletInk,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+                        }
                     }
                     HorizontalDivider(color = WalletDivider)
                     Column(
@@ -266,10 +309,29 @@ fun ProfileSettingsScreen(
                     SettingsRowItem(
                         glyph = WalletGlyph.SETTINGS,
                         title = "Cấu hình Wally AI",
-                        subtitle = if (aiEnabled) "Đã kết nối API · sẵn sàng phân tích câu tự nhiên" else "Chưa bật API · đang dùng phân tích cục bộ",
+                        subtitle = if (aiEnabled) {
+                            "${aiPreferences.modeTitle()} (${aiPreferences.actualModelDisplay()}) · đã kết nối API"
+                        } else {
+                            "Chưa bật API · đang dùng phân tích cục bộ"
+                        },
                         badgeText = if (aiEnabled) "Bật" else "Tắt",
                         onClick = onOpenAiSettings
                     )
+                    HorizontalDivider(color = WalletDivider)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Chế độ Wally (Claude)", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = WalletInk)
+                        WallyModelModeSelector(
+                            currentModelName = aiPreferences.modelName,
+                            onSelectPreset = onSelectWallyPreset,
+                            compact = false,
+                            showAutoFutureHint = true
+                        )
+                    }
                     HorizontalDivider(color = WalletDivider)
                     Column(
                         modifier = Modifier
@@ -467,6 +529,19 @@ fun ProfileSettingsScreen(
                         subtitle = "Chú giải sổ cái, nhật ký lỗi và thông tin bản dựng",
                         badgeText = if (hasCrashReport) "Có nhật ký" else null,
                         onClick = onOpenInfo
+                    )
+                    HorizontalDivider(color = WalletDivider)
+                    val updateCand = appUpdate.availableCandidate
+                    SettingsRowItem(
+                        glyph = WalletGlyph.ARROW_UP,
+                        title = "Cập nhật ứng dụng (GitHub Releases)",
+                        subtitle = if (updateCand != null) {
+                            "Có bản mới ${updateCand.tagName} · hiện tại v$versionLabel"
+                        } else {
+                            "Kiểm tra phiên bản mới · hiện tại v$versionLabel"
+                        },
+                        badgeText = if (updateCand != null) "Mới" else null,
+                        onClick = onOpenAppUpdate
                     )
                 }
 

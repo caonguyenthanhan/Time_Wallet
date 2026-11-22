@@ -1,14 +1,14 @@
 # CONTEXT_MANIFEST.md
-Cập nhật lần cuối: 2026-11-22T05:00:00+07:00
+Cập nhật lần cuối: 2026-11-22T16:08:00+07:00
 
 ## Core (luôn nạp vào context)
 - `.agents/` — Quy tắc dự án (`AGENTS.md`, `rules/link-ecosystem.md`)
 - `.gitignore`, `.repomixignore` — Bộ lọc tệp build, output QA, `reference/`, media promo, design vector nguồn lớn, `docs/archive` & tệp tạm
-- `README.md` — Trang giới thiệu tổng quan `v2.1.0` (`versionCode 19`), thư viện ảnh Light/Dark, kiến trúc Room v7, Adaptive Context & Thống kê 3 lớp
+- `README.md` — Trang giới thiệu tổng quan `v2.1.0` (`versionCode 19`), thư viện ảnh Light/Dark, kiến trúc Room v7, Adaptive Context, Wally Pro/Flash, Auto-Update & Thống kê 3 lớp
 - `promo-video/` — Mã nguồn bố cục HyperFrames (`index.html`, `compositions/*.html`, `SPEC.md`, `STORYLINES.md`, `REVIEW.md`)
 - `Time_Wallet_MVP/` — Đặc tả MVP & HTML Prototype gốc
 - `ai_test/` — Script kiểm thử gateway (`test_foza_ai.ts`, đọc `FOZA_API_KEY` từ biến môi trường; KHÔNG xóa dù có chuỗi `_test`)
-- `app/` — Mã nguồn Kotlin/Compose `v2.1.0` (`AdaptiveContextRouter`, `WallyContextEngine`, `WallyIntelligenceCoordinator`, `LedgerAnalyticsCalculator`, `InsightsScreen`), bộ test JVM (`655` cases) & Room schemas (`v4..v7`)
+- `app/` — Mã nguồn Kotlin/Compose `v2.1.0` (`versionCode 19`: `AdaptiveContextRouter`, `WallyContextEngine`, `WallyIntelligenceCoordinator`, `LedgerAnalyticsCalculator`, `InsightsScreen`, `AppUpdateContract`, `GitHubAppUpdater`, `AppUpdateCoordinator`, `WallyModelPreset`, `FontScalePreference`, `ScheduleCalendarView` + `ScheduleGridEngine` thống nhất luồng tương tác), bộ test JVM (`669` cases: `665` pass, `4` live-eval skip offline) & Room schemas (`v4..v7`)
 - `build.gradle.kts`, `settings.gradle.kts`, `gradle/`, `gradle.properties`
 - Tài liệu chính ở root: `WALLY_V210_CANDIDATE.md`, `WALLY_V200_CANDIDATE.md`, `WALLY_V120_PRODUCTION_CANDIDATE.md`, `WALLY_TECHNICAL_SPEC.md`, `SPEC_TIME_WALLET_WALLY.md`, `WALLY_V110_PLAN.md`, `WALLY_V110_CLOSURE_DIGEST.md`, `WALLY_OWNER_CHECKLIST_V110.md`
 
@@ -17,7 +17,7 @@ Cập nhật lần cuối: 2026-11-22T05:00:00+07:00
 - `reference/` — Ảnh UI tham chiếu Rolly & HTML nháp ngoài scope mã nguồn
 - `Wally_Vector*.svg`, `TimeWallet_Wally_Icon_Style_Guide*.svg`, `Robot vui vẻ với biểu tượng lịch và đồng hồ.png`, `Biểu tượng ứng dụng Ví Thời Gian.png` — Tệp thiết kế nguồn dung lượng lớn (bản tối ưu đã nằm trong `docs/brand/`)
 - `promo-video/.hyperframes/`, `promo-video/.media/`, `promo-video/.thumbnails/`, `promo-video/.waveform-cache/`, `promo-video/renders/`
-- `out/` — Lưu candidate APK & chứng từ build (`wally_candidate_v109..v200`, `wally_evidence_*`, ignored khỏi Git & Repomix)
+- `out/` — Lưu candidate APK & chứng từ build (`wally_candidate_v109..v210`, `haiku_eval`, `wally_evidence_*`, ignored khỏi Git & Repomix; `out/qa_autoupdate/` đã dọn sạch)
 - `docs/screenshots/` — Thư viện ảnh chụp UI `v2.0.0` (`ui-preview/`) và baseline `v1.0.11` (`ldplayer-android9/`)
 - `local.properties`, `gradlew`, `gradlew.bat`
 

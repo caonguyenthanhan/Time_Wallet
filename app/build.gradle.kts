@@ -90,6 +90,11 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
+    // Hỗ trợ override tạm qua CLI (-PqaVersionCode / -PqaVersionName) khi kiểm thử nâng cấp GitHub Auto-Update E2E trên QA emulator.
+    defaultConfig {
+        (project.findProperty("qaVersionCode") as? String)?.toIntOrNull()?.let { versionCode = it }
+        (project.findProperty("qaVersionName") as? String)?.takeIf { it.isNotBlank() }?.let { versionName = it }
+    }
 }
 
 // v1.1.0: Room xuất schema JSON để test L3 đối chiếu DDL migration với lược đồ Room thật.

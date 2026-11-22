@@ -11,6 +11,7 @@ import com.timewallet.mvp.domain.model.AiReadPermissions
 import com.timewallet.mvp.domain.model.CategoryTimeBudget
 import com.timewallet.mvp.domain.model.CustomizationSettings
 import com.timewallet.mvp.domain.model.DailyReviewRecord
+import com.timewallet.mvp.domain.model.FontScalePreference
 import com.timewallet.mvp.domain.model.Habit
 import com.timewallet.mvp.domain.model.HabitLog
 import com.timewallet.mvp.domain.model.LedgerRecord
@@ -21,6 +22,7 @@ import com.timewallet.mvp.domain.model.ThemeModePreference
 import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.usecase.ApiKeyHygiene
 import com.timewallet.mvp.domain.usecase.ChatHistoryEntry
+import com.timewallet.mvp.domain.usecase.UpdatePreferences
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
@@ -33,6 +35,41 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
+/**
+ * Chế độ tốc độ/model Wally cho hai model Claude hiện hành (v2.1):
+ * - Pro (mặc định): Claude Sonnet 4.6 (`cinb/claude-sonnet-4-6`) — ưu tiên chất lượng & suy luận phức tạp.
+ * - Flash (tùy chọn): Claude Haiku 4.5 (`hoang/claude-haiku-4.5`) — ưu tiên tốc độ phản hồi cho tác vụ nhẹ.
+ */
+enum class WallyModelPreset(
+    val displayTitle: String,
+    val shortLabel: String,
+    val actualModelName: String,
+    val modelId: String,
+    val descriptionVi: String
+) {
+    PRO(
+        displayTitle = "Wally Pro",
+        shortLabel = "Pro",
+        actualModelName = "Claude Sonnet 4.6",
+        modelId = AiPreferences.DEFAULT_AI_MODEL,
+        descriptionVi = "Mặc định · Suy luận sâu, mục tiêu & ngữ cảnh phức tạp"
+    ),
+    FLASH(
+        displayTitle = "Wally Flash",
+        shortLabel = "Flash",
+        actualModelName = "Claude Haiku 4.5",
+        modelId = AiPreferences.FLASH_AI_MODEL,
+        descriptionVi = "Tùy chọn nhanh · Trò chuyện nhẹ & phản hồi tốc độ cao"
+    );
+
+    companion object {
+        fun fromModelName(rawModel: String): WallyModelPreset? {
+            val trimmed = rawModel.trim()
+            return entries.firstOrNull { it.modelId.equals(trimmed, ignoreCase = true) }
+        }
+    }
+}
+
 data class AiPreferences(
     val optInEnabled: Boolean = false,
     val baseUrl: String = DEFAULT_AI_BASE_URL,
@@ -42,6 +79,13 @@ data class AiPreferences(
     /** true: khóa đã lưu không đọc/ghi được (Keystore lỗi hoặc khóa đã mất); người dùng cần nhập lại khóa. */
     val keyUnavailable: Boolean = false
 ) {
+    fun resolvedPreset(): WallyModelPreset? = WallyModelPreset.fromModelName(modelName)
+
+    fun modeTitle(): String = resolvedPreset()?.displayTitle ?: "Wally Tùy chỉnh"
+
+    fun actualModelDisplay(): String =
+        resolvedPreset()?.actualModelName ?: modelName.trim().ifEmpty { DEFAULT_AI_MODEL }
+
     // WALLY: data class mặc định in cả khóa API; che khóa để không rò qua log/UI state.
     override fun toString(): String =
         "AiPreferences(optIn=$optInEnabled, baseUrl=$baseUrl, apiKey=${if (apiKey.isEmpty()) "<empty>" else "<redacted>"}, " +
@@ -51,6 +95,7 @@ data class AiPreferences(
         const val DEFAULT_AI_BASE_URL = "https://api.foza.ai/v1"
         const val DEFAULT_AI_HOST = "api.foza.ai"
         const val DEFAULT_AI_MODEL = "cinb/claude-sonnet-4-6"
+        const val FLASH_AI_MODEL = "hoang/claude-haiku-4.5"
 
         /**
          * Chỉ chấp nhận URL có scheme HTTPS hợp lệ, không chứa userInfo (@), và trả về host viết thường.
@@ -487,6 +532,15 @@ class TimerAndSettingsStore(
         return true
     }
 
+    /** Đổi nhanh model/chế độ Wally (Pro/Flash) mà không chạm vào ciphertext khóa API hay origin đã gắn. */
+    fun saveAiModelName(modelName: String): Boolean =
+        prefs.edit()
+            .putString(
+                KEY_AI_MODEL,
+                modelName.trim().ifEmpty { AiPreferences.DEFAULT_AI_MODEL }
+            )
+            .commit()
+
     fun saveManualEntryDraft(draft: ManualEntryDraft?, immediate: Boolean = false) {
         val edit = prefs.edit()
         if (draft == null) {
@@ -716,7 +770,8 @@ class TimerAndSettingsStore(
                 enableAiAssistant = o.optBoolean("enableAiAssistant", true),
                 defaultPomodoroMinutes = o.optInt("defaultPomodoroMinutes", 25).coerceIn(5, 120),
                 defaultBreakMinutes = o.optInt("defaultBreakMinutes", 5).coerceIn(1, 30),
-                themeMode = ThemeModePreference.fromStorage(o.optString("themeMode", "LIGHT"))
+                themeMode = ThemeModePreference.fromStorage(o.optString("themeMode", "LIGHT")),
+                fontScale = FontScalePreference.fromStorage(o.optString("fontScale", "LARGE"))
             )
         }.getOrDefault(CustomizationSettings())
     }
@@ -732,6 +787,7 @@ class TimerAndSettingsStore(
             .put("defaultPomodoroMinutes", settings.defaultPomodoroMinutes)
             .put("defaultBreakMinutes", settings.defaultBreakMinutes)
             .put("themeMode", settings.themeMode.name)
+            .put("fontScale", settings.fontScale.name)
         val edit = prefs.edit().putString(KEY_CUSTOMIZATION_JSON, obj.toString())
         if (immediate) edit.commit() else edit.apply()
     }
@@ -800,6 +856,20 @@ class TimerAndSettingsStore(
         if (immediate) edit.commit() else edit.apply()
     }
 
+    fun loadUpdatePreferences(): UpdatePreferences = UpdatePreferences(
+        autoCheckEnabled = prefs.getBoolean(KEY_UPDATE_AUTO_CHECK, true),
+        skippedVersionCode = prefs.getLong(KEY_UPDATE_SKIPPED_VERSION_CODE, 0L),
+        lastCheckEpochMs = prefs.getLong(KEY_UPDATE_LAST_CHECK_MS, 0L)
+    )
+
+    fun saveUpdatePreferences(updatePreferences: UpdatePreferences, immediate: Boolean = false) {
+        val edit = prefs.edit()
+            .putBoolean(KEY_UPDATE_AUTO_CHECK, updatePreferences.autoCheckEnabled)
+            .putLong(KEY_UPDATE_SKIPPED_VERSION_CODE, updatePreferences.skippedVersionCode)
+            .putLong(KEY_UPDATE_LAST_CHECK_MS, updatePreferences.lastCheckEpochMs)
+        if (immediate) edit.commit() else edit.apply()
+    }
+
     companion object {
         const val PREFS_NAME = "time_wallet_prefs_v1"
         private const val KEY_TIMER_ACTIVE = "timer_active"
@@ -832,6 +902,9 @@ class TimerAndSettingsStore(
         private const val KEY_CUSTOMIZATION_JSON = "customization_settings_v2"
         private const val KEY_AI_READ_PERMS_JSON = "ai_read_permissions_v2"
         private const val KEY_LOCAL_RULES_JSON = "local_category_rules_v2"
+        private const val KEY_UPDATE_AUTO_CHECK = "app_update_auto_check_v1"
+        private const val KEY_UPDATE_SKIPPED_VERSION_CODE = "app_update_skipped_version_code_v1"
+        private const val KEY_UPDATE_LAST_CHECK_MS = "app_update_last_check_ms_v1"
         private const val MAX_CHAT_HISTORY_ENTRIES = 60
 
         fun isFocusPinEnabled(context: Context): Boolean =

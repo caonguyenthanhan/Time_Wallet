@@ -136,6 +136,17 @@ enum class ThemeModePreference(val labelVi: String) {
     }
 }
 
+enum class FontScalePreference(val labelVi: String, val multiplier: Float) {
+    SMALL("Nhỏ", 0.86f),
+    MEDIUM("Vừa", 0.93f),
+    LARGE("To", 1.00f);
+
+    companion object {
+        fun fromStorage(raw: String?): FontScalePreference =
+            entries.firstOrNull { it.name == raw?.trim()?.uppercase() } ?: LARGE
+    }
+}
+
 /**
  * Cấu hình bật/tắt module (Customization-first).
  * Tắt một module chỉ ẩn giao diện, KHÔNG xóa dữ liệu đã lưu trong Room.
@@ -149,7 +160,8 @@ data class CustomizationSettings(
     val enableAiAssistant: Boolean = true,
     val defaultPomodoroMinutes: Int = 25,
     val defaultBreakMinutes: Int = 5,
-    val themeMode: ThemeModePreference = ThemeModePreference.LIGHT
+    val themeMode: ThemeModePreference = ThemeModePreference.LIGHT,
+    val fontScale: FontScalePreference = FontScalePreference.LARGE
 )
 
 /**

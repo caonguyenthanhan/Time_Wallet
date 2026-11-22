@@ -10,6 +10,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.Role
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.foundation.BorderStroke
@@ -39,7 +40,11 @@ import com.timewallet.mvp.domain.model.AiReadPermissions
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import com.timewallet.mvp.ui.theme.WalletDisabled
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -61,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import com.timewallet.mvp.data.local.AiPreferences
+import com.timewallet.mvp.data.local.WallyModelPreset
 import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.usecase.AiFault
 import com.timewallet.mvp.domain.usecase.CancelArming
@@ -150,6 +156,7 @@ fun ChatScreen(
     onApplyExample: (String) -> Unit,
     onAnalyzeClick: () -> Unit,
     onOpenAiSettings: () -> Unit,
+    onSelectWallyPreset: (WallyModelPreset) -> Unit = {},
     onToggleExpandProposal: (String) -> Unit,
     onUpdateProposal: (String, (EditableProposalDraft) -> EditableProposalDraft) -> Unit,
     onDiscardProposal: (String) -> Unit,
@@ -227,27 +234,28 @@ fun ChatScreen(
 
     Column(modifier = Modifier.fillMaxSize()) {
         if (!compactHeight) {
-        // Đầu trang: tránh lặp lại avatar/tiêu đề Wally khi nằm trong overlay Pop-on.
+        if (!embeddedInOverlay || chatHistory.isNotEmpty() || !hasReply) {
+        // Đầu trang: khi nhúng trong WallyAiOverlay giữ thật gọn (trạng thái AI đã đặt inline trên thanh tiêu đề overlay).
         FlowRow(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = if (embeddedInOverlay) 0.dp else 6.dp, bottom = if (embeddedInOverlay) 6.dp else 8.dp),
+                .padding(top = if (embeddedInOverlay) 0.dp else 4.dp, bottom = 4.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             if (!embeddedInOverlay) {
                 Row(
-                    modifier = Modifier.padding(end = 12.dp),
+                    modifier = Modifier.padding(end = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     WallyMascotAvatar(
-                        size = 44.dp,
+                        size = 40.dp,
                         contentDescription = "Wally"
                     )
                     Column {
-                        Text(text = "Wally", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk, maxLines = 1, softWrap = false)
-                        Text(text = "Trợ lý thời gian", fontSize = 12.5.sp, color = WalletMuted, maxLines = 1, softWrap = false)
+                        Text(text = "Wally", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk, maxLines = 1, softWrap = false)
+                        Text(text = "Trợ lý thời gian", fontSize = 12.sp, color = WalletMuted, maxLines = 1, softWrap = false)
                     }
                 }
             }
@@ -258,61 +266,64 @@ fun ChatScreen(
                 if (chatHistory.isNotEmpty()) {
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
+                            .clip(RoundedCornerShape(14.dp))
                             .background(WalletDangerBg)
                             .walletClickable(onClickLabel = "Xóa lịch sử trò chuyện") {
                                 showClearHistoryConfirm = true
                             }
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .padding(horizontal = 9.dp, vertical = 4.dp)
                     ) {
                         Text(
                             text = "Xóa lịch sử",
-                            fontSize = 11.sp,
+                            fontSize = 10.5.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = WalletDangerText,
                             maxLines = 1
                         )
                     }
                 }
-                val modeText = if (aiPreferences.optInEnabled && aiPreferences.apiKey.isNotBlank()) {
-                    "✦ AI đã bật"
-                } else {
-                    "✦ Chưa cấu hình AI"
-                }
-                Box(
-                    modifier = Modifier
-                        .widthIn(max = 190.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(WalletSoftNeutral)
-                        .walletClickable(onClickLabel = "Mở cấu hình AI", onClick = onOpenAiSettings)
-                        .padding(horizontal = 11.dp, vertical = 6.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                if (!embeddedInOverlay) {
+                    val modeText = if (aiPreferences.optInEnabled && aiPreferences.apiKey.isNotBlank()) {
+                        "AI sẵn sàng"
+                    } else {
+                        "Chưa cấu hình AI"
+                    }
+                    Box(
+                        modifier = Modifier
+                            .widthIn(max = 160.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(WalletSoftNeutral)
+                            .border(1.dp, WalletStroke, RoundedCornerShape(14.dp))
+                            .walletClickable(onClickLabel = "Mở cấu hình AI", onClick = onOpenAiSettings)
+                            .padding(horizontal = 9.dp, vertical = 4.dp)
                     ) {
-                        Text(
-                            text = modeText,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = WalletMuted,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        GlyphIcon(WalletGlyph.SETTINGS, color = WalletMuted, size = 13.dp)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = modeText,
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = WalletMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            GlyphIcon(WalletGlyph.SETTINGS, color = WalletMuted, size = 12.dp)
+                        }
                     }
                 }
                 if (embeddedInOverlay && !hasReply) {
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
+                            .clip(RoundedCornerShape(14.dp))
                             .background(WalletMintTint)
                             .walletClickable(onClickLabel = "Xem giới thiệu Time Wallet") { onOpenAppIntro() }
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .padding(horizontal = 9.dp, vertical = 4.dp)
                     ) {
                         Text(
                             text = "Hướng dẫn",
-                            fontSize = 11.sp,
+                            fontSize = 10.5.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = WalletMintAccent,
                             maxLines = 1
@@ -320,6 +331,15 @@ fun ChatScreen(
                     }
                 }
             }
+        }
+        if (!embeddedInOverlay) {
+            WallyModelModeSelector(
+                currentModelName = aiPreferences.modelName,
+                onSelectPreset = onSelectWallyPreset,
+                compact = true,
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
+        }
         }
         }
 
@@ -665,80 +685,116 @@ fun ChatScreen(
         }
 
         var showCleanChatConfirm by remember { mutableStateOf(false) }
-        Row(
+        val canSubmitChat = composerText.isNotBlank() || (isAnalyzing && GuardHealth.isCancelCommand(chatInputText))
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = WalletCardBg,
+            border = BorderStroke(
+                width = if (canSubmitChat || isAnalyzing) 1.3.dp else 1.dp,
+                color = if (canSubmitChat || isAnalyzing) WalletMint.copy(alpha = 0.55f) else WalletStroke
+            ),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 8.dp, bottom = 6.dp),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(top = 6.dp, bottom = 4.dp)
         ) {
-            OutlinedTextField(
-                value = composerText,
-                onValueChange = {
-                    suppressedInFlightRaw = null
-                    onChatInputChange(it)
-                },
-                placeholder = { Text("Kể tiếp ngày của bạn…", fontSize = 14.sp) },
-                minLines = 1,
-                maxLines = 4,
-                trailingIcon = if (composerText.isNotBlank() && !isAnalyzing) {
-                    {
-                        TextButton(
-                            onClick = { showCleanChatConfirm = true },
-                            modifier = Modifier.semantics { contentDescription = "Clean · Xóa nhập liệu" }
-                        ) {
-                            GlyphIcon(WalletGlyph.ERASER, color = WalletMuted, size = 18.dp)
-                        }
-                    }
-                } else null,
-                shape = RoundedCornerShape(22.dp),
-                modifier = Modifier.weight(1f)
-            )
-            if (isAnalyzing && !GuardHealth.isCancelCommand(chatInputText)) {
-                Button(
-                    onClick = onCancelAnalysis,
-                    // v1.0.13 (F4): khóa trong cửa sổ bấm đúp; vẫn hiện ở đúng chỗ để người dùng thấy yêu cầu đang chạy.
-                    enabled = cancelArmed,
-                    shape = CircleShape,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF5D7064),
-                        disabledContainerColor = Color(0xFF5D7064).copy(alpha = 0.45f),
-                        disabledContentColor = Color.White
-                    ),
-                    contentPadding = PaddingValues(0.dp),
-                    modifier = Modifier
-                        .size(54.dp)
-                        .semantics { contentDescription = "Hủy yêu cầu đang gửi" }
-                ) {
-                    GlyphIcon(WalletGlyph.STOP, color = Color.White, size = 24.dp)
-                }
-            } else Button(
-                onClick = {
-                    // lệnh hủy không ghi đè tin nhắn gốc đang được phân tích
-                    if (chatInputText.isNotBlank() && !GuardHealth.isCancelCommand(chatInputText)) {
-                        onLastUserMessageChange(chatInputText.trim())
-                        if (chatAnswer != null) onDismissAnswer()
-                        suppressedInFlightRaw = chatInputText
-                    }
-                    keyboardController?.hide()
-                    onAnalyzeClick()
-                },
-                // AI-01 CLOSURE: cho phép gửi lệnh hủy khi đang phân tích (nút vẫn khóa với câu thường).
-                enabled = !isAnalyzing || GuardHealth.isCancelCommand(chatInputText),
-                shape = CircleShape,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (composerText.isBlank() && !(isAnalyzing && GuardHealth.isCancelCommand(chatInputText))) {
-                        WalletMint.copy(alpha = 0.45f)
-                    } else {
-                        WalletMint
-                    }
-                ),
-                contentPadding = PaddingValues(0.dp),
+            Row(
                 modifier = Modifier
-                    .size(54.dp)
-                    .semantics { contentDescription = "Gửi cho Wally" }
+                    .fillMaxWidth()
+                    .padding(start = 14.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                GlyphIcon(WalletGlyph.SEND, color = Color.White, size = 24.dp)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 38.dp, max = 112.dp)
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    if (composerText.isEmpty()) {
+                        Text(
+                            text = "Kể tiếp ngày của bạn…",
+                            fontSize = 14.sp,
+                            color = WalletMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    BasicTextField(
+                        value = composerText,
+                        onValueChange = {
+                            suppressedInFlightRaw = null
+                            onChatInputChange(it)
+                        },
+                        textStyle = TextStyle(color = WalletInk, fontSize = 14.sp, lineHeight = 20.sp),
+                        cursorBrush = SolidColor(WalletMint),
+                        maxLines = 4,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                if (composerText.isNotBlank() && !isAnalyzing) {
+                    Box(
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .clip(CircleShape)
+                            .semantics { contentDescription = "Clean · Xóa nhập liệu"; role = Role.Button }
+                            .clickable(onClickLabel = "Xóa nội dung đang nhập") { showCleanChatConfirm = true },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        GlyphIcon(WalletGlyph.ERASER, color = WalletMuted, size = 18.dp)
+                    }
+                }
+                if (isAnalyzing && !GuardHealth.isCancelCommand(chatInputText)) {
+                    Button(
+                        onClick = onCancelAnalysis,
+                        // v1.0.13 (F4): khóa trong cửa sổ bấm đúp; vẫn hiện ở đúng chỗ để người dùng thấy yêu cầu đang chạy.
+                        enabled = cancelArmed,
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF5D7064),
+                            disabledContainerColor = Color(0xFF5D7064).copy(alpha = 0.45f),
+                            disabledContentColor = Color.White
+                        ),
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier
+                            .size(44.dp)
+                            .semantics { contentDescription = "Hủy yêu cầu đang gửi" }
+                    ) {
+                        GlyphIcon(WalletGlyph.STOP, color = Color.White, size = 20.dp)
+                    }
+                } else {
+                    Button(
+                        onClick = {
+                            if (chatInputText.isNotBlank() && !GuardHealth.isCancelCommand(chatInputText)) {
+                                onLastUserMessageChange(chatInputText.trim())
+                                if (chatAnswer != null) onDismissAnswer()
+                                suppressedInFlightRaw = chatInputText
+                            }
+                            keyboardController?.hide()
+                            onAnalyzeClick()
+                        },
+                        // AI-01 CLOSURE: giữ đúng biểu thức enabled cho lệnh hủy khi đang phân tích; hiển thị trạng thái sẵn sàng gửi trực quan qua màu nền/viền/icon.
+                        enabled = !isAnalyzing || GuardHealth.isCancelCommand(chatInputText),
+                        shape = CircleShape,
+                        border = if (canSubmitChat) null else BorderStroke(1.dp, WalletStroke),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (canSubmitChat) WalletMint else WalletSoftNeutral,
+                            contentColor = if (canSubmitChat) Color.White else WalletDisabled,
+                            disabledContainerColor = WalletSoftNeutral,
+                            disabledContentColor = WalletDisabled
+                        ),
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier
+                            .size(44.dp)
+                            .semantics { contentDescription = "Gửi cho Wally" }
+                    ) {
+                        GlyphIcon(
+                            glyph = WalletGlyph.SEND,
+                            color = if (canSubmitChat) Color.White else WalletDisabled,
+                            size = 20.dp
+                        )
+                    }
+                }
             }
         }
         if (showClearHistoryConfirm) {
@@ -1584,6 +1640,7 @@ fun WallyAiOverlay(
     onApplyExample: (String) -> Unit,
     onAnalyzeClick: () -> Unit,
     onOpenAiSettings: () -> Unit,
+    onSelectWallyPreset: (WallyModelPreset) -> Unit = {},
     onToggleExpandProposal: (String) -> Unit,
     onUpdateProposal: (String, (EditableProposalDraft) -> EditableProposalDraft) -> Unit,
     onDiscardProposal: (String) -> Unit,
@@ -1630,30 +1687,51 @@ fun WallyAiOverlay(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "✦ Trợ lý Wally",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = WalletInk
-                        )
-                        Text(
-                            text = if (activeScopes.isEmpty()) "Quyền đọc AI: Đang tắt toàn bộ" else "Quyền đọc: ${activeScopes.joinToString(" · ")}",
-                            fontSize = 11.sp,
-                            color = if (activeScopes.isEmpty()) WalletDangerText else WalletMuted
-                        )
-                    }
+                    Text(
+                        text = "✦ Trợ lý Wally",
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = WalletInk,
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        val aiReady = aiPreferences.optInEnabled && aiPreferences.apiKey.isNotBlank()
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(100.dp))
+                                .background(WalletSoftNeutral)
+                                .border(1.dp, WalletStroke, RoundedCornerShape(100.dp))
+                                .walletClickable(onClickLabel = "Mở cấu hình AI", onClick = onOpenAiSettings)
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = if (aiReady) "AI bật" else "Chưa bật AI",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (aiReady) WalletMintAccent else WalletMuted,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                                GlyphIcon(WalletGlyph.SETTINGS, color = WalletMuted, size = 11.dp)
+                            }
+                        }
                         if (inboxTaskCount > 0) {
                             WalletPill(
                                 onClickLabel = "Gợi ý xếp lịch Inbox",
                                 containerColor = WalletMintTint,
                                 borderColor = WalletStroke,
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                                 onClick = onRequestReplanInbox
                             ) {
                                 Text(
-                                    text = "Xếp Inbox ($inboxTaskCount)",
-                                    fontSize = 11.sp,
+                                    text = "Inbox ($inboxTaskCount)",
+                                    fontSize = 10.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = WalletMintAccent,
                                     maxLines = 1,
@@ -1663,7 +1741,7 @@ fun WallyAiOverlay(
                         }
                         Box(
                             modifier = Modifier
-                                .size(34.dp)
+                                .size(32.dp)
                                 .clip(CircleShape)
                                 .background(WalletCardBg)
                                 .border(1.dp, WalletStroke, CircleShape)
@@ -1671,10 +1749,27 @@ fun WallyAiOverlay(
                                 .walletClickable(onClickLabel = "Đóng trợ lý Wally") { onDismiss() },
                             contentAlignment = Alignment.Center
                         ) {
-                            GlyphIcon(WalletGlyph.CLOSE, color = WalletInk, size = 16.dp)
+                            GlyphIcon(WalletGlyph.CLOSE, color = WalletInk, size = 15.dp)
                         }
                     }
                 }
+                Text(
+                    text = if (activeScopes.isEmpty()) {
+                        "Quyền đọc AI: Đang tắt toàn bộ"
+                    } else {
+                        "Quyền đọc: ${activeScopes.joinToString(" · ")}"
+                    },
+                    fontSize = 11.sp,
+                    color = if (activeScopes.isEmpty()) WalletDangerText else WalletMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                WallyModelModeSelector(
+                    currentModelName = aiPreferences.modelName,
+                    onSelectPreset = onSelectWallyPreset,
+                    compact = true
+                )
                 if (!overlayHint.isNullOrBlank()) {
                     Text(
                         text = overlayHint,
@@ -1709,6 +1804,7 @@ fun WallyAiOverlay(
                         onApplyExample = onApplyExample,
                         onAnalyzeClick = onAnalyzeClick,
                         onOpenAiSettings = onOpenAiSettings,
+                        onSelectWallyPreset = onSelectWallyPreset,
                         onToggleExpandProposal = onToggleExpandProposal,
                         onUpdateProposal = onUpdateProposal,
                         onDiscardProposal = onDiscardProposal,
@@ -1727,6 +1823,125 @@ fun WallyAiOverlay(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Bộ chọn chế độ Wally Pro / Wally Flash dùng chung cho Chat, Overlay, Hồ sơ & Cấu hình AI.
+ * Luôn hiển thị tên model Claude thực tế bên dưới để tránh nhầm lẫn Flash với Gemini Flash.
+ */
+@Composable
+internal fun WallyModelModeSelector(
+    currentModelName: String,
+    onSelectPreset: (WallyModelPreset) -> Unit,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+    showAutoFutureHint: Boolean = false
+) {
+    val activePreset = WallyModelPreset.fromModelName(currentModelName)
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            WallyModelPreset.entries.forEach { preset ->
+                val isSelected = activePreset == preset
+                val radius = if (compact) 12.dp else 10.dp
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = if (compact) 44.dp else 48.dp)
+                        .clip(RoundedCornerShape(radius))
+                        .background(if (isSelected) WalletMintSoft else WalletSoftNeutral)
+                        .border(
+                            width = if (isSelected) 1.3.dp else 1.dp,
+                            color = if (isSelected) WalletMint else WalletStroke,
+                            shape = RoundedCornerShape(radius)
+                        )
+                        .semantics {
+                            selected = isSelected
+                            contentDescription = "${preset.displayTitle} (${preset.actualModelName})"
+                        }
+                        .walletClickable(
+                            onClickLabel = "Chọn ${preset.displayTitle} (${preset.actualModelName})",
+                            role = Role.RadioButton
+                        ) { onSelectPreset(preset) }
+                        .padding(
+                            horizontal = if (compact) 10.dp else 10.dp,
+                            vertical = if (compact) 6.dp else 8.dp
+                        )
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(if (compact) 1.dp else 2.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = preset.displayTitle,
+                                fontSize = if (compact) 12.sp else 12.5.sp,
+                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
+                                color = if (isSelected) WalletMintDark else WalletInk,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (!compact && preset == WallyModelPreset.PRO) {
+                                Text(
+                                    text = "Mặc định",
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = WalletMintAccent,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                        Text(
+                            text = preset.actualModelName,
+                            fontSize = if (compact) 10.sp else 10.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isSelected) WalletMintAccent else WalletMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (!compact) {
+                            Text(
+                                text = preset.modelId,
+                                fontSize = 9.sp,
+                                color = WalletMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = preset.descriptionVi,
+                                fontSize = 10.sp,
+                                color = WalletMuted,
+                                lineHeight = 13.5.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        val cleanCustom = currentModelName.trim()
+        if (activePreset == null && cleanCustom.isNotEmpty()) {
+            Text(
+                text = "Đang dùng model tùy chỉnh: $cleanCustom",
+                fontSize = 10.sp,
+                color = WalletMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (showAutoFutureHint) {
+            Text(
+                text = "Auto (Tự chọn Pro/Flash): Tạm khóa, chỉ bật khi bộ định tuyến chứng minh được hiệu quả.",
+                fontSize = 10.sp,
+                color = WalletMuted,
+                lineHeight = 14.sp
+            )
         }
     }
 }

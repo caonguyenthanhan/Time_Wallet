@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Chỉ chia sẻ thư mục cache chứa APK cập nhật đã được kiểm tra chữ ký & SHA-256 cho trình cài đặt hệ thống -->
+    <cache-path
+        name="apk_updates"
+        path="updates/" />
+</paths>

@@ -179,6 +179,7 @@ fun InsightsScreen(
     tagsCount: Int = 0,
     coach: CoachUiState = CoachUiState(),
     aiEnabled: Boolean = false,
+    aiModeLabel: String = "",
     hasSavedTodayReview: Boolean = false,
     onOpenBudgetEditor: (TimeCategory?) -> Unit = {},
     onDeleteBudget: (String) -> Unit = {},
@@ -215,7 +216,7 @@ fun InsightsScreen(
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // Đầu trang Mở rộng với chuyển đổi 2 ngăn Thống kê | Công cụ.
         Row(
@@ -296,6 +297,7 @@ fun InsightsScreen(
                 tagsCount = tagsCount,
                 hasSavedTodayReview = hasSavedTodayReview,
                 aiEnabled = aiEnabled,
+                aiModeLabel = aiModeLabel,
                 focusPinEnabled = focusPinEnabled,
                 focusPinPreview = focusPinPreview,
                 onToggleFocusPin = onToggleFocusPin,
@@ -350,6 +352,7 @@ fun InsightsScreen(
             CoachSheetContent(
                 coach = coach,
                 aiEnabled = aiEnabled,
+                aiModeLabel = aiModeLabel,
                 onAskCoach = onAskCoach,
                 onDismissCoach = onDismissCoach,
                 onConfirmSuggestion = onConfirmSuggestion,
@@ -391,7 +394,7 @@ private fun EfficiencyAnalyticsSegment(
     val selectedDay = days.getOrNull(safeDayIdx)
     val selectedActDay = activityDays.getOrNull(safeDayIdx)
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // Tách riêng tổng chưa gắn giờ (nếu có) theo bất biến sản phẩm, không trộn vào cột 24h.
         if (weeklyInsights.totalUntimedSeconds > 0L) {
             Surface(
@@ -401,7 +404,7 @@ private fun EfficiencyAnalyticsSegment(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -423,7 +426,7 @@ private fun EfficiencyAnalyticsSegment(
         }
 
         // Lớp 1: Biểu đồ 24h x 7 ngày (mặc định chia theo nhóm hoạt động thực tế; chuyển nhanh sang tầng mục tiêu).
-        SoftCard(padding = 14.dp) {
+        SoftCard(padding = 12.dp) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -467,7 +470,7 @@ private fun EfficiencyAnalyticsSegment(
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(5.dp))
 
             // Chuyển góc nhìn gọn trong cùng thẻ: Hoạt động (mặc định) vs Mục tiêu (4 tầng).
             Row(
@@ -501,12 +504,12 @@ private fun EfficiencyAnalyticsSegment(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(228.dp),
+                    .height(196.dp),
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
                 verticalAlignment = Alignment.Bottom
             ) {
@@ -1133,14 +1136,17 @@ private fun EfficiencyAnalyticsSegment(
                     ) {
                         Text(
                             text = "Nhịp tập trung & Độ sát kế hoạch",
-                            fontSize = 14.5.sp,
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = WalletInk
+                            color = WalletInk,
+                            modifier = Modifier.weight(1f).padding(end = 6.dp)
                         )
                         Text(
                             text = "ⓘ Sổ cái cục bộ",
-                            fontSize = 11.5.sp,
-                            color = WalletMuted
+                            fontSize = 11.sp,
+                            color = WalletMuted,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                     if (peakFocusWindow != null) {
@@ -1212,6 +1218,7 @@ private fun ToolsHubSegment(
     tagsCount: Int,
     hasSavedTodayReview: Boolean,
     aiEnabled: Boolean,
+    aiModeLabel: String = "",
     focusPinEnabled: Boolean,
     focusPinPreview: FocusPinState,
     onToggleFocusPin: (Boolean) -> Unit,
@@ -1329,7 +1336,11 @@ private fun ToolsHubSegment(
                 ToolGridTile(
                     glyph = WalletGlyph.WALLY_BOT,
                     title = "Wally AI Coach",
-                    meta = if (aiEnabled) "Tóm tắt 5 giây · Đã bật" else "Tổng kết & gợi ý",
+                    meta = when {
+                        aiEnabled && aiModeLabel.isNotBlank() -> aiModeLabel
+                        aiEnabled -> "Tóm tắt 5 giây · Đã bật"
+                        else -> "Tổng kết & gợi ý"
+                    },
                     modifier = Modifier.weight(1f),
                     onClick = onOpenCoach
                 )
@@ -1821,6 +1832,7 @@ private fun BudgetsManagerSheetContent(
 private fun CoachSheetContent(
     coach: CoachUiState,
     aiEnabled: Boolean,
+    aiModeLabel: String = "",
     onAskCoach: (Int) -> Unit,
     onDismissCoach: () -> Unit,
     onConfirmSuggestion: (Int) -> Unit,
@@ -1844,7 +1856,11 @@ private fun CoachSheetContent(
             Column(modifier = Modifier.weight(1f)) {
                 Text("Wally AI Coach", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk)
                 Text(
-                    text = if (aiEnabled) "Tóm tắt 5 giây · Điểm sáng · Action items" else "Bật AI trong Hồ sơ & Cài đặt để nhận tóm tắt cá nhân hóa",
+                    text = when {
+                        aiEnabled && aiModeLabel.isNotBlank() -> "$aiModeLabel · Tóm tắt 5 giây & Action items"
+                        aiEnabled -> "Tóm tắt 5 giây · Điểm sáng · Action items"
+                        else -> "Bật AI trong Hồ sơ & Cài đặt để nhận tóm tắt cá nhân hóa"
+                    },
                     fontSize = 12.sp,
                     color = WalletMuted
                 )

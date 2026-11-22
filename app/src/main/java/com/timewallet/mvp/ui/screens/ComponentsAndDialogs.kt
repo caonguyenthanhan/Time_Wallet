@@ -123,6 +123,7 @@ import com.timewallet.mvp.ui.theme.WalletWarningText
 import com.timewallet.mvp.ui.theme.WalletMuted
 import com.timewallet.mvp.ui.theme.WalletStroke
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -876,8 +877,16 @@ fun EditRecordDialog(
     val initialStart = remember(record.startedAt) {
         record.startedAt?.let { Instant.ofEpochMilli(it).atZone(zone).format(hmFormatter) } ?: ""
     }
-    val initialEnd = remember(record.endedAt) {
-        record.endedAt?.let { Instant.ofEpochMilli(it).atZone(zone).format(hmFormatter) } ?: ""
+    val initialEnd = remember(record.endedAt, record.date) {
+        record.endedAt?.let { endMs ->
+            val endZoned = Instant.ofEpochMilli(endMs).atZone(zone)
+            val recDate = runCatching { LocalDate.parse(record.date) }.getOrNull()
+            if (recDate != null && endZoned.toLocalDate() == recDate.plusDays(1) && endZoned.hour == 0 && endZoned.minute == 0) {
+                "24:00"
+            } else {
+                endZoned.format(hmFormatter)
+            }
+        } ?: ""
     }
 
     var title by remember(record.id) { mutableStateOf(record.title) }
@@ -1595,36 +1604,17 @@ fun AiSettingsDialog(
                 OutlinedTextField(
                     value = modelName,
                     onValueChange = { modelName = it },
-                    label = { Text("Tên model") },
+                    label = { Text("Tên model (ID gửi API)") },
                     placeholder = { Text(AiPreferences.DEFAULT_AI_MODEL) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf(
-                        AiPreferences.DEFAULT_AI_MODEL to "Mặc định ổn định",
-                        "cinb/gemini-3.8-flash" to "Gemini (khi rảnh tải)"
-                    ).forEach { (preset, tagLabel) ->
-                        val selectedPreset = modelName.trim() == preset
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (selectedPreset) WalletMintSoft else WalletSoftNeutral)
-                                .border(1.dp, if (selectedPreset) WalletMint else WalletStroke, RoundedCornerShape(8.dp))
-                                .walletClickable(onClickLabel = "Chọn model $preset") { modelName = preset }
-                                .padding(horizontal = 8.dp, vertical = 6.dp)
-                        ) {
-                            Column {
-                                Text(preset, fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = WalletInk, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(tagLabel, fontSize = 8.5.sp, color = WalletMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                    }
-                }
+                WallyModelModeSelector(
+                    currentModelName = modelName,
+                    onSelectPreset = { modelName = it.modelId },
+                    compact = false,
+                    showAutoFutureHint = true
+                )
 
                 // WALLY: kiểm tra kết nối bằng payload tổng hợp "ping"; không gửi nhật ký của bạn.
                 OutlinedButton(
@@ -1638,7 +1628,7 @@ fun AiSettingsDialog(
                     Text(text = connectionTestMessage, fontSize = 11.sp, color = WalletInk, lineHeight = 15.sp)
                     if (connectionTestMessage.startsWith("✗") && (connectionTestMessage.contains("503") || connectionTestMessage.contains("5xx") || connectionTestMessage.contains("403") || connectionTestMessage.contains("404"))) {
                         Text(
-                            text = "Gợi ý: Nếu tuyến đang chọn lỗi 503/403 hoặc 404, hãy chạm chọn \"${AiPreferences.DEFAULT_AI_MODEL}\" ở trên rồi Kiểm tra kết nối lại.",
+                            text = "Gợi ý: Nếu tuyến đang chọn lỗi 503/403 hoặc 404, hãy chạm chọn Wally Pro (${AiPreferences.DEFAULT_AI_MODEL}) ở trên rồi Kiểm tra kết nối lại.",
                             fontSize = 10.sp,
                             color = WalletWarningText,
                             lineHeight = 14.sp

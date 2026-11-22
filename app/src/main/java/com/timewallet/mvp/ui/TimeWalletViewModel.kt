@@ -8,6 +8,7 @@ import com.timewallet.mvp.data.ai.GeminiProposalClient
 import com.timewallet.mvp.data.ai.GuardHealth
 import com.timewallet.mvp.data.local.ActivityReviewNoteEntity
 import com.timewallet.mvp.data.local.AiPreferences
+import com.timewallet.mvp.data.local.WallyModelPreset
 import com.timewallet.mvp.data.local.BackupParseResult
 import com.timewallet.mvp.data.local.BackupRestoreMode
 import com.timewallet.mvp.data.local.BatchOverlapStep
@@ -27,6 +28,7 @@ import com.timewallet.mvp.data.local.TagEntity
 import com.timewallet.mvp.data.local.TimeWalletDatabase
 import com.timewallet.mvp.data.local.TimerAndSettingsStore
 import com.timewallet.mvp.data.local.TimerInputDraft
+import com.timewallet.mvp.domain.usecase.AppUpdateUiState
 import com.timewallet.mvp.domain.model.ConfirmationState
 import com.timewallet.mvp.domain.model.Goal
 import com.timewallet.mvp.domain.model.GoalGroupState
@@ -464,7 +466,9 @@ data class TimeWalletUiState(
     val pendingTaskLogPrompt: TaskCompletionPrompt? = null,
     val showQuickCaptureDialog: Boolean = false,
     val exportedMarkdownContent: String? = null,
-    val selectedMoreSection: Int = 0
+    val selectedMoreSection: Int = 0,
+    val appUpdate: AppUpdateUiState = AppUpdateUiState(),
+    val pendingApkInstallPath: String? = null
 )
 
 class TimeWalletViewModel(application: Application) : AndroidViewModel(application) {
@@ -533,6 +537,15 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         onChatTurnApplied = { question, appliedState -> recordChatTurnInHistory(question, appliedState) }
     )
 
+    private val appUpdater = AppUpdateCoordinator(
+        appContext = application.applicationContext,
+        settingsStore = settingsStore,
+        state = _uiState,
+        scope = viewModelScope,
+        launchContext = safeHandler,
+        toast = { showToast(it) }
+    )
+
     // v1.0.9: khởi tạo guard NGOÀI luồng chính ngay khi mở app (không bao giờ ném); lần gửi đầu không phải biên dịch regex trên Main.
     init {
         viewModelScope.launch(safeHandler) { kotlinx.coroutines.withContext(Dispatchers.Default) { GuardHealth.check() } }
@@ -573,9 +586,11 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 focusPinEnabled = runCatching { settingsStore.isFocusPinEnabled() }.getOrDefault(false),
                 customization = runCatching { settingsStore.loadCustomizationSettings() }.getOrDefault(CustomizationSettings()),
                 aiReadPermissions = runCatching { settingsStore.loadAiReadPermissions() }.getOrDefault(AiReadPermissions()),
-                localRules = runCatching { settingsStore.loadLocalRules() }.getOrDefault(emptyList())
+                localRules = runCatching { settingsStore.loadLocalRules() }.getOrDefault(emptyList()),
+                appUpdate = appUpdater.initialUiState()
             )
         }
+        appUpdater.checkOnStartupIfDue()
 
         // v1.0.6 (R01): app có thể bị tắt SAU khi phiên đo đã được ghi nhưng TRƯỚC khi phiên bị xóa. Khi mở lại, nếu sổ cái đã có
         // phiên này (cùng khóa chống ghi trùng) thì chỉ dọn phiên, không bắt người dùng lưu lần nữa và không ghi trùng.
@@ -2747,6 +2762,36 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    /** Đặt một bản ghi chỉ-thời-lượng (`REPORTED_UNTIMED`) vào khoảng giờ xác định trên lịch; kiểm tra trùng giờ trước khi ghi. */
+    fun placeUntimedRecordOnSlot(
+        recordId: String,
+        dateLocal: String,
+        startHm: String,
+        endHm: String
+    ) {
+        val zone = ZoneId.systemDefault()
+        val nowMs = System.currentTimeMillis()
+        viewModelScope.launch(safeHandler) {
+            val currentRecords = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
+            val existing = currentRecords.firstOrNull { it.id == recordId } ?: return@launch
+            val result = ConfirmationEngine.adjustRecord(
+                existing = existing,
+                newTitle = existing.title,
+                newCategoryKey = existing.category.key,
+                newDateLocal = dateLocal,
+                newDurationMinutes = null,
+                newStartHm = startHm,
+                newEndHm = endHm,
+                allowFutureAsPlanned = false,
+                existingRecords = currentRecords,
+                activeTimer = _uiState.value.activeTimer,
+                nowEpochMs = nowMs,
+                zoneId = zone
+            )
+            applyConfirmationAction(result = result, closeConfirmOnSuccess = false, closeEditOnSuccess = false)
+        }
+    }
+
     fun openManualEntry(categoryKey: String? = null) {
         if (_uiState.value.manualEntry != null) return
         val todayLocal = LocalDate.now().toString()
@@ -3552,6 +3597,18 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         )
     }
 
+    fun selectWallyPreset(preset: WallyModelPreset) {
+        val current = _uiState.value.aiPreferences
+        if (current.modelName.trim().equals(preset.modelId, ignoreCase = true)) return
+        if (!settingsStore.saveAiModelName(preset.modelId)) {
+            showToast("Không lưu được chế độ Wally. Hãy thử lại.")
+            return
+        }
+        val reloaded = settingsStore.loadAiPreferences()
+        _uiState.update { it.copy(aiPreferences = reloaded) }
+        showToast("Đã chọn ${preset.displayTitle} (${preset.actualModelName}).")
+    }
+
     // ------------------- WALLY 2.0: HUB NĂNG SUẤT & TÙY CHỈNH -------------------
 
     fun openWallyOverlay(hint: String? = null) {
@@ -4035,4 +4092,13 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
     fun closeExportMarkdownDialog() {
         _uiState.update { it.copy(exportedMarkdownContent = null) }
     }
+
+    fun openAppUpdateDialog() = appUpdater.openDialog()
+    fun dismissAppUpdateDialog() = appUpdater.dismissDialog()
+    fun checkForAppUpdates(manual: Boolean = true) = appUpdater.checkForUpdate(manual)
+    fun downloadAndVerifyUpdate() = appUpdater.downloadAndVerify()
+    fun launchVerifiedInstaller() = appUpdater.launchVerifiedInstaller()
+    fun skipAvailableAppUpdate() = appUpdater.skipAvailableCandidate()
+    fun setAutoUpdateCheckEnabled(enabled: Boolean) = appUpdater.setAutoCheckEnabled(enabled)
+    fun consumePendingApkInstall() = appUpdater.consumePendingInstall()
 }

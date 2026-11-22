@@ -113,6 +113,7 @@ fun HistoryScreen(
         }
     },
     onMoveOrResizeBlock: (recordId: String, dateLocal: String, startHm: String, endHm: String) -> Unit = { _, _, _, _ -> },
+    onPlaceUntimedOnSlot: (recordId: String, dateLocal: String, startHm: String, endHm: String) -> Unit = onMoveOrResizeBlock,
     onNavigateToTimer: () -> Unit = {},
     showCalendarMode: Boolean? = null,
     onShowCalendarModeChange: ((Boolean) -> Unit)? = null,
@@ -172,7 +173,7 @@ fun HistoryScreen(
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -204,6 +205,7 @@ fun HistoryScreen(
                         selected = selected,
                         role = Role.Tab,
                         contentDescription = "Chế độ $label",
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                         onClick = { setCalendarMode(isCal) }
                     ) {
                         Text(
@@ -243,6 +245,8 @@ fun HistoryScreen(
                     onEditRecord = onEditRecord,
                     onConfirmPlannedOrActiveRecord = onConfirmPlannedOrActiveRecord,
                     onMoveOrResizeBlock = onMoveOrResizeBlock,
+                    onDeleteRecord = onDeleteRecord,
+                    onPlaceUntimedOnSlot = onPlaceUntimedOnSlot,
                     onNavigateToTimer = onNavigateToTimer,
                     showBackButton = false,
                     embeddedInScrollContainer = true,

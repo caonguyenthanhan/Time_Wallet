@@ -257,16 +257,27 @@ class WallyOriginBindingTest {
     }
 
     @Test
-    fun `the API key header is set in exactly one place and nothing else in the app opens network connections`() {
+    fun `the API key header is set in exactly one place and only verified clients open network connections`() {
         val root = java.io.File("src/main/java")
-        val offenders = root.walkTopDown().filter { it.extension == "kt" }.filter {
-            val t = it.readText()
-            t.contains("setRequestProperty(\"Authorization\"") || t.contains(".openConnection(") || t.contains("HttpURLConnection")
+        val authSetters = root.walkTopDown().filter { it.extension == "kt" }.filter {
+            it.readText().contains("setRequestProperty(\"Authorization\"")
         }.map { it.name }.toList()
-        assertEquals(listOf("GeminiProposalClient.kt"), offenders)
+        assertEquals(listOf("GeminiProposalClient.kt"), authSetters)
+
+        val networkOpeners = root.walkTopDown().filter { it.extension == "kt" }.filter {
+            val t = it.readText()
+            t.contains(".openConnection(") || t.contains("HttpURLConnection")
+        }.map { it.name }.toSet()
+        assertEquals(setOf("GeminiProposalClient.kt", "GitHubAppUpdater.kt"), networkOpeners)
+
         val client = java.io.File("src/main/java/com/timewallet/mvp/data/ai/GeminiProposalClient.kt").readText()
         assertEquals("một nơi đặt Authorization", 1, Regex("""setRequestProperty\("Authorization"""").findAll(client).count())
         assertTrue("chặn redirect trước khi gửi", client.indexOf("instanceFollowRedirects = false") in 0 until client.indexOf("setRequestProperty(\"Authorization\""))
         assertTrue("kiểm tra origin trước khi mở kết nối", client.indexOf("AiPreferences.originOf(url)") in 0 until client.indexOf("opener(url)"))
+
+        val updater = java.io.File("src/main/java/com/timewallet/mvp/data/update/GitHubAppUpdater.kt").readText()
+        assertTrue("updater không mang Authorization", !updater.contains("Authorization"))
+        assertTrue("updater tự kiểm soát redirect trên allowlist", updater.contains("instanceFollowRedirects = false"))
+        assertTrue("updater kiểm tra HTTPS allowlist trước opener", updater.indexOf("isTrustedHttpsUrl(") in 0 until updater.indexOf("httpOpener(urlObj)"))
     }
 }

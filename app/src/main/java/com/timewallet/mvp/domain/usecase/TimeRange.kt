@@ -52,6 +52,13 @@ object TimeRange {
 
     fun formatHm(minuteOfDay: Int): String = "%02d:%02d".format(minuteOfDay / 60, minuteOfDay % 60)
 
+    /** Giờ kết thúc chấp nhận thêm mốc cuối ngày `"24:00"` / `"2400"` (= 1440 phút), trong khi giờ bắt đầu giữ strictly 00:00..23:59. */
+    fun parseEndMinuteOfDay(raw: String?): Int? {
+        val t = raw?.trim()?.lowercase().orEmpty()
+        if (t in setOf("24:00", "2400", "24h", "24h00", "24:0")) return 1440
+        return parseMinuteOfDay(raw)
+    }
+
     /**
      * @param nowHm đồng hồ hiện tại "HH:mm" (bắt buộc khi [end] là [End.Now]).
      * @param isToday ngày ghi nhận có phải hôm nay không.
@@ -67,7 +74,7 @@ object TimeRange {
         val start = parseMinuteOfDay(startHm)
             ?: return Result.Invalid("Hãy nhập giờ bắt đầu, ví dụ 14:00.")
         val endMinute: Int = when (end) {
-            is End.At -> parseMinuteOfDay(end.hm) ?: return Result.Invalid("Hãy nhập giờ kết thúc, ví dụ 15:12.")
+            is End.At -> parseEndMinuteOfDay(end.hm) ?: return Result.Invalid("Hãy nhập giờ kết thúc, ví dụ 15:12.")
             End.Now -> {
                 if (!isToday && !allowEndNowFromYesterday) {
                     return Result.Invalid("\"Bây giờ\" chỉ dùng cho hôm nay hoặc bắt đầu từ hôm qua. Hãy nhập giờ kết thúc.")
@@ -81,6 +88,10 @@ object TimeRange {
             return Result.Invalid(
                 if (end === End.Now) "Chưa đủ 1 phút kể từ giờ bắt đầu." else "Giờ kết thúc phải khác giờ bắt đầu."
             )
+        }
+        if (endMinute == 1440) {
+            val minutes = 1440 - start
+            return Result.Ok(formatHm(start), "24:00", minutes, crossesMidnight = false)
         }
         val crosses = endMinute < start
         if (crosses && end === End.Now && isToday) return Result.Invalid("Giờ bắt đầu chưa tới. Chọn giờ bắt đầu trước bây giờ.")

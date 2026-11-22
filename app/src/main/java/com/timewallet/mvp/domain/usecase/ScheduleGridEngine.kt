@@ -77,8 +77,28 @@ data class SelectedSlotGroup(
     val endMinute: Int
 ) {
     val startHm: String get() = TimeRange.formatHm(startMinute.coerceIn(0, 1439))
-    val endHm: String get() = if (endMinute >= 1440) "00:00" else TimeRange.formatHm(endMinute.coerceIn(1, 1439))
+    val endHm: String get() = if (endMinute >= 1440) "24:00" else TimeRange.formatHm(endMinute.coerceIn(1, 1439))
     val durationMinutes: Int get() = (endMinute - startMinute).coerceAtLeast(1)
+}
+
+/** Kết quả phát hiện xung đột khi dời / kéo cạnh / đặt hoạt động vào khoảng giờ mới trên lịch. */
+data class ScheduleConflictCheck(
+    val hardConflicts: List<ScheduleGridBlock>,
+    val planConflicts: List<ScheduleGridBlock>,
+    val actualOverlapNotes: List<ScheduleGridBlock> = emptyList()
+) {
+    val hasBlockingOrWarningConflict: Boolean
+        get() = hardConflicts.isNotEmpty() || planConflicts.isNotEmpty()
+
+    val primaryConflict: ScheduleGridBlock?
+        get() = hardConflicts.firstOrNull() ?: planConflicts.firstOrNull()
+
+    fun summaryVi(): String {
+        val hit = primaryConflict ?: return ""
+        val endLabel = if (hit.endMinute >= 1440) "24:00" else TimeRange.formatHm(hit.endMinute)
+        val kind = if (hardConflicts.isNotEmpty()) "Trùng hoạt động thực tế" else "Trùng kế hoạch dự kiến"
+        return "$kind với \"${hit.title}\" (${TimeRange.formatHm(hit.startMinute)}–$endLabel)"
+    }
 }
 
 data class DayScheduleModel(
@@ -487,6 +507,82 @@ object ScheduleGridEngine {
         val snappedEnd = ((rawEnd + snapMinutes / 2) / snapMinutes) * snapMinutes
         val clampedEnd = snappedEnd.coerceIn(safeStart + minMinutes, 1440)
         return safeStart to clampedEnd
+    }
+
+    /** Kéo mép trên của khối hoạt động để cập nhật giờ bắt đầu (giữ nguyên giờ kết thúc). */
+    fun snapResizeStartRange(
+        origStartMin: Int,
+        origEndMin: Int,
+        deltaStartMinutes: Int,
+        minMinutes: Int = 15,
+        snapMinutes: Int = 15
+    ): Pair<Int, Int> {
+        val safeEnd = origEndMin.coerceIn(minMinutes, 1440)
+        val rawStart = origStartMin + deltaStartMinutes
+        val half = snapMinutes / 2
+        val snappedStart = if (rawStart >= 0) {
+            ((rawStart + half) / snapMinutes) * snapMinutes
+        } else {
+            0
+        }
+        val clampedStart = snappedStart.coerceIn(0, safeEnd - minMinutes)
+        return clampedStart to safeEnd
+    }
+
+    /** Kéo liên tục trên khoảng trống để chọn một dải giờ nối liền với bước snap 15 phút. */
+    fun snapEmptyDragRange(
+        anchorMinute: Int,
+        currentMinute: Int,
+        snapMinutes: Int = 15
+    ): Pair<Int, Int> {
+        val rawMin = min(anchorMinute, currentMinute).coerceIn(0, 1440 - snapMinutes)
+        val rawMax = max(anchorMinute, currentMinute).coerceIn(rawMin + snapMinutes, 1440)
+        val snappedStart = (rawMin / snapMinutes) * snapMinutes
+        val snappedEnd = (((rawMax + snapMinutes - 1) / snapMinutes) * snapMinutes).coerceIn(snappedStart + snapMinutes, 1440)
+        return snappedStart to snappedEnd
+    }
+
+    /** Định vị một hoạt động chưa gắn giờ vào khung giờ đã chọn nhưng giữ nguyên thời lượng (nằm gọn trong ngày). */
+    fun buildUntimedPlacementWindow(
+        tappedMinute: Int,
+        durationMinutes: Int,
+        snapMinutes: Int = 15
+    ): Pair<Int, Int> {
+        val dur = durationMinutes.coerceIn(snapMinutes, 1440)
+        val snappedStart = ((tappedMinute.coerceIn(0, 1440 - dur)) / snapMinutes) * snapMinutes
+        val clampedStart = snappedStart.coerceIn(0, (1440 - dur).coerceAtLeast(0))
+        return clampedStart to (clampedStart + dur).coerceAtMost(1440)
+    }
+
+    /** Kiểm tra xung đột trên lưới ngày trước khi lưu thao tác dời/giãn/đặt lịch. */
+    fun findConflictingBlocks(
+        candidateStartMin: Int,
+        candidateEndMin: Int,
+        excludeRecordId: String?,
+        isPlannedCandidate: Boolean,
+        dayBlocks: List<ScheduleGridBlock>
+    ): ScheduleConflictCheck {
+        val overlapping = dayBlocks.filter { b ->
+            b.recordId != excludeRecordId &&
+                candidateStartMin < b.endMinute &&
+                candidateEndMin > b.startMinute
+        }
+        return if (isPlannedCandidate) {
+            val planHits = overlapping.filter { it.visualState == ScheduleBlockVisualState.PLANNED || it.visualState == ScheduleBlockVisualState.UNCONFIRMED }
+            val actualHits = overlapping.filter { it.visualState == ScheduleBlockVisualState.COMPLETED || it.visualState == ScheduleBlockVisualState.ACTIVE }
+            ScheduleConflictCheck(hardConflicts = emptyList(), planConflicts = planHits, actualOverlapNotes = actualHits)
+        } else {
+            val actualHits = overlapping.filter { it.visualState == ScheduleBlockVisualState.COMPLETED || it.visualState == ScheduleBlockVisualState.ACTIVE || it.visualState == ScheduleBlockVisualState.UNCONFIRMED }
+            ScheduleConflictCheck(hardConflicts = actualHits, planConflicts = emptyList())
+        }
+    }
+
+    fun formatHmEnd(endMinute: Int): String =
+        if (endMinute >= 1440) "24:00" else TimeRange.formatHm(endMinute.coerceIn(1, 1439))
+
+    fun formatHmWindow(startMinute: Int, endMinute: Int): String {
+        val dur = (endMinute - startMinute).coerceAtLeast(1)
+        return "${TimeRange.formatHm(startMinute.coerceIn(0, 1439))}–${formatHmEnd(endMinute)} · ${TimeRange.formatDuration(dur)}"
     }
 
     /**

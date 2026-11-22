@@ -9,6 +9,8 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 
 @Immutable
 internal data class WalletPalette(
@@ -183,9 +185,18 @@ val WalletDarkColorScheme = darkColorScheme(
 @Composable
 fun TimeWalletTheme(
     darkTheme: Boolean = false,
+    fontScaleMultiplier: Float = 1.0f,
     content: @Composable () -> Unit
 ) {
-    CompositionLocalProvider(LocalWalletPalette provides if (darkTheme) DarkWalletPalette else LightWalletPalette) {
+    val baseDensity = LocalDensity.current
+    val scaledDensity = Density(
+        density = baseDensity.density,
+        fontScale = baseDensity.fontScale * fontScaleMultiplier.coerceIn(0.75f, 1.15f)
+    )
+    CompositionLocalProvider(
+        LocalWalletPalette provides if (darkTheme) DarkWalletPalette else LightWalletPalette,
+        LocalDensity provides scaledDensity
+    ) {
         MaterialTheme(
             colorScheme = if (darkTheme) WalletDarkColorScheme else LightColorScheme,
             content = content
