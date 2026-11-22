@@ -109,8 +109,8 @@ fun ProfileSettingsScreen(
     val context = LocalContext.current
     val versionLabel = remember {
         runCatching {
-            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "2.1.0"
-        }.getOrDefault("2.1.0")
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "2.1.1"
+        }.getOrDefault("2.1.1")
     }
 
     Box(

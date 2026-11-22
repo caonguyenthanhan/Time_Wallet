@@ -774,9 +774,9 @@ fun ScheduleCalendarView(
         val activeHourHeightPx = with(LocalDensity.current) {
             when (viewMode) {
                 ScheduleViewMode.DAY -> 72.dp.toPx()
-                ScheduleViewMode.THREE_DAYS -> 64.dp.toPx()
-                ScheduleViewMode.WEEK -> 56.dp.toPx()
-                ScheduleViewMode.MONTH -> 56.dp.toPx()
+                ScheduleViewMode.THREE_DAYS -> 56.dp.toPx()
+                ScheduleViewMode.WEEK -> 40.dp.toPx()
+                ScheduleViewMode.MONTH -> 40.dp.toPx()
             }
         }
         val activeTargetViewportY: Float? = when {
@@ -849,7 +849,7 @@ fun ScheduleCalendarView(
                         days = multiDayModels,
                         todayStr = today.toString(),
                         nowMinute = nowMinute,
-                        hourHeight = 64.dp,
+                        hourHeight = 56.dp,
                         interactionState = interactionState,
                         modifier = Modifier.fillMaxSize(),
                         onViewportMetricsChanged = { scrollPx, vpH ->
@@ -887,7 +887,7 @@ fun ScheduleCalendarView(
                         days = multiDayModels,
                         todayStr = today.toString(),
                         nowMinute = nowMinute,
-                        hourHeight = 56.dp,
+                        hourHeight = 40.dp,
                         compactColumns = true,
                         interactionState = interactionState,
                         modifier = Modifier.fillMaxSize(),
@@ -945,12 +945,13 @@ fun ScheduleCalendarView(
             }
 
             // 3. Thanh công cụ nổi nhỏ gọn neo đối diện khối đang chọn/kéo (không đẩy hay che timeline!)
+            val overlayTopPad = if (viewMode == ScheduleViewMode.THREE_DAYS || viewMode == ScheduleViewMode.WEEK) 56.dp else 6.dp
             val overlayPad = if (dockToolbarAtTop) {
-                Modifier.align(Alignment.TopCenter).padding(horizontal = 8.dp, vertical = 6.dp)
+                Modifier.align(Alignment.TopCenter).padding(start = 8.dp, end = 8.dp, top = overlayTopPad, bottom = 6.dp)
             } else {
                 Modifier.align(Alignment.BottomCenter).padding(
                     start = 8.dp,
-                    end = 64.dp,
+                    end = 50.dp,
                     bottom = 6.dp
                 )
             }
@@ -1203,8 +1204,9 @@ private fun SelectedSlotsActionBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            val cleanSummary = summaryText.removePrefix("1 sự kiện · ")
             Text(
-                text = if (slotCount <= 1) summaryText else "($slotCount) $summaryText",
+                text = if (slotCount <= 1) cleanSummary else "($slotCount) $cleanSummary",
                 fontSize = 11.5.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = WalletInk,
@@ -1576,7 +1578,7 @@ private fun DayTimelineGrid(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(scrollState)
-                    .padding(top = 6.dp, bottom = 64.dp)
+                    .padding(top = 4.dp, bottom = 10.dp)
             ) {
                 Column(modifier = Modifier.width(50.dp)) {
                     for (h in 0 until 24) {
@@ -2541,7 +2543,13 @@ private fun MultiDayTimelineGrid(
     }
 
     LaunchedEffect(days.size, compactColumns) {
-        val targetHour = (nowMinute / 60 - 2).coerceIn(0, 16)
+        val dayBlocks = days.flatMap { it.timedBlocks }.filter { it.endMinute > 360 }
+        val earliestDayHour = dayBlocks.minOfOrNull { it.startMinute / 60 } ?: 8
+        val targetHour = if (compactColumns) {
+            minOf((nowMinute / 60 - 9).coerceIn(6, 12), (earliestDayHour - 1).coerceIn(6, 12))
+        } else {
+            minOf((nowMinute / 60 - 4).coerceIn(6, 15), (earliestDayHour - 1).coerceIn(6, 15))
+        }
         vScrollState.scrollTo((targetHour * hourPx).roundToInt())
     }
 
@@ -2574,8 +2582,13 @@ private fun MultiDayTimelineGrid(
             val rightPad = 4.dp
             val gridAvailWidth = (maxWidth - axisWidth - rightPad).coerceAtLeast(180.dp)
             val minColWidth = if (compactColumns) 98.dp else 112.dp
-            val needsHorizontalScroll = (minColWidth * days.size) > gridAvailWidth
-            val colWidth = if (needsHorizontalScroll) minColWidth else (gridAvailWidth / days.size.coerceAtLeast(1))
+            val needsHorizontalScroll = if (days.size <= 3) false else (minColWidth * days.size) > gridAvailWidth
+            val colWidth = if (needsHorizontalScroll) {
+                val visibleCols = (gridAvailWidth / minColWidth).toInt().coerceAtLeast(1)
+                (gridAvailWidth / visibleCols.toFloat()).coerceAtLeast(minColWidth)
+            } else {
+                gridAvailWidth / days.size.coerceAtLeast(1)
+            }
             val totalDaysWidth = colWidth * days.size
             val colPx = with(density) { colWidth.toPx() }
 
@@ -2593,7 +2606,7 @@ private fun MultiDayTimelineGrid(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(WalletMintTint)
-                        .padding(top = 6.dp, bottom = 6.dp),
+                        .padding(vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Spacer(modifier = Modifier.width(axisWidth))
@@ -2619,25 +2632,19 @@ private fun MultiDayTimelineGrid(
                                 modifier = Modifier
                                     .width(colWidth)
                                     .padding(horizontal = 2.dp)
-                                    .clip(RoundedCornerShape(10.dp))
+                                    .clip(RoundedCornerShape(9.dp))
                                     .background(if (isToday) WalletMint else Color.Transparent)
                                     .walletClickable(onClickLabel = "Mở ngày ${day.dateLocal}") {
                                         onSelectDay(day.dateLocal)
                                     }
-                                    .padding(vertical = 4.dp, horizontal = 3.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                                    .padding(vertical = 3.dp, horizontal = 3.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
                             ) {
                                 Text(
-                                    text = shortWeekdayVi(d.dayOfWeek),
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isToday) Color(0xFFD6EFE3) else WalletMuted,
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
-                                Text(
-                                    text = d.format(DateTimeFormatter.ofPattern("dd/MM")),
-                                    fontSize = if (compactColumns) 12.5.sp else 13.sp,
+                                    text = "${shortWeekdayVi(d.dayOfWeek)} · ${d.format(DateTimeFormatter.ofPattern("dd/MM"))}",
+                                    fontSize = if (compactColumns) 11.sp else 12.sp,
+                                    lineHeight = 14.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = if (isToday) Color.White else WalletInk,
                                     maxLines = 1,
@@ -2646,9 +2653,10 @@ private fun MultiDayTimelineGrid(
                                 if (colSummary.isNotEmpty()) {
                                     Text(
                                         text = colSummary,
-                                        fontSize = 10.sp,
+                                        fontSize = 9.5.sp,
+                                        lineHeight = 12.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = if (isToday) Color.White else WalletMintAccent,
+                                        color = if (isToday) Color(0xFFD6EFE3) else WalletMintAccent,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -2670,7 +2678,7 @@ private fun MultiDayTimelineGrid(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(vScrollState)
-                        .padding(top = 2.dp, bottom = 64.dp)
+                        .padding(top = 2.dp, bottom = 10.dp)
                 ) {
                     Column(modifier = Modifier.width(axisWidth)) {
                         for (h in 0 until 24) {
@@ -2780,9 +2788,10 @@ private fun MultiDayTimelineGrid(
                                     }
 
                                     // Hiển thị vùng chọn khoảng trống trên cột ngày này
+                                    val minSlotDp = if (compactColumns) 12f else 18f
                                     selectedSlots.filter { it.dateLocal == day.dateLocal }.forEach { slot ->
                                         val topDp = (slot.startMinute / 60f) * hourHeight.value
-                                        val hDp = max(20f, ((slot.endMinute - slot.startMinute) / 60f) * hourHeight.value)
+                                        val hDp = max(minSlotDp, ((slot.endMinute - slot.startMinute) / 60f) * hourHeight.value)
                                         Box(
                                             modifier = Modifier
                                                 .offset(x = 1.dp, y = topDp.dp)
@@ -2806,7 +2815,7 @@ private fun MultiDayTimelineGrid(
                                     if (draggingEmptyDate == day.dateLocal && liveEmptyRange != null) {
                                         val (s, e) = liveEmptyRange!!
                                         val topDp = (s / 60f) * hourHeight.value
-                                        val hDp = max(20f, ((e - s) / 60f) * hourHeight.value)
+                                        val hDp = max(minSlotDp, ((e - s) / 60f) * hourHeight.value)
                                         Box(
                                             modifier = Modifier
                                                 .offset(x = 1.dp, y = topDp.dp)
@@ -2822,7 +2831,7 @@ private fun MultiDayTimelineGrid(
                                         val s = placement.startMinute
                                         val e = placement.endMinute
                                         val topDp = (s / 60f) * hourHeight.value
-                                        val hDp = max(20f, ((e - s) / 60f) * hourHeight.value)
+                                        val hDp = max(minSlotDp, ((e - s) / 60f) * hourHeight.value)
                                         Box(
                                             modifier = Modifier
                                                 .offset(x = 1.dp, y = topDp.dp)
