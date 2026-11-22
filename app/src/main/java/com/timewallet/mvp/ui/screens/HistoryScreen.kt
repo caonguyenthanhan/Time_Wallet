@@ -2,7 +2,6 @@ package com.timewallet.mvp.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,6 +47,7 @@ import com.timewallet.mvp.domain.model.ConfirmationState
 import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.model.TaskItem
 import com.timewallet.mvp.domain.model.TimeLayer
+import com.timewallet.mvp.domain.usecase.DashboardSummary
 import com.timewallet.mvp.domain.usecase.DayLedgerStats
 import com.timewallet.mvp.domain.usecase.JournalDayTotal
 import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
@@ -127,6 +127,7 @@ fun HistoryScreen(
     var recordPendingDelete by remember { mutableStateOf<LedgerRecord?>(null) }
     var selectedPlannedId by remember { mutableStateOf<String?>(null) }
     var showInboxScheduleSheet by remember { mutableStateOf(false) }
+    var showWalletStatsModal by remember { mutableStateOf(false) }
     var liveStatusAnnouncement by remember { mutableStateOf("") }
     var internalCalendarMode by rememberSaveable { mutableStateOf(true) }
     val activeCalendarMode = showCalendarMode ?: internalCalendarMode
@@ -173,22 +174,51 @@ fun HistoryScreen(
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
                 text = if (activeCalendarMode) "Lịch trình" else "Nhật ký",
-                fontSize = 17.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = WalletInk,
                 maxLines = 1,
-                softWrap = false,
-                modifier = Modifier.weight(1f)
+                softWrap = false
             )
+            if (activeCalendarMode && todayStats != null) {
+                val summary24 = remember(todayStats) { DashboardSummary.from(todayStats) }
+                val recStr = remember(summary24.recordedSeconds) {
+                    LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(summary24.recordedSeconds)
+                }
+                Box(
+                    modifier = Modifier.walletClickable(onClickLabel = "Xem nhanh thống kê ví 24 giờ hôm nay") {
+                        showWalletStatsModal = true
+                    },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(100.dp))
+                            .background(WalletMintTint)
+                            .border(1.dp, WalletStroke, RoundedCornerShape(100.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "$recStr / 24h ▾",
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = WalletMintAccent,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.weight(1f))
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(100.dp))
@@ -205,12 +235,12 @@ fun HistoryScreen(
                         selected = selected,
                         role = Role.Tab,
                         contentDescription = "Chế độ $label",
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 3.dp),
                         onClick = { setCalendarMode(isCal) }
                     ) {
                         Text(
                             text = label,
-                            fontSize = 11.5.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = if (selected) Color.White else WalletMuted,
                             maxLines = 1,
@@ -221,7 +251,7 @@ fun HistoryScreen(
             }
         }
 
-        if (todayStats != null) {
+        if (!activeCalendarMode && todayStats != null) {
             Compact24hWalletCard(
                 todayDateLocal = todayDateLocal,
                 todayStats = todayStats,
@@ -563,6 +593,36 @@ fun HistoryScreen(
             dismissButton = {
                 TextButton(onClick = { recordPendingDelete = null }) {
                     Text("Hủy", color = WalletMuted)
+                }
+            }
+        )
+    }
+
+    if (showWalletStatsModal && todayStats != null) {
+        AlertDialog(
+            onDismissRequest = { showWalletStatsModal = false },
+            containerColor = WalletCardBg,
+            title = {
+                Text("Ví 24 giờ hôm nay", fontWeight = FontWeight.ExtraBold, color = WalletInk)
+            },
+            text = {
+                Compact24hWalletCard(
+                    todayDateLocal = todayDateLocal,
+                    todayStats = todayStats,
+                    inboxTaskCount = inboxTasks.size,
+                    onOpenDailyReview = {
+                        showWalletStatsModal = false
+                        onOpenDailyReview()
+                    },
+                    onOpenTasksInbox = {
+                        showWalletStatsModal = false
+                        showInboxScheduleSheet = true
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showWalletStatsModal = false }) {
+                    Text("Đóng", color = WalletMintDark, fontWeight = FontWeight.Bold)
                 }
             }
         )

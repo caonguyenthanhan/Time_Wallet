@@ -1,5 +1,5 @@
 # CONTEXT_MANIFEST.md
-Cập nhật lần cuối: 2026-11-22T16:08:00+07:00
+Cập nhật lần cuối: 2026-11-22T22:50:00+07:00
 
 ## Core (luôn nạp vào context)
 - `.agents/` — Quy tắc dự án (`AGENTS.md`, `rules/link-ecosystem.md`)

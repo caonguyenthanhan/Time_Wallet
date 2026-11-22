@@ -276,6 +276,10 @@ class V210ScheduleInteractionTest {
         // Khay Chưa gắn giờ được ghim ở phần trên cùng trước lưới lịch (không phụ thuộc cuộn xuống đáy)
         assertTrue(scheduleSrc.indexOf("PinnedScheduleUtilityStrip(") in 1 until scheduleSrc.indexOf("DayTimelineGrid("))
         assertTrue(scheduleSrc.indexOf("PinnedScheduleUtilityStrip(") in 1 until scheduleSrc.indexOf("MultiDayTimelineGrid("))
+        // Thanh thao tác ngữ cảnh (chọn khối, bản nháp, chọn ô trống, đặt chưa gắn giờ) phải neo nổi trong Box SAU lưới, không đẩy/co timeline
+        assertTrue(scheduleSrc.indexOf("SelectedBlockActionBar(") > scheduleSrc.indexOf("MonthOverviewGrid("))
+        assertTrue(scheduleSrc.indexOf("DraftTransformActionBar(") > scheduleSrc.indexOf("MonthOverviewGrid("))
+        assertTrue(scheduleSrc.indexOf("scrollState.scrollBy(") > 0 && scheduleSrc.indexOf("vScrollState.scrollBy(") > 0)
         // Có đầy đủ trạng thái bản nháp trước khi lưu + nút Hủy + tay nắm mép trên/dưới + đặt chưa gắn giờ
         assertTrue(scheduleSrc.contains("ScheduleInteractionState.BlockDraftTransform"))
         assertTrue(scheduleSrc.contains("DraftTransformActionBar("))

@@ -3,9 +3,16 @@ package com.timewallet.mvp.ui.screens
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.foundation.gestures.awaitVerticalTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.gestures.verticalDrag
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,11 +66,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -77,6 +89,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import com.timewallet.mvp.domain.model.ActiveTimerSession
 import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.model.TimeCategory
@@ -195,6 +209,9 @@ fun ScheduleCalendarView(
     var showUntimedSheet by remember { mutableStateOf(false) }
     var blockPendingDelete by remember { mutableStateOf<LedgerRecord?>(null) }
     var interactionState by remember { mutableStateOf<ScheduleInteractionState>(ScheduleInteractionState.Idle) }
+    var timelineScrollPx by remember(viewMode, selectedDateLocal) { mutableFloatStateOf(0f) }
+    var timelineViewportHeightPx by remember { mutableFloatStateOf(0f) }
+    var activeDragViewportY by remember { mutableFloatStateOf(-1f) }
 
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var categoryFilter by rememberSaveable { mutableStateOf<String?>(null) }
@@ -392,15 +409,8 @@ fun ScheduleCalendarView(
 
     fun handleTapBlock(block: ScheduleGridBlock) {
         if (interactionState is ScheduleInteractionState.UntimedPlacement) return
-        val cur = interactionState
-        if (cur is ScheduleInteractionState.BlockSelected && cur.block.recordId == block.recordId && cur.block.dateLocal == block.dateLocal) {
-            when {
-                block.isActiveTimer -> onNavigateToTimer()
-                block.record != null -> onEditRecord(block.record)
-            }
-        } else {
-            interactionState = ScheduleInteractionState.BlockSelected(block)
-        }
+        // Chạm để chọn khối và thao tác trực tiếp trên timeline; chỉ mở bottom sheet chi tiết khi người dùng bấm "Sửa".
+        interactionState = ScheduleInteractionState.BlockSelected(block)
     }
 
     fun shiftBlockIntoDraft(block: ScheduleGridBlock, deltaMinutes: Int) {
@@ -426,75 +436,89 @@ fun ScheduleCalendarView(
         } else {
             Modifier.fillMaxSize()
         },
-        verticalArrangement = Arrangement.spacedBy(5.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        // 1. Header xanh đặc trưng gọn tối đa
+        // 1. Header xanh 2 dòng siêu gọn: dòng 1 điều hướng ngày đủ rộng không cắt chữ, dòng 2 chế độ + Chưa giờ + Ghi mới
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(if (showBackButton) 18.dp else 16.dp))
+                .clip(RoundedCornerShape(14.dp))
                 .background(Brush.linearGradient(listOf(WalletMintDark, WalletMintMid, WalletMintBright)))
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+                .padding(horizontal = 8.dp, vertical = 2.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 if (showBackButton) {
                     Box(
                         modifier = Modifier
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.16f))
                             .semantics { contentDescription = "Đóng lịch trình" }
-                            .walletClickable(onClickLabel = "Đóng lịch trình", onClick = onBackClick)
-                            .padding(8.dp),
+                            .walletClickable(onClickLabel = "Đóng lịch trình", onClick = onBackClick),
                         contentAlignment = Alignment.Center
                     ) {
-                        GlyphIcon(WalletGlyph.BACK, color = Color.White, size = 16.dp)
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.16f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            GlyphIcon(WalletGlyph.BACK, color = Color.White, size = 14.dp)
+                        }
                     }
                 }
                 Box(
                     modifier = Modifier
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.14f))
                         .semantics { contentDescription = "Lùi thời gian" }
                         .walletClickable(onClickLabel = "Lùi thời gian") {
                             onSelectDate(stepScheduleDate(selectedDate, viewMode, -1).toString())
-                        }
-                        .padding(horizontal = 7.dp, vertical = 4.dp),
+                        },
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("‹", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    horizontalAlignment = Alignment.Start
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.16f)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = formatScheduleRangeHeading(selectedDate, today, viewMode),
-                            fontSize = if (viewMode == ScheduleViewMode.WEEK) 12.5.sp else 13.5.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false)
-                        )
-                        if (selectedDate != today) {
-                            WalletPill(
-                                onClickLabel = "Về hôm nay",
-                                containerColor = Color.White.copy(alpha = 0.22f),
-                                contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp),
-                                onClick = { onSelectDate(today.toString()) }
+                        Text("‹", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                }
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = formatScheduleRangeHeading(selectedDate, today, viewMode),
+                        fontSize = if (viewMode == ScheduleViewMode.WEEK) 12.sp else 12.5.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (selectedDate != today) {
+                        Box(
+                            modifier = Modifier.walletClickable(onClickLabel = "Về hôm nay") {
+                                onSelectDate(today.toString())
+                            },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(100.dp))
+                                    .background(Color.White.copy(alpha = 0.22f))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                                contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = "Hôm nay",
-                                    fontSize = 10.sp,
+                                    fontSize = 9.5.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = Color.White,
                                     maxLines = 1,
@@ -503,52 +527,52 @@ fun ScheduleCalendarView(
                             }
                         }
                     }
-                    Text(
-                        text = buildString {
-                            append("TT ${TimeRange.formatDuration(headerActualMinutes)}")
-                            append(" · KH ${TimeRange.formatDuration(headerPlannedMinutes)}")
-                            if (headerUnconfirmed > 0) append(" · Chờ $headerUnconfirmed")
-                        },
-                        fontSize = 10.5.sp,
-                        color = Color(0xFFD6EFE3),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
                 }
                 Box(
                     modifier = Modifier
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.14f))
                         .semantics { contentDescription = "Tiến thời gian" }
                         .walletClickable(onClickLabel = "Tiến thời gian") {
                             onSelectDate(stepScheduleDate(selectedDate, viewMode, +1).toString())
-                        }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        },
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("›", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.16f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("›", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
                 }
+
                 Box {
                     val hasActiveFilter = showSearchAndFilter || !categoryFilter.isNullOrBlank() || searchQuery.isNotBlank() || showLegend
                     Box(
                         modifier = Modifier
-                            .clip(CircleShape)
-                            .background(if (hasActiveFilter) Color.White else Color.White.copy(alpha = 0.16f))
                             .semantics { contentDescription = "Tùy chọn lịch trình" }
                             .walletClickable(onClickLabel = "Tùy chọn lịch trình") {
                                 showCalendarMenu = true
-                            }
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                            },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = if (!categoryFilter.isNullOrBlank() || searchQuery.isNotBlank()) "⋮●" else "⋮",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = if (hasActiveFilter) WalletMintDark else Color.White,
-                            maxLines = 1,
-                            softWrap = false
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(if (hasActiveFilter) Color.White else Color.White.copy(alpha = 0.16f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (!categoryFilter.isNullOrBlank() || searchQuery.isNotBlank()) "⋮●" else "⋮",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = if (hasActiveFilter) WalletMintDark else Color.White,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
                     }
                     DropdownMenu(
                         expanded = showCalendarMenu,
@@ -556,6 +580,20 @@ fun ScheduleCalendarView(
                         containerColor = WalletCardBg,
                         shape = RoundedCornerShape(14.dp)
                     ) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "TT ${TimeRange.formatDuration(headerActualMinutes)} · KH ${TimeRange.formatDuration(headerPlannedMinutes)}" +
+                                        if (headerUnconfirmed > 0) " · Chờ $headerUnconfirmed" else "",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = WalletMuted
+                                )
+                            },
+                            enabled = false,
+                            onClick = {}
+                        )
+                        HorizontalDivider(color = WalletDivider)
                         DropdownMenuItem(
                             text = {
                                 Text(
@@ -601,49 +639,61 @@ fun ScheduleCalendarView(
             }
 
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color.White.copy(alpha = 0.15f))
-                    .padding(2.dp),
-                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                ScheduleViewMode.entries.forEach { mode ->
-                    val isSelected = mode == viewMode
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (isSelected) Color.White else Color.Transparent)
-                            .semantics { this.selected = isSelected }
-                            .walletClickable(onClickLabel = "Chế độ ${mode.label}", role = Role.Tab) {
-                                onSelectViewMode(mode)
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(Color.White.copy(alpha = 0.15f))
+                        .padding(horizontal = 2.dp, vertical = 1.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ScheduleViewMode.entries.forEach { mode ->
+                        val isSelected = mode == viewMode
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .semantics { this.selected = isSelected }
+                                .walletClickable(onClickLabel = "Chế độ ${mode.label}", role = Role.Tab) {
+                                    onSelectViewMode(mode)
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(7.dp))
+                                    .background(if (isSelected) Color.White else Color.Transparent)
+                                    .padding(vertical = 3.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = mode.label,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                    color = if (isSelected) WalletMintDark else Color.White,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
                             }
-                            .padding(vertical = 3.5.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = mode.label,
-                            fontSize = 11.5.sp,
-                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
-                            color = if (isSelected) WalletMintDark else Color.White,
-                            maxLines = 1,
-                            softWrap = false
-                        )
+                        }
                     }
                 }
+                // Khay "Chưa gắn giờ" + "+" ghim cố định ngay hàng 2 thanh đầu, luôn mở được bất kể vị trí cuộn
+                PinnedScheduleUtilityStrip(
+                    untimedCount = untimedItems.size,
+                    isPlacingUntimed = interactionState is ScheduleInteractionState.UntimedPlacement,
+                    onOpenUntimedTray = { showUntimedSheet = true },
+                    onQuickCreateNew = {
+                        onAddForSlot(selectedDate.toString(), null, null, selectedDate.isAfter(today))
+                    }
+                )
             }
         }
-
-        // 2. Khay truy cập "Chưa gắn giờ" cố định ngay trên đầu khu vực lịch (không phụ thuộc vị trí cuộn!)
-        PinnedScheduleUtilityStrip(
-            untimedCount = untimedItems.size,
-            isPlacingUntimed = interactionState is ScheduleInteractionState.UntimedPlacement,
-            onOpenUntimedTray = { showUntimedSheet = true },
-            onQuickCreateNew = {
-                onAddForSlot(selectedDate.toString(), null, null, selectedDate.isAfter(today))
-            }
-        )
 
         if (showSearchAndFilter) {
             Surface(
@@ -707,240 +757,303 @@ fun ScheduleCalendarView(
             }
         }
 
-        // 3. Thanh thao tác ngữ cảnh luôn nằm trong tầm nhìn khi chọn khoảng trống / hoạt động / bản nháp dời-giãn / đặt giờ
-        when (val active = interactionState) {
-            ScheduleInteractionState.Idle -> Unit
-            is ScheduleInteractionState.EmptySlotsSelected -> {
-                if (mergedSelectedGroups.isNotEmpty() && viewMode != ScheduleViewMode.MONTH) {
-                    SelectedSlotsActionBar(
-                        slotCount = active.slots.size,
-                        summaryText = ScheduleGridEngine.summarizeSelectedSlotGroups(mergedSelectedGroups),
-                        onClear = { interactionState = ScheduleInteractionState.Idle },
-                        onCreate = { openCreateForEmptyGroups(mergedSelectedGroups) }
-                    )
-                }
-            }
-            is ScheduleInteractionState.UntimedPlacement -> {
-                val targetDate = active.targetDateLocal
-                val sMin = active.startMinute
-                val eMin = active.endMinute
-                val conflicts = if (targetDate != null && sMin != null && eMin != null) {
-                    ScheduleGridEngine.findConflictingBlocks(
-                        candidateStartMin = sMin,
-                        candidateEndMin = eMin,
-                        excludeRecordId = active.record.id,
-                        isPlannedCandidate = targetDate > todayDateLocal,
-                        dayBlocks = blocksByDate[targetDate].orEmpty()
-                    )
-                } else null
-                UntimedPlacementActionBar(
-                    record = active.record,
-                    targetDateLocal = targetDate,
-                    startMinute = sMin,
-                    endMinute = eMin,
-                    conflicts = conflicts,
-                    onCancel = { interactionState = ScheduleInteractionState.Idle },
-                    onConfirmPlace = {
-                        if (targetDate != null && sMin != null && eMin != null) {
-                            val recId = active.record.id
-                            val st = TimeRange.formatHm(sMin)
-                            val en = ScheduleGridEngine.formatHmEnd(eMin)
-                            interactionState = ScheduleInteractionState.Idle
-                            onPlaceUntimedOnSlot(recId, targetDate, st, en)
-                        }
-                    }
-                )
-            }
-            is ScheduleInteractionState.BlockSelected -> {
-                val blk = active.block
-                SelectedBlockActionBar(
-                    block = blk,
-                    onEdit = {
-                        interactionState = ScheduleInteractionState.Idle
-                        if (blk.isActiveTimer) onNavigateToTimer()
-                        else blk.record?.let(onEditRecord)
-                    },
-                    onNudgeEarlier = { shiftBlockIntoDraft(blk, -15) },
-                    onNudgeLater = { shiftBlockIntoDraft(blk, +15) },
-                    onConfirm = blk.record?.let { rec ->
-                        if (blk.visualState == ScheduleBlockVisualState.UNCONFIRMED) {
-                            {
-                                interactionState = ScheduleInteractionState.Idle
-                                onConfirmPlannedOrActiveRecord(rec)
-                            }
-                        } else null
-                    },
-                    onDelete = blk.record?.let { rec ->
-                        { blockPendingDelete = rec }
-                    },
-                    onDismiss = { interactionState = ScheduleInteractionState.Idle }
-                )
-            }
-            is ScheduleInteractionState.BlockDraftTransform -> {
-                val conflictCheck = remember(active, blocksByDate) {
-                    ScheduleGridEngine.findConflictingBlocks(
-                        candidateStartMin = active.draftStartMin,
-                        candidateEndMin = active.draftEndMin,
-                        excludeRecordId = active.original.recordId,
-                        isPlannedCandidate = active.original.visualState == ScheduleBlockVisualState.PLANNED,
-                        dayBlocks = blocksByDate[active.targetDateLocal].orEmpty()
-                    )
-                }
-                DraftTransformActionBar(
-                    draft = active,
-                    conflicts = conflictCheck,
-                    onNudgeStart = { delta ->
-                        val (s, e) = ScheduleGridEngine.snapResizeStartRange(active.draftStartMin, active.draftEndMin, delta)
-                        interactionState = active.copy(draftStartMin = s, draftEndMin = e)
-                    },
-                    onNudgeEnd = { delta ->
-                        val (s, e) = ScheduleGridEngine.snapResizeRange(active.draftStartMin, active.draftEndMin, delta)
-                        interactionState = active.copy(draftStartMin = s, draftEndMin = e)
-                    },
-                    onCancel = { interactionState = ScheduleInteractionState.BlockSelected(active.original) },
-                    onCommit = {
-                        val orig = active.original
-                        val d = active.targetDateLocal
-                        val st = TimeRange.formatHm(active.draftStartMin)
-                        val en = ScheduleGridEngine.formatHmEnd(active.draftEndMin)
-                        interactionState = ScheduleInteractionState.Idle
-                        onMoveOrResizeBlock(orig.recordId, d, st, en)
-                    }
-                )
-            }
-        }
-
+        // 2. Timeline là trung tâm — chiếm toàn bộ không gian còn lại vừa khít màn hình, KHÔNG BAO GIỜ co lại hay nhảy vị trí khi chọn/sửa
         val screenHeightDp = LocalConfiguration.current.screenHeightDp
-        val embeddedGridHeight = (screenHeightDp - 230).coerceIn(430, 590).dp
+        val embeddedGridHeight = (screenHeightDp - 304).coerceIn(390, 560).dp
         val gridModifier = if (embeddedInScrollContainer) {
             Modifier.fillMaxWidth().height(embeddedGridHeight)
         } else {
             Modifier.fillMaxWidth().weight(1f)
         }
+        val boxContainerModifier = if (viewMode == ScheduleViewMode.MONTH && embeddedInScrollContainer) {
+            Modifier.fillMaxWidth()
+        } else {
+            gridModifier
+        }
 
-        when (viewMode) {
-            ScheduleViewMode.DAY -> {
-                val dayModel = multiDayModels.first()
-                DayTimelineGrid(
-                    dayModel = dayModel,
-                    isToday = selectedDate == today,
-                    nowMinute = nowMinute,
-                    interactionState = interactionState,
-                    modifier = gridModifier,
-                    onTapEmptyAtMinute = { minute -> handleTapEmptyPosition(dayModel, minute) },
-                    onDragSelectEmptyRange = { sMin, eMin ->
-                        if (interactionState is ScheduleInteractionState.UntimedPlacement) {
-                            val cur = interactionState as ScheduleInteractionState.UntimedPlacement
-                            val (s, e) = ScheduleGridEngine.buildUntimedPlacementWindow(sMin, cur.record.durationMinutes)
-                            interactionState = cur.copy(targetDateLocal = dayModel.dateLocal, startMinute = s, endMinute = e)
-                        } else {
-                            updateEmptySlotRangeExact(dayModel.dateLocal, sMin, eMin)
-                        }
-                    },
-                    onResizeSelectedEmptySlot = { newStart, newEnd ->
-                        updateEmptySlotRangeExact(dayModel.dateLocal, newStart, newEnd)
-                    },
-                    onQuickAddSelectedGroup = { g -> openCreateForEmptyGroups(listOf(g)) },
-                    onClearSelection = { interactionState = ScheduleInteractionState.Idle },
-                    onTapBlock = ::handleTapBlock,
-                    onConfirmUnconfirmed = { record -> onConfirmPlannedOrActiveRecord(record) },
-                    onDraftBlockChanged = { block, newStart, newEnd ->
-                        interactionState = ScheduleInteractionState.BlockDraftTransform(
-                            original = block,
-                            targetDateLocal = block.dateLocal,
-                            draftStartMin = newStart,
-                            draftEndMin = newEnd
-                        )
+        val activeHourHeightPx = with(LocalDensity.current) {
+            when (viewMode) {
+                ScheduleViewMode.DAY -> 72.dp.toPx()
+                ScheduleViewMode.THREE_DAYS -> 64.dp.toPx()
+                ScheduleViewMode.WEEK -> 56.dp.toPx()
+                ScheduleViewMode.MONTH -> 56.dp.toPx()
+            }
+        }
+        val activeTargetViewportY: Float? = when {
+            activeDragViewportY >= 0f -> activeDragViewportY
+            else -> when (val s = interactionState) {
+                is ScheduleInteractionState.BlockDraftTransform ->
+                    (((s.draftStartMin + s.draftEndMin) / 2f) / 60f) * activeHourHeightPx - timelineScrollPx
+                is ScheduleInteractionState.BlockSelected ->
+                    (((s.block.startMinute + s.block.endMinute) / 2f) / 60f) * activeHourHeightPx - timelineScrollPx
+                is ScheduleInteractionState.EmptySlotsSelected ->
+                    s.slots.firstOrNull()?.let { slot ->
+                        (((slot.startMinute + slot.endMinute) / 2f) / 60f) * activeHourHeightPx - timelineScrollPx
                     }
+                is ScheduleInteractionState.UntimedPlacement ->
+                    if (s.startMinute != null && s.endMinute != null) {
+                        (((s.startMinute + s.endMinute) / 2f) / 60f) * activeHourHeightPx - timelineScrollPx
+                    } else null
+                else -> null
+            }
+        }
+        val dockToolbarAtTop = viewMode != ScheduleViewMode.MONTH &&
+            activeTargetViewportY != null &&
+            timelineViewportHeightPx > 80f &&
+            activeTargetViewportY > timelineViewportHeightPx * 0.48f
+
+        Box(modifier = boxContainerModifier) {
+            when (viewMode) {
+                ScheduleViewMode.DAY -> {
+                    val dayModel = multiDayModels.first()
+                    DayTimelineGrid(
+                        dayModel = dayModel,
+                        isToday = selectedDate == today,
+                        nowMinute = nowMinute,
+                        interactionState = interactionState,
+                        modifier = Modifier.fillMaxSize(),
+                        onViewportMetricsChanged = { scrollPx, vpH ->
+                            timelineScrollPx = scrollPx
+                            timelineViewportHeightPx = vpH
+                        },
+                        onDragViewportYChanged = { yVp -> activeDragViewportY = yVp },
+                        onTapEmptyAtMinute = { minute -> handleTapEmptyPosition(dayModel, minute) },
+                        onDragSelectEmptyRange = { sMin, eMin ->
+                            if (interactionState is ScheduleInteractionState.UntimedPlacement) {
+                                val cur = interactionState as ScheduleInteractionState.UntimedPlacement
+                                val (s, e) = ScheduleGridEngine.buildUntimedPlacementWindow(sMin, cur.record.durationMinutes)
+                                interactionState = cur.copy(targetDateLocal = dayModel.dateLocal, startMinute = s, endMinute = e)
+                            } else {
+                                updateEmptySlotRangeExact(dayModel.dateLocal, sMin, eMin)
+                            }
+                        },
+                        onResizeSelectedEmptySlot = { newStart, newEnd ->
+                            updateEmptySlotRangeExact(dayModel.dateLocal, newStart, newEnd)
+                        },
+                        onQuickAddSelectedGroup = { g -> openCreateForEmptyGroups(listOf(g)) },
+                        onClearSelection = { interactionState = ScheduleInteractionState.Idle },
+                        onTapBlock = ::handleTapBlock,
+                        onConfirmUnconfirmed = { record -> onConfirmPlannedOrActiveRecord(record) },
+                        onDraftBlockChanged = { block, newStart, newEnd ->
+                            interactionState = ScheduleInteractionState.BlockDraftTransform(
+                                original = block,
+                                targetDateLocal = block.dateLocal,
+                                draftStartMin = newStart,
+                                draftEndMin = newEnd
+                            )
+                        }
+                    )
+                }
+                ScheduleViewMode.THREE_DAYS -> {
+                    MultiDayTimelineGrid(
+                        days = multiDayModels,
+                        todayStr = today.toString(),
+                        nowMinute = nowMinute,
+                        hourHeight = 64.dp,
+                        interactionState = interactionState,
+                        modifier = Modifier.fillMaxSize(),
+                        onViewportMetricsChanged = { scrollPx, vpH ->
+                            timelineScrollPx = scrollPx
+                            timelineViewportHeightPx = vpH
+                        },
+                        onDragViewportYChanged = { yVp -> activeDragViewportY = yVp },
+                        onSelectDay = { dateStr ->
+                            onSelectDate(dateStr)
+                            onSelectViewMode(ScheduleViewMode.DAY)
+                        },
+                        onTapCellAtMinute = { dayModel, minute -> handleTapEmptyPosition(dayModel, minute) },
+                        onDragSelectEmptyRange = { dayModel, sMin, eMin ->
+                            if (interactionState is ScheduleInteractionState.UntimedPlacement) {
+                                val cur = interactionState as ScheduleInteractionState.UntimedPlacement
+                                val (s, e) = ScheduleGridEngine.buildUntimedPlacementWindow(sMin, cur.record.durationMinutes)
+                                interactionState = cur.copy(targetDateLocal = dayModel.dateLocal, startMinute = s, endMinute = e)
+                            } else {
+                                updateEmptySlotRangeExact(dayModel.dateLocal, sMin, eMin)
+                            }
+                        },
+                        onTapBlock = ::handleTapBlock,
+                        onDraftBlockMoved = { block, newStart, newEnd ->
+                            interactionState = ScheduleInteractionState.BlockDraftTransform(
+                                original = block,
+                                targetDateLocal = block.dateLocal,
+                                draftStartMin = newStart,
+                                draftEndMin = newEnd
+                            )
+                        }
+                    )
+                }
+                ScheduleViewMode.WEEK -> {
+                    MultiDayTimelineGrid(
+                        days = multiDayModels,
+                        todayStr = today.toString(),
+                        nowMinute = nowMinute,
+                        hourHeight = 56.dp,
+                        compactColumns = true,
+                        interactionState = interactionState,
+                        modifier = Modifier.fillMaxSize(),
+                        onViewportMetricsChanged = { scrollPx, vpH ->
+                            timelineScrollPx = scrollPx
+                            timelineViewportHeightPx = vpH
+                        },
+                        onDragViewportYChanged = { yVp -> activeDragViewportY = yVp },
+                        onSelectDay = { dateStr ->
+                            onSelectDate(dateStr)
+                            onSelectViewMode(ScheduleViewMode.DAY)
+                        },
+                        onTapCellAtMinute = { dayModel, minute -> handleTapEmptyPosition(dayModel, minute) },
+                        onDragSelectEmptyRange = { dayModel, sMin, eMin ->
+                            if (interactionState is ScheduleInteractionState.UntimedPlacement) {
+                                val cur = interactionState as ScheduleInteractionState.UntimedPlacement
+                                val (s, e) = ScheduleGridEngine.buildUntimedPlacementWindow(sMin, cur.record.durationMinutes)
+                                interactionState = cur.copy(targetDateLocal = dayModel.dateLocal, startMinute = s, endMinute = e)
+                            } else {
+                                updateEmptySlotRangeExact(dayModel.dateLocal, sMin, eMin)
+                            }
+                        },
+                        onTapBlock = ::handleTapBlock,
+                        onDraftBlockMoved = { block, newStart, newEnd ->
+                            interactionState = ScheduleInteractionState.BlockDraftTransform(
+                                original = block,
+                                targetDateLocal = block.dateLocal,
+                                draftStartMin = newStart,
+                                draftEndMin = newEnd
+                            )
+                        }
+                    )
+                }
+                ScheduleViewMode.MONTH -> {
+                    MonthOverviewGrid(
+                        cells = monthCells,
+                        selectedDateLocal = selectedDate.toString(),
+                        selectedDayModel = selectedDayModel,
+                        today = today,
+                        selectedBlockId = (interactionState as? ScheduleInteractionState.BlockSelected)?.block?.recordId,
+                        modifier = Modifier.fillMaxWidth(),
+                        scrollVertically = !embeddedInScrollContainer,
+                        onSelectDate = { dStr -> onSelectDate(dStr) },
+                        onOpenDayTimeline = { dStr ->
+                            onSelectDate(dStr)
+                            onSelectViewMode(ScheduleViewMode.DAY)
+                        },
+                        onAddOnDate = { dStr ->
+                            val target = runCatching { LocalDate.parse(dStr) }.getOrDefault(today)
+                            onAddForSlot(dStr, null, null, target.isAfter(today))
+                        },
+                        onSelectBlock = ::handleTapBlock
+                    )
+                }
+            }
+
+            // 3. Thanh công cụ nổi nhỏ gọn neo đối diện khối đang chọn/kéo (không đẩy hay che timeline!)
+            val overlayPad = if (dockToolbarAtTop) {
+                Modifier.align(Alignment.TopCenter).padding(horizontal = 8.dp, vertical = 6.dp)
+            } else {
+                Modifier.align(Alignment.BottomCenter).padding(
+                    start = 8.dp,
+                    end = 64.dp,
+                    bottom = 6.dp
                 )
             }
-            ScheduleViewMode.THREE_DAYS -> {
-                MultiDayTimelineGrid(
-                    days = multiDayModels,
-                    todayStr = today.toString(),
-                    nowMinute = nowMinute,
-                    hourHeight = 66.dp,
-                    interactionState = interactionState,
-                    modifier = gridModifier,
-                    onSelectDay = { dateStr ->
-                        onSelectDate(dateStr)
-                        onSelectViewMode(ScheduleViewMode.DAY)
-                    },
-                    onTapCellAtMinute = { dayModel, minute -> handleTapEmptyPosition(dayModel, minute) },
-                    onDragSelectEmptyRange = { dayModel, sMin, eMin ->
-                        if (interactionState is ScheduleInteractionState.UntimedPlacement) {
-                            val cur = interactionState as ScheduleInteractionState.UntimedPlacement
-                            val (s, e) = ScheduleGridEngine.buildUntimedPlacementWindow(sMin, cur.record.durationMinutes)
-                            interactionState = cur.copy(targetDateLocal = dayModel.dateLocal, startMinute = s, endMinute = e)
-                        } else {
-                            updateEmptySlotRangeExact(dayModel.dateLocal, sMin, eMin)
+            Box(modifier = overlayPad.zIndex(30f)) {
+                when (val active = interactionState) {
+                    ScheduleInteractionState.Idle -> Unit
+                    is ScheduleInteractionState.EmptySlotsSelected -> {
+                        if (mergedSelectedGroups.isNotEmpty() && viewMode != ScheduleViewMode.MONTH) {
+                            SelectedSlotsActionBar(
+                                slotCount = active.slots.size,
+                                summaryText = ScheduleGridEngine.summarizeSelectedSlotGroups(mergedSelectedGroups),
+                                onClear = { interactionState = ScheduleInteractionState.Idle },
+                                onCreate = { openCreateForEmptyGroups(mergedSelectedGroups) }
+                            )
                         }
-                    },
-                    onTapBlock = ::handleTapBlock,
-                    onDraftBlockMoved = { block, newStart, newEnd ->
-                        interactionState = ScheduleInteractionState.BlockDraftTransform(
-                            original = block,
-                            targetDateLocal = block.dateLocal,
-                            draftStartMin = newStart,
-                            draftEndMin = newEnd
+                    }
+                    is ScheduleInteractionState.UntimedPlacement -> {
+                        val targetDate = active.targetDateLocal
+                        val sMin = active.startMinute
+                        val eMin = active.endMinute
+                        val conflicts = if (targetDate != null && sMin != null && eMin != null) {
+                            ScheduleGridEngine.findConflictingBlocks(
+                                candidateStartMin = sMin,
+                                candidateEndMin = eMin,
+                                excludeRecordId = active.record.id,
+                                isPlannedCandidate = targetDate > todayDateLocal,
+                                dayBlocks = blocksByDate[targetDate].orEmpty()
+                            )
+                        } else null
+                        UntimedPlacementActionBar(
+                            record = active.record,
+                            targetDateLocal = targetDate,
+                            startMinute = sMin,
+                            endMinute = eMin,
+                            conflicts = conflicts,
+                            onCancel = { interactionState = ScheduleInteractionState.Idle },
+                            onConfirmPlace = {
+                                if (targetDate != null && sMin != null && eMin != null) {
+                                    val recId = active.record.id
+                                    val st = TimeRange.formatHm(sMin)
+                                    val en = ScheduleGridEngine.formatHmEnd(eMin)
+                                    interactionState = ScheduleInteractionState.Idle
+                                    onPlaceUntimedOnSlot(recId, targetDate, st, en)
+                                }
+                            }
                         )
                     }
-                )
-            }
-            ScheduleViewMode.WEEK -> {
-                MultiDayTimelineGrid(
-                    days = multiDayModels,
-                    todayStr = today.toString(),
-                    nowMinute = nowMinute,
-                    hourHeight = 58.dp,
-                    compactColumns = true,
-                    interactionState = interactionState,
-                    modifier = gridModifier,
-                    onSelectDay = { dateStr ->
-                        onSelectDate(dateStr)
-                        onSelectViewMode(ScheduleViewMode.DAY)
-                    },
-                    onTapCellAtMinute = { dayModel, minute -> handleTapEmptyPosition(dayModel, minute) },
-                    onDragSelectEmptyRange = { dayModel, sMin, eMin ->
-                        if (interactionState is ScheduleInteractionState.UntimedPlacement) {
-                            val cur = interactionState as ScheduleInteractionState.UntimedPlacement
-                            val (s, e) = ScheduleGridEngine.buildUntimedPlacementWindow(sMin, cur.record.durationMinutes)
-                            interactionState = cur.copy(targetDateLocal = dayModel.dateLocal, startMinute = s, endMinute = e)
-                        } else {
-                            updateEmptySlotRangeExact(dayModel.dateLocal, sMin, eMin)
-                        }
-                    },
-                    onTapBlock = ::handleTapBlock,
-                    onDraftBlockMoved = { block, newStart, newEnd ->
-                        interactionState = ScheduleInteractionState.BlockDraftTransform(
-                            original = block,
-                            targetDateLocal = block.dateLocal,
-                            draftStartMin = newStart,
-                            draftEndMin = newEnd
+                    is ScheduleInteractionState.BlockSelected -> {
+                        val blk = active.block
+                        SelectedBlockActionBar(
+                            block = blk,
+                            onEdit = {
+                                interactionState = ScheduleInteractionState.Idle
+                                if (blk.isActiveTimer) onNavigateToTimer()
+                                else blk.record?.let(onEditRecord)
+                            },
+                            onNudgeEarlier = { shiftBlockIntoDraft(blk, -15) },
+                            onNudgeLater = { shiftBlockIntoDraft(blk, +15) },
+                            onConfirm = blk.record?.let { rec ->
+                                if (blk.visualState == ScheduleBlockVisualState.UNCONFIRMED) {
+                                    {
+                                        interactionState = ScheduleInteractionState.Idle
+                                        onConfirmPlannedOrActiveRecord(rec)
+                                    }
+                                } else null
+                            },
+                            onDelete = blk.record?.let { rec ->
+                                { blockPendingDelete = rec }
+                            },
+                            onDismiss = { interactionState = ScheduleInteractionState.Idle }
                         )
                     }
-                )
-            }
-            ScheduleViewMode.MONTH -> {
-                MonthOverviewGrid(
-                    cells = monthCells,
-                    selectedDateLocal = selectedDate.toString(),
-                    selectedDayModel = selectedDayModel,
-                    today = today,
-                    selectedBlockId = (interactionState as? ScheduleInteractionState.BlockSelected)?.block?.recordId,
-                    modifier = if (embeddedInScrollContainer) Modifier.fillMaxWidth() else Modifier.fillMaxWidth().weight(1f),
-                    scrollVertically = !embeddedInScrollContainer,
-                    onSelectDate = { dStr -> onSelectDate(dStr) },
-                    onOpenDayTimeline = { dStr ->
-                        onSelectDate(dStr)
-                        onSelectViewMode(ScheduleViewMode.DAY)
-                    },
-                    onAddOnDate = { dStr ->
-                        val target = runCatching { LocalDate.parse(dStr) }.getOrDefault(today)
-                        onAddForSlot(dStr, null, null, target.isAfter(today))
-                    },
-                    onSelectBlock = ::handleTapBlock
-                )
+                    is ScheduleInteractionState.BlockDraftTransform -> {
+                        val conflictCheck = remember(active, blocksByDate) {
+                            ScheduleGridEngine.findConflictingBlocks(
+                                candidateStartMin = active.draftStartMin,
+                                candidateEndMin = active.draftEndMin,
+                                excludeRecordId = active.original.recordId,
+                                isPlannedCandidate = active.original.visualState == ScheduleBlockVisualState.PLANNED,
+                                dayBlocks = blocksByDate[active.targetDateLocal].orEmpty()
+                            )
+                        }
+                        DraftTransformActionBar(
+                            draft = active,
+                            conflicts = conflictCheck,
+                            onEditDetails = {
+                                val rec = active.original.record
+                                interactionState = ScheduleInteractionState.Idle
+                                if (active.original.isActiveTimer) onNavigateToTimer()
+                                else rec?.let(onEditRecord)
+                            },
+                            onCancel = { interactionState = ScheduleInteractionState.BlockSelected(active.original) },
+                            onCommit = {
+                                val orig = active.original
+                                val d = active.targetDateLocal
+                                val st = TimeRange.formatHm(active.draftStartMin)
+                                val en = ScheduleGridEngine.formatHmEnd(active.draftEndMin)
+                                interactionState = ScheduleInteractionState.Idle
+                                onMoveOrResizeBlock(orig.recordId, d, st, en)
+                            }
+                        )
+                    }
+                }
             }
         }
     }
@@ -1012,65 +1125,59 @@ private fun PinnedScheduleUtilityStrip(
     onQuickCreateNew: () -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
+        Box(
+            modifier = Modifier.walletClickable(onClickLabel = "Mở khay hoạt động chưa gắn giờ") { onOpenUntimedTray() },
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(100.dp))
+                    .background(if (isPlacingUntimed) Color.White else Color.White.copy(alpha = 0.18f))
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(if (untimedCount > 0) Color(0xFF6EE7B7) else Color.White.copy(alpha = 0.5f))
+                )
+                Text(
+                    text = "Chưa giờ ($untimedCount)",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isPlacingUntimed) WalletMintDark else Color.White,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+        }
+        Box(
             modifier = Modifier
-                .weight(1f)
-                .heightIn(min = 42.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(if (isPlacingUntimed) WalletMintSoft else WalletCardBg)
-                .border(1.dp, if (isPlacingUntimed) WalletMint else WalletStroke, RoundedCornerShape(12.dp))
-                .walletClickable(onClickLabel = "Mở khay hoạt động chưa gắn giờ") { onOpenUntimedTray() }
-                .padding(horizontal = 11.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
+                .semantics { contentDescription = "Ghi mới hoạt động" }
+                .walletClickable(onClickLabel = "Ghi mới hoạt động vào ngày đang xem", onClick = onQuickCreateNew),
+            contentAlignment = Alignment.Center
         ) {
             Box(
                 modifier = Modifier
-                    .size(8.dp)
+                    .size(28.dp)
                     .clip(CircleShape)
-                    .background(if (untimedCount == 0) WalletMuted.copy(alpha = 0.4f) else WalletMint)
-            )
-            Text(
-                text = "Chưa gắn giờ ($untimedCount)",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = WalletInk,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            Text(
-                text = "Đặt giờ ›",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = WalletMintAccent,
-                maxLines = 1,
-                softWrap = false
-            )
-        }
-
-        Box(
-            modifier = Modifier
-                .heightIn(min = 42.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(WalletMintTint)
-                .border(1.dp, WalletMint.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
-                .walletClickable(onClickLabel = "Ghi mới hoạt động vào ngày đang xem", onClick = onQuickCreateNew)
-                .padding(horizontal = 12.dp, vertical = 7.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "+ Ghi mới",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = WalletMintDark,
-                maxLines = 1,
-                softWrap = false
-            )
+                    .background(Color.White),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "+",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = WalletMintDark,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
         }
     }
 }
@@ -1084,60 +1191,33 @@ private fun SelectedSlotsActionBar(
 ) {
     Surface(
         shape = RoundedCornerShape(14.dp),
-        color = WalletMintTint,
+        color = WalletCardBg.copy(alpha = 0.97f),
         border = BorderStroke(1.5.dp, WalletMint),
+        shadowElevation = 6.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 11.dp, vertical = 8.dp),
+                .padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = if (slotCount <= 1) "Khoảng trống đã chọn" else "Đã chọn $slotCount khối giờ trống",
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = WalletMintAccent,
-                    maxLines = 1
-                )
-                Text(
-                    text = summaryText,
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = WalletInk,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(WalletCardBg)
-                    .border(1.dp, WalletStroke, RoundedCornerShape(10.dp))
-                    .walletClickable(onClickLabel = "Hủy chọn khoảng trống", onClick = onClear)
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("Hủy", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = WalletInk)
-            }
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(WalletMint)
-                    .walletClickable(onClickLabel = "Thêm hoạt động vào khung giờ đã chọn", onClick = onCreate)
-                    .padding(horizontal = 12.dp, vertical = 7.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("+ Thêm giờ này", fontSize = 11.5.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, maxLines = 1)
-            }
+            Text(
+                text = if (slotCount <= 1) summaryText else "($slotCount) $summaryText",
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = WalletInk,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            ActionChipButton(label = "Hủy", bg = WalletSoftNeutral, fg = WalletInk, onClick = onClear)
+            ActionChipButton(label = "+ Thêm", bg = WalletMint, fg = Color.White, onClick = onCreate)
         }
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SelectedBlockActionBar(
     block: ScheduleGridBlock,
@@ -1150,56 +1230,55 @@ private fun SelectedBlockActionBar(
 ) {
     Surface(
         shape = RoundedCornerShape(14.dp),
-        color = WalletCardBg,
+        color = WalletCardBg.copy(alpha = 0.97f),
         border = BorderStroke(1.5.dp, WalletMint),
+        shadowElevation = 6.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp)
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = block.title,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = WalletInk,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = ScheduleGridEngine.formatHmWindow(block.startMinute, block.endMinute) +
-                            if (block.canDragMoveOrResize && !block.crossesMidnightFromPrev && !block.crossesMidnightToNext) {
-                                " · Kéo thân để dời, kéo mép để chỉnh"
-                            } else "",
-                        fontSize = 11.sp,
-                        color = WalletMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                StateMicroPill(block.visualState)
+                Text(
+                    text = "${block.title} · ${ScheduleGridEngine.formatHmWindow(block.startMinute, block.endMinute)}",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = WalletInk,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(WalletSoftNeutral)
-                        .walletClickable(onClickLabel = "Bỏ chọn hoạt động", onClick = onDismiss)
-                        .padding(horizontal = 8.dp, vertical = 5.dp)
+                        .semantics { contentDescription = "Bỏ chọn hoạt động" }
+                        .walletClickable(onClickLabel = "Bỏ chọn hoạt động", onClick = onDismiss),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text("✕", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = WalletMuted)
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(7.dp))
+                            .background(WalletSoftNeutral)
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("✕", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = WalletMuted)
+                    }
                 }
             }
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 ActionChipButton(
-                    label = if (block.isActiveTimer) "Mở đồng hồ" else "Sửa",
+                    label = if (block.isActiveTimer) "Đồng hồ" else "Sửa",
                     bg = WalletMintTint,
                     fg = WalletMintDark,
                     onClick = onEdit
@@ -1219,80 +1298,64 @@ private fun SelectedBlockActionBar(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DraftTransformActionBar(
     draft: ScheduleInteractionState.BlockDraftTransform,
     conflicts: ScheduleConflictCheck,
-    onNudgeStart: (Int) -> Unit,
-    onNudgeEnd: (Int) -> Unit,
+    onEditDetails: () -> Unit,
     onCancel: () -> Unit,
     onCommit: () -> Unit
 ) {
     val hasConflict = conflicts.hasBlockingOrWarningConflict
     val borderColor = if (hasConflict) UnconfirmedAmber else WalletMint
-    val bgColor = if (hasConflict) WalletWarningBg else WalletMintTint
+    val bgColor = if (hasConflict) WalletWarningBg else WalletCardBg
 
     Surface(
         shape = RoundedCornerShape(14.dp),
-        color = bgColor,
+        color = bgColor.copy(alpha = 0.98f),
         border = BorderStroke(1.5.dp, borderColor),
+        shadowElevation = 6.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp)
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "${draft.original.title} (Chưa lưu)",
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = WalletInk,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = "${ScheduleGridEngine.formatHmWindow(draft.original.startMinute, draft.original.endMinute)} → ${ScheduleGridEngine.formatHmWindow(draft.draftStartMin, draft.draftEndMin)}",
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (hasConflict) WalletWarningText else WalletMintDark
-                    )
-                }
-                StateMicroPill(draft.original.visualState)
+                Text(
+                    text = "${draft.original.title}: ${TimeRange.formatHm(draft.original.startMinute)}–${ScheduleGridEngine.formatHmEnd(draft.original.endMinute)} → ${ScheduleGridEngine.formatHmWindow(draft.draftStartMin, draft.draftEndMin)}",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (hasConflict) WalletWarningText else WalletMintDark,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
             }
             if (hasConflict) {
                 Text(
-                    text = "⚠ ${conflicts.summaryVi()} — Hãy dời sang giờ trống, xử lý trùng hoặc bấm Hủy.",
-                    fontSize = 11.sp,
+                    text = "⚠ ${conflicts.summaryVi()}",
+                    fontSize = 10.5.sp,
                     fontWeight = FontWeight.Bold,
                     color = WalletWarningText,
-                    lineHeight = 15.sp
-                )
-            } else if (conflicts.actualOverlapNotes.isNotEmpty()) {
-                Text(
-                    text = "Kế hoạch dự kiến đặt song song với \"${conflicts.actualOverlapNotes.first().title}\" (không tự hoàn thành thực tế).",
-                    fontSize = 11.sp,
-                    color = WalletInfoText
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
-            FlowRow(
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                ActionChipButton(label = "Đầu -15p", bg = WalletCardBg, fg = WalletInk) { onNudgeStart(-15) }
-                ActionChipButton(label = "Đầu +15p", bg = WalletCardBg, fg = WalletInk) { onNudgeStart(+15) }
-                ActionChipButton(label = "Cuối -15p", bg = WalletCardBg, fg = WalletInk) { onNudgeEnd(-15) }
-                ActionChipButton(label = "Cuối +15p", bg = WalletCardBg, fg = WalletInk) { onNudgeEnd(+15) }
-                ActionChipButton(label = "Hủy", bg = WalletCardBg, fg = WalletDangerText, onClick = onCancel)
+                ActionChipButton(label = "Sửa", bg = WalletSoftNeutral, fg = WalletInk, onClick = onEditDetails)
+                Spacer(modifier = Modifier.weight(1f))
+                ActionChipButton(label = "Hủy", bg = WalletSoftNeutral, fg = WalletDangerText, onClick = onCancel)
                 ActionChipButton(
-                    label = if (conflicts.hardConflicts.isNotEmpty()) "Xử lý trùng…" else "✓ Lưu thay đổi",
+                    label = if (conflicts.hardConflicts.isNotEmpty()) "Xử lý trùng…" else "✓ Lưu",
                     bg = if (hasConflict) UnconfirmedAmber else WalletMint,
                     fg = Color.White,
                     onClick = onCommit
@@ -1316,21 +1379,22 @@ private fun UntimedPlacementActionBar(
     val hasConflict = conflicts?.hasBlockingOrWarningConflict == true
     Surface(
         shape = RoundedCornerShape(14.dp),
-        color = if (hasConflict) WalletWarningBg else WalletInfoBg,
+        color = (if (hasConflict) WalletWarningBg else WalletInfoBg).copy(alpha = 0.98f),
         border = BorderStroke(1.5.dp, if (hasConflict) UnconfirmedAmber else PlannedAccentBlue),
+        shadowElevation = 6.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 11.dp, vertical = 9.dp),
+                .padding(horizontal = 9.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text(
-                    text = "Đặt vào lịch: \"${record.title}\" (${TimeRange.formatDuration(record.durationMinutes)})",
-                    fontSize = 12.sp,
+                    text = "Đặt \"${record.title}\" (${TimeRange.formatDuration(record.durationMinutes)})",
+                    fontSize = 11.5.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = WalletInk,
                     maxLines = 1,
@@ -1338,18 +1402,20 @@ private fun UntimedPlacementActionBar(
                 )
                 Text(
                     text = when {
-                        !hasRange -> "Chạm vào khoảng giờ trống trên lịch để chọn điểm bắt đầu."
+                        !hasRange -> "Chạm ô giờ trống để chọn vị trí đặt."
                         hasConflict -> "⚠ ${conflicts!!.summaryVi()} (${ScheduleGridEngine.formatHmWindow(startMinute!!, endMinute!!)})"
-                        else -> "Khung dự kiến đặt: $targetDateLocal · ${ScheduleGridEngine.formatHmWindow(startMinute!!, endMinute!!)}"
+                        else -> "$targetDateLocal · ${ScheduleGridEngine.formatHmWindow(startMinute!!, endMinute!!)}"
                     },
-                    fontSize = 11.sp,
-                    color = if (hasConflict) WalletWarningText else WalletInfoText
+                    fontSize = 10.5.sp,
+                    color = if (hasConflict) WalletWarningText else WalletInfoText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             ActionChipButton(label = "Hủy", bg = WalletCardBg, fg = WalletInk, onClick = onCancel)
             if (hasRange) {
                 ActionChipButton(
-                    label = if (hasConflict) "Xử lý trùng…" else "✓ Đặt vào giờ này",
+                    label = if (hasConflict) "Đối soát…" else "✓ Đặt",
                     bg = if (hasConflict) UnconfirmedAmber else WalletMint,
                     fg = Color.White,
                     onClick = onConfirmPlace
@@ -1367,22 +1433,26 @@ private fun ActionChipButton(
     onClick: () -> Unit
 ) {
     Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(9.dp))
-            .background(bg)
-            .border(1.dp, WalletStroke.copy(alpha = 0.55f), RoundedCornerShape(9.dp))
-            .walletClickable(onClickLabel = label, onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+        modifier = Modifier.walletClickable(onClickLabel = label, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = label,
-            fontSize = 11.5.sp,
-            fontWeight = FontWeight.Bold,
-            color = fg,
-            maxLines = 1,
-            softWrap = false
-        )
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(bg)
+                .border(1.dp, WalletStroke.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                .padding(horizontal = 9.dp, vertical = 5.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = label,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = fg,
+                maxLines = 1,
+                softWrap = false
+            )
+        }
     }
 }
 
@@ -1393,6 +1463,8 @@ private fun DayTimelineGrid(
     nowMinute: Int,
     interactionState: ScheduleInteractionState,
     modifier: Modifier = Modifier,
+    onViewportMetricsChanged: (Float, Float) -> Unit = { _, _ -> },
+    onDragViewportYChanged: (Float) -> Unit = {},
     onTapEmptyAtMinute: (Int) -> Unit,
     onDragSelectEmptyRange: (Int, Int) -> Unit,
     onResizeSelectedEmptySlot: (Int, Int) -> Unit,
@@ -1402,16 +1474,63 @@ private fun DayTimelineGrid(
     onConfirmUnconfirmed: (LedgerRecord) -> Unit,
     onDraftBlockChanged: (ScheduleGridBlock, Int, Int) -> Unit
 ) {
-    val hourHeight = 82.dp
+    val hourHeight = 72.dp
     val density = LocalDensity.current
     val hourHeightPx = with(density) { hourHeight.toPx() }
     val minuteHeightPx = hourHeightPx / 60f
     val scrollState = rememberScrollState()
 
+    var vpCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var viewportHeightPx by remember { mutableFloatStateOf(0f) }
+    var activeDragKind by remember { mutableStateOf<String?>(null) }
+    var localDragViewportY by remember { mutableFloatStateOf(-1f) }
+    var activeAutoScrollTick by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    val latestOnViewportMetricsChanged by rememberUpdatedState(onViewportMetricsChanged)
+    val latestOnDragViewportYChanged by rememberUpdatedState(onDragViewportYChanged)
+
+    LaunchedEffect(scrollState.value, viewportHeightPx) {
+        if (viewportHeightPx > 0f) {
+            latestOnViewportMetricsChanged(scrollState.value.toFloat(), viewportHeightPx)
+        }
+    }
+    LaunchedEffect(localDragViewportY) {
+        latestOnDragViewportYChanged(localDragViewportY)
+    }
+
+    LaunchedEffect(activeDragKind) {
+        if (activeDragKind != null) {
+            val edgeZonePx = with(density) { 52.dp.toPx() }
+            val maxStepPx = with(density) { 12.dp.toPx() }
+            while (isActive) {
+                val yVp = localDragViewportY
+                val vpH = viewportHeightPx
+                if (vpH > edgeZonePx * 2f && yVp >= 0f) {
+                    val delta = when {
+                        yVp < edgeZonePx && scrollState.value > 0 -> {
+                            val ratio = ((edgeZonePx - yVp) / edgeZonePx).coerceIn(0.15f, 1f)
+                            -(ratio * maxStepPx)
+                        }
+                        yVp > vpH - edgeZonePx && scrollState.value < scrollState.maxValue -> {
+                            val ratio = ((yVp - (vpH - edgeZonePx)) / edgeZonePx).coerceIn(0.15f, 1f)
+                            ratio * maxStepPx
+                        }
+                        else -> 0f
+                    }
+                    if (delta != 0f) {
+                        scrollState.scrollBy(delta)
+                        activeAutoScrollTick?.invoke()
+                    }
+                }
+                delay(16L)
+            }
+        }
+    }
+
     LaunchedEffect(dayModel.dateLocal) {
         val initialHour = when {
-            isToday -> (nowMinute / 60 - 1).coerceIn(0, 17)
-            dayModel.timedBlocks.isNotEmpty() -> (dayModel.timedBlocks.minOf { it.startMinute } / 60 - 1).coerceIn(0, 17)
+            isToday -> (nowMinute / 60 - 2).coerceIn(0, 16)
+            dayModel.timedBlocks.isNotEmpty() -> (dayModel.timedBlocks.minOf { it.startMinute } / 60 - 1).coerceIn(0, 16)
             else -> 7
         }
         scrollState.scrollTo((initialHour * hourHeightPx).roundToInt())
@@ -1420,7 +1539,6 @@ private fun DayTimelineGrid(
     // Trạng thái kéo live trên lưới
     var liveEmptyDragRange by remember(dayModel.dateLocal) { mutableStateOf<Pair<Int, Int>?>(null) }
     var emptyDragAnchorMin by remember(dayModel.dateLocal) { mutableIntStateOf(0) }
-    var emptyDragAccumY by remember(dayModel.dateLocal) { mutableFloatStateOf(0f) }
 
     var draggingBlockId by remember { mutableStateOf<String?>(null) }
     var dragPreviewStartMin by remember { mutableIntStateOf(0) }
@@ -1443,76 +1561,107 @@ private fun DayTimelineGrid(
     }
 
     Surface(
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(16.dp),
         color = WalletCardBg,
         border = BorderStroke(1.dp, WalletStroke),
         modifier = modifier
     ) {
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(vertical = 8.dp)
+                .onGloballyPositioned { vpCoords = it }
+                .onSizeChanged { viewportHeightPx = it.height.toFloat() }
         ) {
-            Column(modifier = Modifier.width(54.dp)) {
-                for (h in 0 until 24) {
-                    Box(
-                        modifier = Modifier.height(hourHeight).fillMaxWidth().padding(end = 6.dp),
-                        contentAlignment = Alignment.TopEnd
-                    ) {
-                        Text(
-                            text = "%02d:00".format(h),
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = WalletMuted,
-                            maxLines = 1,
-                            softWrap = false
-                        )
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .padding(top = 6.dp, bottom = 64.dp)
+            ) {
+                Column(modifier = Modifier.width(50.dp)) {
+                    for (h in 0 until 24) {
+                        Box(
+                            modifier = Modifier.height(hourHeight).fillMaxWidth().padding(end = 5.dp),
+                            contentAlignment = Alignment.TopEnd
+                        ) {
+                            Text(
+                                text = "%02d:00".format(h),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = WalletMuted,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
                     }
                 }
-            }
 
-            BoxWithConstraints(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(hourHeight * 24)
-                    .padding(end = 8.dp)
-                    .pointerInput(dayModel.dateLocal) {
-                        detectTapGestures(
-                            onTap = { offset ->
-                                val tappedMinute = ((offset.y / minuteHeightPx).roundToInt()).coerceIn(0, 1439)
-                                latestOnTapEmptyAtMinute(tappedMinute)
-                            }
-                        )
-                    }
-                    .pointerInput(dayModel.dateLocal) {
-                        detectDragGesturesAfterLongPress(
-                            onDragStart = { startOffset ->
-                                val startMin = ((startOffset.y / minuteHeightPx).roundToInt()).coerceIn(0, 1425)
-                                emptyDragAnchorMin = startMin
-                                emptyDragAccumY = 0f
-                                val (s, e) = ScheduleGridEngine.snapEmptyDragRange(startMin, startMin + 30)
-                                liveEmptyDragRange = s to e
-                            },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                emptyDragAccumY += dragAmount.y
-                                val curMin = (emptyDragAnchorMin + (emptyDragAccumY / minuteHeightPx).roundToInt()).coerceIn(0, 1440)
-                                liveEmptyDragRange = ScheduleGridEngine.snapEmptyDragRange(emptyDragAnchorMin, curMin)
-                            },
-                            onDragEnd = {
-                                val chosen = liveEmptyDragRange
-                                liveEmptyDragRange = null
-                                if (chosen != null) {
-                                    latestOnDragSelectEmptyRange(chosen.first, chosen.second)
+                var gridCoords by remember(dayModel.dateLocal) { mutableStateOf<LayoutCoordinates?>(null) }
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(hourHeight * 24)
+                        .padding(end = 6.dp)
+                        .onGloballyPositioned { gridCoords = it }
+                        .pointerInput(dayModel.dateLocal) {
+                            detectTapGestures(
+                                onTap = { offset ->
+                                    val tappedMinute = ((offset.y / minuteHeightPx).roundToInt()).coerceIn(0, 1439)
+                                    latestOnTapEmptyAtMinute(tappedMinute)
                                 }
-                            },
-                            onDragCancel = {
-                                liveEmptyDragRange = null
-                            }
-                        )
-                    }
-            ) {
+                            )
+                        }
+                        .pointerInput(dayModel.dateLocal) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { startOffset ->
+                                    val startMin = ((startOffset.y / minuteHeightPx).roundToInt()).coerceIn(0, 1425)
+                                    emptyDragAnchorMin = startMin
+                                    val vc = vpCoords
+                                    val gc = gridCoords
+                                    localDragViewportY = if (vc != null && gc != null && vc.isAttached && gc.isAttached) {
+                                        vc.localPositionOf(gc, startOffset).y
+                                    } else {
+                                        startOffset.y - scrollState.value
+                                    }
+                                    val (s, e) = ScheduleGridEngine.snapEmptyDragRange(startMin, startMin + 30)
+                                    liveEmptyDragRange = s to e
+                                    activeAutoScrollTick = {
+                                        val docY = localDragViewportY + scrollState.value
+                                        val curMin = (docY / minuteHeightPx).roundToInt().coerceIn(0, 1440)
+                                        liveEmptyDragRange = ScheduleGridEngine.snapEmptyDragRange(emptyDragAnchorMin, curMin)
+                                    }
+                                    activeDragKind = "empty_range"
+                                },
+                                onDrag = { change, _ ->
+                                    change.consume()
+                                    val vc = vpCoords
+                                    val gc = gridCoords
+                                    localDragViewportY = if (vc != null && gc != null && vc.isAttached && gc.isAttached) {
+                                        vc.localPositionOf(gc, change.position).y
+                                    } else {
+                                        change.position.y - scrollState.value
+                                    }
+                                    activeAutoScrollTick?.invoke()
+                                },
+                                onDragEnd = {
+                                    val chosen = liveEmptyDragRange
+                                    liveEmptyDragRange = null
+                                    activeDragKind = null
+                                    localDragViewportY = -1f
+                                    activeAutoScrollTick = null
+                                    if (chosen != null) {
+                                        latestOnDragSelectEmptyRange(chosen.first, chosen.second)
+                                    }
+                                },
+                                onDragCancel = {
+                                    liveEmptyDragRange = null
+                                    activeDragKind = null
+                                    localDragViewportY = -1f
+                                    activeAutoScrollTick = null
+                                }
+                            )
+                        }
+                ) {
                 val canvasWidthDp = maxWidth
 
                 // 1. Nền kẻ giờ 00:00 -> 24:00 (trạng thái rỗi sạch, chạm hoặc nhấn giữ kéo bất kỳ đâu)
@@ -1594,8 +1743,8 @@ private fun DayTimelineGrid(
                     val topDp = (group.startMinute / 60f) * hourHeight.value
                     val hDp = max(36f, (group.durationMinutes / 60f) * hourHeight.value)
                     val latestGroup by rememberUpdatedState(group)
-                    var slotTopAccumY by remember(dayModel.dateLocal, idx) { mutableFloatStateOf(0f) }
-                    var slotBotAccumY by remember(dayModel.dateLocal, idx) { mutableFloatStateOf(0f) }
+                    var slotTopStartDocY by remember(dayModel.dateLocal, idx) { mutableFloatStateOf(0f) }
+                    var slotBotStartDocY by remember(dayModel.dateLocal, idx) { mutableFloatStateOf(0f) }
                     var slotOrigStart by remember(dayModel.dateLocal, idx) { mutableIntStateOf(group.startMinute) }
                     var slotOrigEnd by remember(dayModel.dateLocal, idx) { mutableIntStateOf(group.endMinute) }
                     Box(
@@ -1648,44 +1797,74 @@ private fun DayTimelineGrid(
                                 }
                             }
                         }
-                        // Tay nắm mép trên/dưới cho vùng chọn khoảng trống (giữ nguyên key kéo để không bị hủy khi group recomposes)
+                        // Tay nắm mép trên/dưới cho vùng chọn khoảng trống (tự cuộn khi kéo sát mép)
                         ResizeEdgeHandle(
                             isTopEdge = true,
                             tint = WalletMint,
                             dragKey = "empty_top_${dayModel.dateLocal}_$idx",
+                            viewportCoords = vpCoords,
                             modifier = Modifier.align(Alignment.TopCenter),
-                            onDragStart = {
-                                slotTopAccumY = 0f
+                            onDragStartAtViewportY = { vpY ->
                                 slotOrigStart = latestGroup.startMinute
                                 slotOrigEnd = latestGroup.endMinute
+                                slotTopStartDocY = if (vpY >= 0f) vpY + scrollState.value else (slotOrigStart / 60f) * hourHeightPx
+                                localDragViewportY = if (vpY >= 0f) vpY else -1f
+                                activeAutoScrollTick = {
+                                    val curDocY = localDragViewportY + scrollState.value
+                                    val dMin = ((curDocY - slotTopStartDocY) / minuteHeightPx).roundToInt()
+                                    val (s, e) = ScheduleGridEngine.snapResizeStartRange(slotOrigStart, slotOrigEnd, dMin)
+                                    latestOnResizeSelectedEmptySlot(s, e)
+                                }
+                                activeDragKind = "empty_top_${dayModel.dateLocal}_$idx"
                             },
-                            onDragDelta = { dy ->
-                                slotTopAccumY += dy
-                                val dMin = (slotTopAccumY / minuteHeightPx).roundToInt()
-                                val (s, e) = ScheduleGridEngine.snapResizeStartRange(slotOrigStart, slotOrigEnd, dMin)
-                                latestOnResizeSelectedEmptySlot(s, e)
+                            onDragAtViewportY = { vpY ->
+                                localDragViewportY = vpY
+                                activeAutoScrollTick?.invoke()
                             },
-                            onDragEnd = {},
-                            onDragCancel = {}
+                            onDragEnd = {
+                                activeDragKind = null
+                                localDragViewportY = -1f
+                                activeAutoScrollTick = null
+                            },
+                            onDragCancel = {
+                                activeDragKind = null
+                                localDragViewportY = -1f
+                                activeAutoScrollTick = null
+                            }
                         )
                         ResizeEdgeHandle(
                             isTopEdge = false,
                             tint = WalletMint,
                             dragKey = "empty_bot_${dayModel.dateLocal}_$idx",
+                            viewportCoords = vpCoords,
                             modifier = Modifier.align(Alignment.BottomCenter),
-                            onDragStart = {
-                                slotBotAccumY = 0f
+                            onDragStartAtViewportY = { vpY ->
                                 slotOrigStart = latestGroup.startMinute
                                 slotOrigEnd = latestGroup.endMinute
+                                slotBotStartDocY = if (vpY >= 0f) vpY + scrollState.value else (slotOrigEnd / 60f) * hourHeightPx
+                                localDragViewportY = if (vpY >= 0f) vpY else -1f
+                                activeAutoScrollTick = {
+                                    val curDocY = localDragViewportY + scrollState.value
+                                    val dMin = ((curDocY - slotBotStartDocY) / minuteHeightPx).roundToInt()
+                                    val (s, e) = ScheduleGridEngine.snapResizeRange(slotOrigStart, slotOrigEnd, dMin)
+                                    latestOnResizeSelectedEmptySlot(s, e)
+                                }
+                                activeDragKind = "empty_bot_${dayModel.dateLocal}_$idx"
                             },
-                            onDragDelta = { dy ->
-                                slotBotAccumY += dy
-                                val dMin = (slotBotAccumY / minuteHeightPx).roundToInt()
-                                val (s, e) = ScheduleGridEngine.snapResizeRange(slotOrigStart, slotOrigEnd, dMin)
-                                latestOnResizeSelectedEmptySlot(s, e)
+                            onDragAtViewportY = { vpY ->
+                                localDragViewportY = vpY
+                                activeAutoScrollTick?.invoke()
                             },
-                            onDragEnd = {},
-                            onDragCancel = {}
+                            onDragEnd = {
+                                activeDragKind = null
+                                localDragViewportY = -1f
+                                activeAutoScrollTick = null
+                            },
+                            onDragCancel = {
+                                activeDragKind = null
+                                localDragViewportY = -1f
+                                activeAutoScrollTick = null
+                            }
                         )
                     }
                 }
@@ -1787,9 +1966,9 @@ private fun DayTimelineGrid(
 
                     val latestBlock by rememberUpdatedState(block)
                     val latestEffRange by rememberUpdatedState(effStart to effEnd)
-                    var accumBodyDragY by remember(block.recordId) { mutableFloatStateOf(0f) }
-                    var accumTopDragY by remember(block.recordId) { mutableFloatStateOf(0f) }
-                    var accumBotDragY by remember(block.recordId) { mutableFloatStateOf(0f) }
+                    val latestIsSelected by rememberUpdatedState(isSelectedThis)
+                    var cardCoords by remember(block.recordId) { mutableStateOf<LayoutCoordinates?>(null) }
+                    var dragStartDocY by remember(block.recordId) { mutableFloatStateOf(0f) }
                     var dragOrigStartMin by remember(block.recordId) { mutableIntStateOf(block.startMinute) }
                     var dragOrigEndMin by remember(block.recordId) { mutableIntStateOf(block.endMinute) }
 
@@ -1804,6 +1983,7 @@ private fun DayTimelineGrid(
                             ScheduleGridEngine.formatHmWindow(effStart, effEnd)
                         } else null,
                         blockHeightDp = blockHeightDp.dp,
+                        viewportCoords = vpCoords,
                         modifier = Modifier
                             .offset(x = if (isDraggingThis || isDraftedThis) 2.dp else laneOffsetDp + 2.dp, y = topDp.dp)
                             .width(
@@ -1812,39 +1992,68 @@ private fun DayTimelineGrid(
                             )
                             .height(blockHeightDp.dp)
                             .zIndex(if (isSelectedThis) 12f else 1f)
+                            .onGloballyPositioned { cardCoords = it }
                             .then(
                                 if (block.canDragMoveOrResize && block.record != null && !block.crossesMidnightFromPrev && !block.crossesMidnightToNext) {
                                     Modifier.pointerInput(block.recordId, block.startMinute, block.endMinute) {
-                                        detectDragGesturesAfterLongPress(
-                                            onDragStart = {
-                                                val (baseS, baseE) = latestEffRange
-                                                accumBodyDragY = 0f
-                                                dragOrigStartMin = baseS
-                                                dragOrigEndMin = baseE
-                                                draggingBlockId = latestBlock.recordId
-                                                dragPreviewStartMin = baseS
-                                                dragPreviewEndMin = baseE
-                                            },
-                                            onDrag = { change, dragAmount ->
-                                                change.consume()
-                                                accumBodyDragY += dragAmount.y
-                                                val deltaMin = (accumBodyDragY / minuteHeightPx).roundToInt()
+                                        awaitEachGesture {
+                                            val down = awaitFirstDown(requireUnconsumed = false)
+                                            val dragTrigger = if (latestIsSelected) {
+                                                awaitVerticalTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
+                                            } else {
+                                                awaitLongPressOrCancellation(down.id)
+                                            } ?: return@awaitEachGesture
+
+                                            val vc = vpCoords
+                                            val cc = cardCoords
+                                            val startVpY = if (vc != null && cc != null && vc.isAttached && cc.isAttached) {
+                                                vc.localPositionOf(cc, dragTrigger.position).y
+                                            } else -1f
+                                            val (baseS, baseE) = latestEffRange
+                                            val baseDocY = if (startVpY >= 0f) startVpY + scrollState.value else (baseS / 60f) * hourHeightPx
+                                            dragOrigStartMin = baseS
+                                            dragOrigEndMin = baseE
+                                            dragStartDocY = baseDocY
+                                            draggingBlockId = latestBlock.recordId
+                                            dragPreviewStartMin = baseS
+                                            dragPreviewEndMin = baseE
+                                            localDragViewportY = startVpY
+                                            activeAutoScrollTick = {
+                                                val curDocY = localDragViewportY + scrollState.value
+                                                val deltaMin = ((curDocY - dragStartDocY) / minuteHeightPx).roundToInt()
                                                 val (s, e) = ScheduleGridEngine.snapMoveRange(dragOrigStartMin, dragOrigEndMin, deltaMin)
                                                 dragPreviewStartMin = s
                                                 dragPreviewEndMin = e
-                                            },
-                                            onDragEnd = {
-                                                val s = dragPreviewStartMin
-                                                val e = dragPreviewEndMin
-                                                draggingBlockId = null
-                                                if (s != latestBlock.startMinute || e != latestBlock.endMinute) {
-                                                    latestOnDraftBlockChanged(latestBlock, s, e)
-                                                }
-                                            },
-                                            onDragCancel = {
-                                                draggingBlockId = null
                                             }
-                                        )
+                                            activeDragKind = "block_body_${latestBlock.recordId}"
+
+                                            val completed = if (latestIsSelected) {
+                                                verticalDrag(dragTrigger.id) { change ->
+                                                    change.consume()
+                                                    if (vc != null && cc != null && vc.isAttached && cc.isAttached) {
+                                                        localDragViewportY = vc.localPositionOf(cc, change.position).y
+                                                    }
+                                                    activeAutoScrollTick?.invoke()
+                                                }
+                                            } else {
+                                                drag(dragTrigger.id) { change ->
+                                                    change.consume()
+                                                    if (vc != null && cc != null && vc.isAttached && cc.isAttached) {
+                                                        localDragViewportY = vc.localPositionOf(cc, change.position).y
+                                                    }
+                                                    activeAutoScrollTick?.invoke()
+                                                }
+                                            }
+                                            val s = dragPreviewStartMin
+                                            val e = dragPreviewEndMin
+                                            draggingBlockId = null
+                                            activeDragKind = null
+                                            localDragViewportY = -1f
+                                            activeAutoScrollTick = null
+                                            if (completed && (s != latestBlock.startMinute || e != latestBlock.endMinute)) {
+                                                latestOnDraftBlockChanged(latestBlock, s, e)
+                                            }
+                                        }
                                     }
                                 } else Modifier
                             ),
@@ -1854,56 +2063,84 @@ private fun DayTimelineGrid(
                                 { onConfirmUnconfirmed(rec) }
                             } else null
                         },
-                        onTopEdgeDragStart = {
+                        onTopEdgeDragStartAtVpY = { vpY ->
                             val (baseS, baseE) = latestEffRange
-                            accumTopDragY = 0f
                             dragOrigStartMin = baseS
                             dragOrigEndMin = baseE
                             draggingBlockId = latestBlock.recordId
                             dragPreviewStartMin = baseS
                             dragPreviewEndMin = baseE
+                            dragStartDocY = if (vpY >= 0f) vpY + scrollState.value else (baseS / 60f) * hourHeightPx
+                            localDragViewportY = vpY
+                            activeAutoScrollTick = {
+                                val curDocY = localDragViewportY + scrollState.value
+                                val dMin = ((curDocY - dragStartDocY) / minuteHeightPx).roundToInt()
+                                val (s, e) = ScheduleGridEngine.snapResizeStartRange(dragOrigStartMin, dragOrigEndMin, dMin)
+                                dragPreviewStartMin = s
+                                dragPreviewEndMin = e
+                            }
+                            activeDragKind = "block_top_${latestBlock.recordId}"
                         },
-                        onTopEdgeDragDelta = { deltaY ->
-                            accumTopDragY += deltaY
-                            val dMin = (accumTopDragY / minuteHeightPx).roundToInt()
-                            val (s, e) = ScheduleGridEngine.snapResizeStartRange(dragOrigStartMin, dragOrigEndMin, dMin)
-                            dragPreviewStartMin = s
-                            dragPreviewEndMin = e
+                        onTopEdgeDragAtVpY = { vpY ->
+                            localDragViewportY = vpY
+                            activeAutoScrollTick?.invoke()
                         },
                         onTopEdgeDragEnd = {
                             val s = dragPreviewStartMin
                             val e = dragPreviewEndMin
                             draggingBlockId = null
+                            activeDragKind = null
+                            localDragViewportY = -1f
+                            activeAutoScrollTick = null
                             if (s != latestBlock.startMinute || e != latestBlock.endMinute) {
                                 latestOnDraftBlockChanged(latestBlock, s, e)
                             }
                         },
-                        onTopEdgeDragCancel = { draggingBlockId = null },
-                        onBottomEdgeDragStart = {
+                        onTopEdgeDragCancel = {
+                            draggingBlockId = null
+                            activeDragKind = null
+                            localDragViewportY = -1f
+                            activeAutoScrollTick = null
+                        },
+                        onBottomEdgeDragStartAtVpY = { vpY ->
                             val (baseS, baseE) = latestEffRange
-                            accumBotDragY = 0f
                             dragOrigStartMin = baseS
                             dragOrigEndMin = baseE
                             draggingBlockId = latestBlock.recordId
                             dragPreviewStartMin = baseS
                             dragPreviewEndMin = baseE
+                            dragStartDocY = if (vpY >= 0f) vpY + scrollState.value else (baseE / 60f) * hourHeightPx
+                            localDragViewportY = vpY
+                            activeAutoScrollTick = {
+                                val curDocY = localDragViewportY + scrollState.value
+                                val deltaEndMin = ((curDocY - dragStartDocY) / minuteHeightPx).roundToInt()
+                                val (s, e) = ScheduleGridEngine.snapResizeRange(dragOrigStartMin, dragOrigEndMin, deltaEndMin)
+                                dragPreviewStartMin = s
+                                dragPreviewEndMin = e
+                            }
+                            activeDragKind = "block_bot_${latestBlock.recordId}"
                         },
-                        onBottomEdgeDragDelta = { deltaY ->
-                            accumBotDragY += deltaY
-                            val deltaEndMin = (accumBotDragY / minuteHeightPx).roundToInt()
-                            val (s, e) = ScheduleGridEngine.snapResizeRange(dragOrigStartMin, dragOrigEndMin, deltaEndMin)
-                            dragPreviewStartMin = s
-                            dragPreviewEndMin = e
+                        onBottomEdgeDragAtVpY = { vpY ->
+                            localDragViewportY = vpY
+                            activeAutoScrollTick?.invoke()
                         },
                         onBottomEdgeDragEnd = {
                             val s = dragPreviewStartMin
                             val e = dragPreviewEndMin
                             draggingBlockId = null
+                            activeDragKind = null
+                            localDragViewportY = -1f
+                            activeAutoScrollTick = null
                             if (s != latestBlock.startMinute || e != latestBlock.endMinute) {
                                 latestOnDraftBlockChanged(latestBlock, s, e)
                             }
                         },
-                        onBottomEdgeDragCancel = { draggingBlockId = null }
+                        onBottomEdgeDragCancel = {
+                            draggingBlockId = null
+                            activeDragKind = null
+                            localDragViewportY = -1f
+                            activeAutoScrollTick = null
+                        }
                     )
                 }
 
@@ -1945,6 +2182,7 @@ private fun DayTimelineGrid(
                         )
                     }
                 }
+                }
             }
         }
     }
@@ -1955,28 +2193,43 @@ private fun ResizeEdgeHandle(
     isTopEdge: Boolean,
     tint: Color,
     dragKey: Any = Unit,
+    viewportCoords: LayoutCoordinates? = null,
     modifier: Modifier = Modifier,
-    onDragStart: () -> Unit,
-    onDragDelta: (Float) -> Unit,
+    onDragStartAtViewportY: (Float) -> Unit = {},
+    onDragAtViewportY: (Float) -> Unit = {},
     onDragEnd: () -> Unit,
     onDragCancel: () -> Unit
 ) {
-    val latestOnDragStart by rememberUpdatedState(onDragStart)
-    val latestOnDragDelta by rememberUpdatedState(onDragDelta)
+    var handleCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    val latestVpCoords by rememberUpdatedState(viewportCoords)
+    val latestOnDragStartAtVpY by rememberUpdatedState(onDragStartAtViewportY)
+    val latestOnDragAtVpY by rememberUpdatedState(onDragAtViewportY)
     val latestOnDragEnd by rememberUpdatedState(onDragEnd)
     val latestOnDragCancel by rememberUpdatedState(onDragCancel)
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(14.dp)
+            .height(15.dp)
             .zIndex(2f)
+            .onGloballyPositioned { handleCoords = it }
             .pointerInput(dragKey) {
                 detectVerticalDragGestures(
-                    onDragStart = { latestOnDragStart() },
-                    onVerticalDrag = { change, dragAmount ->
+                    onDragStart = { offset ->
+                        val vc = latestVpCoords
+                        val hc = handleCoords
+                        val vpY = if (vc != null && hc != null && vc.isAttached && hc.isAttached) {
+                            vc.localPositionOf(hc, offset).y
+                        } else -1f
+                        latestOnDragStartAtVpY(vpY)
+                    },
+                    onVerticalDrag = { change, _ ->
                         change.consume()
-                        latestOnDragDelta(dragAmount)
+                        val vc = latestVpCoords
+                        val hc = handleCoords
+                        if (vc != null && hc != null && vc.isAttached && hc.isAttached) {
+                            latestOnDragAtVpY(vc.localPositionOf(hc, change.position).y)
+                        }
                     },
                     onDragEnd = { latestOnDragEnd() },
                     onDragCancel = { latestOnDragCancel() }
@@ -1987,8 +2240,8 @@ private fun ResizeEdgeHandle(
         Box(
             modifier = Modifier
                 .padding(vertical = 2.dp)
-                .width(34.dp)
-                .height(3.5.dp)
+                .width(36.dp)
+                .height(3.8.dp)
                 .clip(RoundedCornerShape(3.dp))
                 .background(tint)
         )
@@ -2005,15 +2258,16 @@ private fun ScheduleEventCard(
     hasConflictWarning: Boolean,
     draggingLabel: String?,
     blockHeightDp: Dp,
+    viewportCoords: LayoutCoordinates? = null,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onQuickConfirm: (() -> Unit)? = null,
-    onTopEdgeDragStart: () -> Unit = {},
-    onTopEdgeDragDelta: (Float) -> Unit = {},
+    onTopEdgeDragStartAtVpY: (Float) -> Unit = {},
+    onTopEdgeDragAtVpY: (Float) -> Unit = {},
     onTopEdgeDragEnd: () -> Unit = {},
     onTopEdgeDragCancel: () -> Unit = {},
-    onBottomEdgeDragStart: () -> Unit = {},
-    onBottomEdgeDragDelta: (Float) -> Unit = {},
+    onBottomEdgeDragStartAtVpY: (Float) -> Unit = {},
+    onBottomEdgeDragAtVpY: (Float) -> Unit = {},
     onBottomEdgeDragEnd: () -> Unit = {},
     onBottomEdgeDragCancel: () -> Unit = {}
 ) {
@@ -2192,21 +2446,23 @@ private fun ScheduleEventCard(
         if (canResizeThis) {
             ResizeEdgeHandle(
                 isTopEdge = true,
-                tint = (if (isSelected || isDraggingOrDraft) WalletMintAccent else accentColor).copy(alpha = 0.72f),
+                tint = (if (isSelected || isDraggingOrDraft) WalletMintAccent else accentColor).copy(alpha = 0.78f),
                 dragKey = "block_top_${block.recordId}",
+                viewportCoords = viewportCoords,
                 modifier = Modifier.align(Alignment.TopCenter),
-                onDragStart = onTopEdgeDragStart,
-                onDragDelta = onTopEdgeDragDelta,
+                onDragStartAtViewportY = onTopEdgeDragStartAtVpY,
+                onDragAtViewportY = onTopEdgeDragAtVpY,
                 onDragEnd = onTopEdgeDragEnd,
                 onDragCancel = onTopEdgeDragCancel
             )
             ResizeEdgeHandle(
                 isTopEdge = false,
-                tint = (if (isSelected || isDraggingOrDraft) WalletMintAccent else accentColor).copy(alpha = 0.72f),
+                tint = (if (isSelected || isDraggingOrDraft) WalletMintAccent else accentColor).copy(alpha = 0.78f),
                 dragKey = "block_bot_${block.recordId}",
+                viewportCoords = viewportCoords,
                 modifier = Modifier.align(Alignment.BottomCenter),
-                onDragStart = onBottomEdgeDragStart,
-                onDragDelta = onBottomEdgeDragDelta,
+                onDragStartAtViewportY = onBottomEdgeDragStartAtVpY,
+                onDragAtViewportY = onBottomEdgeDragAtVpY,
                 onDragEnd = onBottomEdgeDragEnd,
                 onDragCancel = onBottomEdgeDragCancel
             )
@@ -2223,6 +2479,8 @@ private fun MultiDayTimelineGrid(
     compactColumns: Boolean = false,
     interactionState: ScheduleInteractionState,
     modifier: Modifier = Modifier,
+    onViewportMetricsChanged: (Float, Float) -> Unit = { _, _ -> },
+    onDragViewportYChanged: (Float) -> Unit = {},
     onSelectDay: (String) -> Unit,
     onTapCellAtMinute: (DayScheduleModel, Int) -> Unit,
     onDragSelectEmptyRange: (DayScheduleModel, Int, Int) -> Unit,
@@ -2235,6 +2493,53 @@ private fun MultiDayTimelineGrid(
     val hourPx = with(density) { hourHeight.toPx() }
     val minutePx = hourPx / 60f
 
+    var vpCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var viewportHeightPx by remember { mutableFloatStateOf(0f) }
+    var activeDragKind by remember { mutableStateOf<String?>(null) }
+    var localDragViewportY by remember { mutableFloatStateOf(-1f) }
+    var activeAutoScrollTick by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    val latestOnViewportMetricsChanged by rememberUpdatedState(onViewportMetricsChanged)
+    val latestOnDragViewportYChanged by rememberUpdatedState(onDragViewportYChanged)
+
+    LaunchedEffect(vScrollState.value, viewportHeightPx) {
+        if (viewportHeightPx > 0f) {
+            latestOnViewportMetricsChanged(vScrollState.value.toFloat(), viewportHeightPx)
+        }
+    }
+    LaunchedEffect(localDragViewportY) {
+        latestOnDragViewportYChanged(localDragViewportY)
+    }
+
+    LaunchedEffect(activeDragKind) {
+        if (activeDragKind != null) {
+            val edgeZonePx = with(density) { 48.dp.toPx() }
+            val maxStepPx = with(density) { 12.dp.toPx() }
+            while (isActive) {
+                val yVp = localDragViewportY
+                val vpH = viewportHeightPx
+                if (vpH > edgeZonePx * 2f && yVp >= 0f) {
+                    val delta = when {
+                        yVp < edgeZonePx && vScrollState.value > 0 -> {
+                            val ratio = ((edgeZonePx - yVp) / edgeZonePx).coerceIn(0.15f, 1f)
+                            -(ratio * maxStepPx)
+                        }
+                        yVp > vpH - edgeZonePx && vScrollState.value < vScrollState.maxValue -> {
+                            val ratio = ((yVp - (vpH - edgeZonePx)) / edgeZonePx).coerceIn(0.15f, 1f)
+                            ratio * maxStepPx
+                        }
+                        else -> 0f
+                    }
+                    if (delta != 0f) {
+                        vScrollState.scrollBy(delta)
+                        activeAutoScrollTick?.invoke()
+                    }
+                }
+                delay(16L)
+            }
+        }
+    }
+
     LaunchedEffect(days.size, compactColumns) {
         val targetHour = (nowMinute / 60 - 2).coerceIn(0, 16)
         vScrollState.scrollTo((targetHour * hourPx).roundToInt())
@@ -2242,7 +2547,6 @@ private fun MultiDayTimelineGrid(
 
     var draggingEmptyDate by remember { mutableStateOf<String?>(null) }
     var emptyDragAnchorMin by remember { mutableIntStateOf(0) }
-    var emptyDragAccumY by remember { mutableFloatStateOf(0f) }
     var liveEmptyRange by remember { mutableStateOf<Pair<Int, Int>?>(null) }
 
     var draggingBlockId by remember { mutableStateOf<String?>(null) }
@@ -2355,11 +2659,18 @@ private fun MultiDayTimelineGrid(
                 }
                 HorizontalDivider(color = WalletStroke)
 
-                Row(
+                Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
+                        .onGloballyPositioned { vpCoords = it }
+                        .onSizeChanged { viewportHeightPx = it.height.toFloat() }
+                ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
                         .verticalScroll(vScrollState)
+                        .padding(top = 2.dp, bottom = 64.dp)
                 ) {
                     Column(modifier = Modifier.width(axisWidth)) {
                         for (h in 0 until 24) {
@@ -2391,11 +2702,13 @@ private fun MultiDayTimelineGrid(
                             days.forEach { day ->
                                 val isDayToday = day.dateLocal == todayStr
                                 val latestDay by rememberUpdatedState(day)
+                                var colCoords by remember(day.dateLocal) { mutableStateOf<LayoutCoordinates?>(null) }
                                 BoxWithConstraints(
                                     modifier = Modifier
                                         .width(colWidth)
                                         .fillMaxHeight()
                                         .border(0.5.dp, WalletDivider)
+                                        .onGloballyPositioned { colCoords = it }
                                         .pointerInput(day.dateLocal) {
                                             detectTapGestures { pos ->
                                                 val minute = ((pos.y / minutePx).roundToInt()).coerceIn(0, 1439)
@@ -2408,19 +2721,37 @@ private fun MultiDayTimelineGrid(
                                                     val s = ((pos.y / minutePx).roundToInt()).coerceIn(0, 1425)
                                                     draggingEmptyDate = day.dateLocal
                                                     emptyDragAnchorMin = s
-                                                    emptyDragAccumY = 0f
+                                                    val vc = vpCoords
+                                                    val cc = colCoords
+                                                    localDragViewportY = if (vc != null && cc != null && vc.isAttached && cc.isAttached) {
+                                                        vc.localPositionOf(cc, pos).y
+                                                    } else pos.y - vScrollState.value
                                                     liveEmptyRange = ScheduleGridEngine.snapEmptyDragRange(s, s + 30)
+                                                    activeAutoScrollTick = {
+                                                        val docY = localDragViewportY + vScrollState.value
+                                                        val c = (docY / minutePx).roundToInt().coerceIn(0, 1440)
+                                                        liveEmptyRange = ScheduleGridEngine.snapEmptyDragRange(emptyDragAnchorMin, c)
+                                                    }
+                                                    activeDragKind = "m_empty_${day.dateLocal}"
                                                 },
-                                                onDrag = { change, dragAmount ->
+                                                onDrag = { change, _ ->
                                                     change.consume()
-                                                    emptyDragAccumY += dragAmount.y
-                                                    val c = (emptyDragAnchorMin + (emptyDragAccumY / minutePx).roundToInt()).coerceIn(0, 1440)
-                                                    liveEmptyRange = ScheduleGridEngine.snapEmptyDragRange(emptyDragAnchorMin, c)
+                                                    val vc = vpCoords
+                                                    val cc = colCoords
+                                                    if (vc != null && cc != null && vc.isAttached && cc.isAttached) {
+                                                        localDragViewportY = vc.localPositionOf(cc, change.position).y
+                                                    } else {
+                                                        localDragViewportY = change.position.y - vScrollState.value
+                                                    }
+                                                    activeAutoScrollTick?.invoke()
                                                 },
                                                 onDragEnd = {
                                                     val chosen = liveEmptyRange
                                                     draggingEmptyDate = null
                                                     liveEmptyRange = null
+                                                    activeDragKind = null
+                                                    localDragViewportY = -1f
+                                                    activeAutoScrollTick = null
                                                     if (chosen != null) {
                                                         latestOnDragSelectEmptyRange(latestDay, chosen.first, chosen.second)
                                                     }
@@ -2428,6 +2759,9 @@ private fun MultiDayTimelineGrid(
                                                 onDragCancel = {
                                                     draggingEmptyDate = null
                                                     liveEmptyRange = null
+                                                    activeDragKind = null
+                                                    localDragViewportY = -1f
+                                                    activeAutoScrollTick = null
                                                 }
                                             )
                                         }
@@ -2528,9 +2862,11 @@ private fun MultiDayTimelineGrid(
                                         }
                                         val latestBlock by rememberUpdatedState(block)
                                         val latestEffRange by rememberUpdatedState(effStart to effEnd)
-                                        var colAccumDragY by remember(block.recordId) { mutableFloatStateOf(0f) }
-                                        var colDragOrigStart by remember(block.recordId) { mutableIntStateOf(block.startMinute) }
-                                        var colDragOrigEnd by remember(block.recordId) { mutableIntStateOf(block.endMinute) }
+                                        val latestIsSelected by rememberUpdatedState(isSelThis)
+                                        var mCardCoords by remember(block.recordId, day.dateLocal) { mutableStateOf<LayoutCoordinates?>(null) }
+                                        var colStartDocY by remember(block.recordId, day.dateLocal) { mutableFloatStateOf(0f) }
+                                        var colDragOrigStart by remember(block.recordId, day.dateLocal) { mutableIntStateOf(block.startMinute) }
+                                        var colDragOrigEnd by remember(block.recordId, day.dateLocal) { mutableIntStateOf(block.endMinute) }
 
                                         Box(
                                             modifier = Modifier
@@ -2552,47 +2888,73 @@ private fun MultiDayTimelineGrid(
                                                     color = if (isSelThis) WalletMintAccent else accentColor.copy(alpha = 0.8f),
                                                     shape = RoundedCornerShape(6.dp)
                                                 )
+                                                .onGloballyPositioned { mCardCoords = it }
                                                 .then(
                                                     if (block.canDragMoveOrResize && block.record != null && !block.crossesMidnightFromPrev && !block.crossesMidnightToNext) {
                                                         Modifier.pointerInput(block.recordId, block.startMinute, block.endMinute) {
-                                                            detectDragGesturesAfterLongPress(
-                                                                onDragStart = {
-                                                                    val (baseS, baseE) = latestEffRange
-                                                                    colAccumDragY = 0f
-                                                                    colDragOrigStart = baseS
-                                                                    colDragOrigEnd = baseE
-                                                                    draggingBlockId = latestBlock.recordId
-                                                                    draggingBlockDate = day.dateLocal
-                                                                    dragPreviewStartMin = baseS
-                                                                    dragPreviewEndMin = baseE
-                                                                },
-                                                                onDrag = { change, dragAmount ->
-                                                                    change.consume()
-                                                                    colAccumDragY += dragAmount.y
-                                                                    val deltaMin = (colAccumDragY / minutePx).roundToInt()
+                                                            awaitEachGesture {
+                                                                val down = awaitFirstDown(requireUnconsumed = false)
+                                                                val trigger = if (latestIsSelected) {
+                                                                    awaitVerticalTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
+                                                                } else {
+                                                                    awaitLongPressOrCancellation(down.id)
+                                                                } ?: return@awaitEachGesture
+
+                                                                val vc = vpCoords
+                                                                val cc = mCardCoords
+                                                                val startVpY = if (vc != null && cc != null && vc.isAttached && cc.isAttached) {
+                                                                    vc.localPositionOf(cc, trigger.position).y
+                                                                } else -1f
+                                                                val (baseS, baseE) = latestEffRange
+                                                                colDragOrigStart = baseS
+                                                                colDragOrigEnd = baseE
+                                                                colStartDocY = if (startVpY >= 0f) startVpY + vScrollState.value else (baseS / 60f) * hourPx
+                                                                draggingBlockId = latestBlock.recordId
+                                                                draggingBlockDate = day.dateLocal
+                                                                dragPreviewStartMin = baseS
+                                                                dragPreviewEndMin = baseE
+                                                                localDragViewportY = startVpY
+                                                                activeAutoScrollTick = {
+                                                                    val curDocY = localDragViewportY + vScrollState.value
+                                                                    val deltaMin = ((curDocY - colStartDocY) / minutePx).roundToInt()
                                                                     val (s, e) = ScheduleGridEngine.snapMoveRange(colDragOrigStart, colDragOrigEnd, deltaMin)
                                                                     dragPreviewStartMin = s
                                                                     dragPreviewEndMin = e
-                                                                },
-                                                                onDragEnd = {
-                                                                    val s = dragPreviewStartMin
-                                                                    val e = dragPreviewEndMin
-                                                                    draggingBlockId = null
-                                                                    draggingBlockDate = null
-                                                                    if (s != latestBlock.startMinute || e != latestBlock.endMinute) {
-                                                                        latestOnDraftBlockMoved(latestBlock, s, e)
-                                                                    }
-                                                                },
-                                                                onDragCancel = {
-                                                                    draggingBlockId = null
-                                                                    draggingBlockDate = null
                                                                 }
-                                                            )
+                                                                activeDragKind = "m_block_${latestBlock.recordId}"
+
+                                                                val completed = if (latestIsSelected) {
+                                                                    verticalDrag(trigger.id) { change ->
+                                                                        change.consume()
+                                                                        if (vc != null && cc != null && vc.isAttached && cc.isAttached) {
+                                                                            localDragViewportY = vc.localPositionOf(cc, change.position).y
+                                                                        }
+                                                                        activeAutoScrollTick?.invoke()
+                                                                    }
+                                                                } else {
+                                                                    drag(trigger.id) { change ->
+                                                                        change.consume()
+                                                                        if (vc != null && cc != null && vc.isAttached && cc.isAttached) {
+                                                                            localDragViewportY = vc.localPositionOf(cc, change.position).y
+                                                                        }
+                                                                        activeAutoScrollTick?.invoke()
+                                                                    }
+                                                                }
+                                                                val s = dragPreviewStartMin
+                                                                val e = dragPreviewEndMin
+                                                                draggingBlockId = null
+                                                                draggingBlockDate = null
+                                                                activeDragKind = null
+                                                                localDragViewportY = -1f
+                                                                activeAutoScrollTick = null
+                                                                if (completed && (s != latestBlock.startMinute || e != latestBlock.endMinute)) {
+                                                                    latestOnDraftBlockMoved(latestBlock, s, e)
+                                                                }
+                                                            }
                                                         }
                                                     } else Modifier
                                                 )
                                                 .walletClickable(onClickLabel = "Chọn ${block.title}") { onTapBlock(block) }
-                                                .padding(horizontal = 4.dp, vertical = 2.dp)
                                         ) {
                                             Text(
                                                 text = block.title,
@@ -2601,8 +2963,109 @@ private fun MultiDayTimelineGrid(
                                                 fontWeight = FontWeight.Bold,
                                                 color = WalletInk,
                                                 maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                                             )
+                                            if (isSelThis && block.canDragMoveOrResize && block.record != null && !block.crossesMidnightFromPrev && !block.crossesMidnightToNext) {
+                                                ResizeEdgeHandle(
+                                                    isTopEdge = true,
+                                                    tint = WalletMintAccent.copy(alpha = 0.85f),
+                                                    dragKey = "m_top_${block.recordId}_${day.dateLocal}",
+                                                    viewportCoords = vpCoords,
+                                                    modifier = Modifier.align(Alignment.TopCenter),
+                                                    onDragStartAtViewportY = { vpY ->
+                                                        val (baseS, baseE) = latestEffRange
+                                                        colDragOrigStart = baseS
+                                                        colDragOrigEnd = baseE
+                                                        colStartDocY = if (vpY >= 0f) vpY + vScrollState.value else (baseS / 60f) * hourPx
+                                                        draggingBlockId = latestBlock.recordId
+                                                        draggingBlockDate = day.dateLocal
+                                                        dragPreviewStartMin = baseS
+                                                        dragPreviewEndMin = baseE
+                                                        localDragViewportY = vpY
+                                                        activeAutoScrollTick = {
+                                                            val curDocY = localDragViewportY + vScrollState.value
+                                                            val dMin = ((curDocY - colStartDocY) / minutePx).roundToInt()
+                                                            val (s, e) = ScheduleGridEngine.snapResizeStartRange(colDragOrigStart, colDragOrigEnd, dMin)
+                                                            dragPreviewStartMin = s
+                                                            dragPreviewEndMin = e
+                                                        }
+                                                        activeDragKind = "m_top_${latestBlock.recordId}"
+                                                    },
+                                                    onDragAtViewportY = { vpY ->
+                                                        localDragViewportY = vpY
+                                                        activeAutoScrollTick?.invoke()
+                                                    },
+                                                    onDragEnd = {
+                                                        val s = dragPreviewStartMin
+                                                        val e = dragPreviewEndMin
+                                                        draggingBlockId = null
+                                                        draggingBlockDate = null
+                                                        activeDragKind = null
+                                                        localDragViewportY = -1f
+                                                        activeAutoScrollTick = null
+                                                        if (s != latestBlock.startMinute || e != latestBlock.endMinute) {
+                                                            latestOnDraftBlockMoved(latestBlock, s, e)
+                                                        }
+                                                    },
+                                                    onDragCancel = {
+                                                        draggingBlockId = null
+                                                        draggingBlockDate = null
+                                                        activeDragKind = null
+                                                        localDragViewportY = -1f
+                                                        activeAutoScrollTick = null
+                                                    }
+                                                )
+                                                ResizeEdgeHandle(
+                                                    isTopEdge = false,
+                                                    tint = WalletMintAccent.copy(alpha = 0.85f),
+                                                    dragKey = "m_bot_${block.recordId}_${day.dateLocal}",
+                                                    viewportCoords = vpCoords,
+                                                    modifier = Modifier.align(Alignment.BottomCenter),
+                                                    onDragStartAtViewportY = { vpY ->
+                                                        val (baseS, baseE) = latestEffRange
+                                                        colDragOrigStart = baseS
+                                                        colDragOrigEnd = baseE
+                                                        colStartDocY = if (vpY >= 0f) vpY + vScrollState.value else (baseE / 60f) * hourPx
+                                                        draggingBlockId = latestBlock.recordId
+                                                        draggingBlockDate = day.dateLocal
+                                                        dragPreviewStartMin = baseS
+                                                        dragPreviewEndMin = baseE
+                                                        localDragViewportY = vpY
+                                                        activeAutoScrollTick = {
+                                                            val curDocY = localDragViewportY + vScrollState.value
+                                                            val dMin = ((curDocY - colStartDocY) / minutePx).roundToInt()
+                                                            val (s, e) = ScheduleGridEngine.snapResizeRange(colDragOrigStart, colDragOrigEnd, dMin)
+                                                            dragPreviewStartMin = s
+                                                            dragPreviewEndMin = e
+                                                        }
+                                                        activeDragKind = "m_bot_${latestBlock.recordId}"
+                                                    },
+                                                    onDragAtViewportY = { vpY ->
+                                                        localDragViewportY = vpY
+                                                        activeAutoScrollTick?.invoke()
+                                                    },
+                                                    onDragEnd = {
+                                                        val s = dragPreviewStartMin
+                                                        val e = dragPreviewEndMin
+                                                        draggingBlockId = null
+                                                        draggingBlockDate = null
+                                                        activeDragKind = null
+                                                        localDragViewportY = -1f
+                                                        activeAutoScrollTick = null
+                                                        if (s != latestBlock.startMinute || e != latestBlock.endMinute) {
+                                                            latestOnDraftBlockMoved(latestBlock, s, e)
+                                                        }
+                                                    },
+                                                    onDragCancel = {
+                                                        draggingBlockId = null
+                                                        draggingBlockDate = null
+                                                        activeDragKind = null
+                                                        localDragViewportY = -1f
+                                                        activeAutoScrollTick = null
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
                                     if (isDayToday) {
@@ -2619,6 +3082,7 @@ private fun MultiDayTimelineGrid(
                             }
                         }
                     }
+                }
                 }
             }
         }
