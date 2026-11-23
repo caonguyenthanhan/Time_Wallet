@@ -1,176 +1,136 @@
-# Wally — Time Wallet (`v2.1.2`)
+<div align="center">
 
-**Trung tâm Quản lý Thời gian & Năng suất Cá nhân · Riêng tư tại máy · AI đề xuất có kiểm soát**  
-*Your time. Your choices. Your life.*
+<img src="docs/brand/wally-hero.webp" alt="Wally — Trợ lý thời gian cá nhân Time Wallet" width="215" />
 
-<p align="left">
-  <img src="https://img.shields.io/badge/Version-v2.1.2%20(code%2021)-1F8066?style=flat-square" alt="Version v2.1.2" />
-  <img src="https://img.shields.io/badge/Kotlin-2.0.21-7F52FF?style=flat-square&logo=kotlin&logoColor=white" alt="Kotlin 2.0.21" />
-  <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white" alt="Jetpack Compose" />
-  <img src="https://img.shields.io/badge/Android-API%2026%E2%80%9335-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android API 26-35" />
-  <img src="https://img.shields.io/badge/Room%20SQLite-Schema%20v7-00838F?style=flat-square" alt="Room Schema v7" />
-  <img src="https://img.shields.io/badge/JVM%20Tests-665%2F669%20PASS-2E7D32?style=flat-square" alt="Unit Tests" />
-  <img src="https://img.shields.io/badge/Lint%20Release-0%20errors-2E7D32?style=flat-square" alt="Lint Release" />
+# ✦ Wally
+
+### Your Personal Time Companion
+
+**Trợ lý thời gian cá nhân giúp sinh viên và người đi làm học tập, làm việc có chủ đích hơn — không phải chỉ bận rộn hơn.**
+
+[![Android](https://img.shields.io/badge/Android-8.0%2B-1F6B4E?style=flat-square&logo=android&logoColor=white)](https://github.com/caonguyenthanhan/Time_Wallet/releases/latest)
+[![Version](https://img.shields.io/badge/Release-v2.2.0-2E7D5B?style=flat-square)](https://github.com/caonguyenthanhan/Time_Wallet/releases/tag/v2.2.0)
+[![AI Assistant](https://img.shields.io/badge/Wally%20AI-Xác%20nhận%20trước%20khi%20lưu-0F5132?style=flat-square)](#-wally-ai-làm-được-gì)
+[![Privacy](https://img.shields.io/badge/Privacy--first-Dữ%20liệu%20trên%20máy-163829?style=flat-square)](#-quyền-riêng-tư--tài-liệu-kỹ-thuật)
+
+[**Tải APK v2.2.0**](https://github.com/caonguyenthanhan/Time_Wallet/releases/tag/v2.2.0) · [**Xem giao diện**](#-trải-nghiệm-thực-tế) · [**Một ngày cùng Wally**](#-một-ngày-cùng-wally) · [**Tài liệu kỹ thuật**](docs/ARCHITECTURE_AND_PRIVACY.md)
+
+</div>
+
+---
+
+**Time Wallet (`Wally`)** gộp lịch trình 24 giờ, công việc To-do, bấm giờ tập trung và trợ lý AI vào một nhịp sử dụng nhẹ nhàng: bạn biết rõ *mình đang làm gì, sắp làm gì, còn bao nhiêu thời gian trống* — cả bên trong ứng dụng lẫn qua **Widget màn hình chính** và **Trợ lý nổi Wally**. Mọi gợi ý đều minh bạch, không phán xét và **chỉ lưu vào lịch khi bạn bấm xác nhận**.
+
+---
+
+## Trải nghiệm thực tế
+
+<p align="center">
+  <img src="docs/screenshots/ui-preview/_tong-hop_wally-2.2.jpg" alt="Tổng hợp giao diện Time Wallet v2.2.0 Light, Dark và Trợ lý nổi" width="100%" />
 </p>
+
+| Lịch trình trực quan | AI To-do thông minh | Trợ lý nổi trên màn hình | Thống kê 24 giờ trung thực |
+| :---: | :---: | :---: | :---: |
+| <img src="docs/screenshots/ui-preview/v220_01_lich-trinh-ngay_dark.png" alt="Lịch trình ngày Dark Mode" width="210" /> | <img src="docs/screenshots/ui-preview/v220_03_cong-viec-ai-todo_light.png" alt="AI To-do gợi ý khung trống" width="210" /> | <img src="docs/screenshots/ui-preview/v220_07_wally-noi-bang-nhanh.png" alt="Bảng điều khiển nhanh Wally nổi" width="210" /> | <img src="docs/screenshots/ui-preview/15_thong-ke-24h_light.png" alt="Thống kê 24h trong 7 ngày" width="210" /> |
+| Phân biệt việc đã đo thực tế & kế hoạch dự kiến | Nhập câu tự nhiên, Wally gợi ý giờ trống để duyệt | Theo dõi Đang làm, Sắp làm, To-do ngay ngoài app | Nhìn trọn phân bổ 7 ngày & nhịp học/làm việc |
+
+---
+
+## Một ngày cùng Wally
+
+| 1. Lên kế hoạch nhẹ đầu ngày | 2. Tập trung không đứt mạch | 3. Nhìn lại có chủ đích |
+| :--- | :--- | :--- |
+| Gõ tự nhiên *"Ôn thi hệ thống hôm nay 15h 45p P1"* — Wally tự tách hạn, thời lượng, mức ưu tiên, tìm khoảng trống hợp lệ và chờ bạn bấm **Áp dụng**. | Bắt đầu phiên đo từ tab **Tập trung**, **Widget** hay **Bảng nhanh nổi**. Khi cần nghỉ ngang, bấm **Tạm dừng** để lưu đoạn vừa đo rồi **Tiếp tục** nối phiên bất cứ lúc nào. | Cuối ngày xem 24 giờ đã đi đâu trên **Lịch trình**, kiểm tra tiến độ **Thói quen / Mục tiêu** và đọc tóm tắt từ dữ liệu thực — không áp lực hay phỏng đoán. |
+
+---
+
+## Wally AI làm được gì?
+
+| Hỏi lịch & sắp xếp ngay trên màn hình | Xử lý To-do theo ngữ cảnh thật |
+| :---: | :---: |
+| <img src="docs/screenshots/ui-preview/v220_08_wally-noi-chat.png" alt="Chat nhanh Wally nổi trên màn hình Android" width="240" /> | <img src="docs/screenshots/ui-preview/15b_thong-ke-wally-story_light.png" alt="Wally kể câu chuyện từ dữ liệu 7 ngày" width="240" /> |
+| Chạm bóng Wally nổi để hỏi *"Hôm nay làm gì trước?"*, *"Ghi vừa học 30p"* hay nhắn tự nhiên mà không cần rời app đang dùng. | Wally chỉ ra khối lượng quá tải, việc sắp trễ hạn hoặc khung giờ trống phù hợp dựa trên dữ liệu bạn cho phép đọc. |
+
+**Những tình huống hằng ngày với sinh viên & người đi làm:**
+- *"Tôi có 2 tiếng trống buổi tối và 3 việc To-do, nên làm gì trước?"* → Wally phân tích hạn chót, ưu tiên và đề xuất thứ tự kèm khung giờ đặt vào lịch.
+- *"Ôn tập giải tích 45p, chia nhỏ giúp tôi."* → Gợi ý chia bước nhỏ để bạn tick dần mà không ngại bắt đầu.
+- *"Hôm nay tôi đã dành bao nhiêu giờ cho học tập?"* → Trả lời đúng phần đã ghi nhận thực tế, tách bạch rõ với lịch dự kiến (`PLANNED`).
+
+> **Nguyên tắc vàng:** Wally AI **chỉ đề xuất** — không bao giờ tự thêm, sửa hay xóa dữ liệu của bạn khi chưa được bấm **✓ Xác nhận**. Khi không dùng Cloud AI, các phân tích nhịp độ & cảnh báo trễ hạn vẫn chạy hoàn toàn cục bộ trên máy.
+
+---
+
+## Các chức năng chính
 
 <table>
   <tr>
-    <td width="136" align="center" valign="middle">
-      <img src="docs/brand/wally-hero.webp" alt="Wally — Personal Time Companion" width="116" />
+    <td width="33%" valign="top">
+      <strong>📅 Lịch trình 24 giờ & Thời gian trống</strong><br/>
+      Xem theo Ngày, 3 ngày, Tuần, Tháng; chạm/kéo chọn khoảng trống để lên lịch nhanh hoặc chuyển việc chưa gắn giờ vào đúng khung rảnh.
     </td>
-    <td valign="middle">
-      <p><b>Ai cũng chỉ có 24 giờ mỗi ngày — điều quan trọng không phải là nhồi nhét cho kín lịch, mà là nhìn rõ thời gian thực sự đi đâu để sống chủ động hơn.</b></p>
-      <p><b>Time Wallet (Wally 2.0)</b> kết nối lịch trình, công việc, thói quen, mục tiêu và các phiên tập trung vào một không gian Android bản địa — gọn gàng, chạy mượt khi ngoại tuyến, tôn trọng sự nghỉ ngơi và luôn giữ dữ liệu thuộc toàn quyền sở hữu của bạn.</p>
-      <p><i><b>English summary:</b> Wally 2.0 is a local-first Android productivity &amp; time hub unifying Calendar, Tasks &amp; Subtasks, Habits, Goals, Focus Pin, 24h analytics, and permission-scoped AI assistance — built for clarity without guilt, fake productivity scores, or lock-in.</i></p>
+    <td width="33%" valign="top">
+      <strong>✅ AI To-do, Thói quen & Mục tiêu</strong><br/>
+      Quản lý To-do kèm checklist con, cảnh báo trùng lịch & gần hạn, chuỗi thói quen 7 ngày, Kanban, ma trận Eisenhower và mục tiêu ngày/tuần.
+    </td>
+    <td width="33%" valign="top">
+      <strong>⏱️ Tập trung & Ghim Focus</strong><br/>
+      Đếm xuôi hoặc Pomodoro 25p/45p, hỗ trợ Tạm dừng & Tiếp tục không mất thời gian đã đo, kèm thông báo ghim Focus cố định và xúc xắc gợi ý phiên.
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top">
+      <strong>🧩 Widget màn hình chính</strong><br/>
+      Hỗ trợ nhiều kích thước thẻ bo góc hiển thị Đang làm, Sắp làm, Lịch trình, To-do (tick hoàn thành / bấm đo nhanh) và gợi ý ngắn.
+    </td>
+    <td width="33%" valign="top">
+      <strong>✨ Trợ lý nổi Wally</strong><br/>
+      Mascot nổi gọn nhẹ trên màn hình Android: chạm mở Chat nhanh, nhấn giữ mở Bảng điều khiển nhanh, kéo đặt cạnh viền hoặc tắt bất cứ lúc nào.
+    </td>
+    <td width="33%" valign="top">
+      <strong>🌗 Dark Mode, Cỡ chữ & Sao lưu</strong><br/>
+      Giao diện Sáng / Tối dịu mắt, chọn cỡ chữ 3 mức, tự kiểm tra bản mới qua GitHub, xuất báo cáo Markdown sang Obsidian và sao lưu JSON.
     </td>
   </tr>
 </table>
 
-> **Tuyên ngôn sản phẩm · Product Manifesto**  
-> Không phải phút nào trong ngày cũng phải "tối đa năng suất". Thời gian cho công việc, học tập, giấc ngủ hồi phục hay những khoảnh khắc nghỉ ngơi đều xứng đáng được nhìn nhận trung thực — tách bạch rõ giữa **điều bạn dự kiến làm** và **điều thực sự đã diễn ra**, không bịa giờ cho ghi chú chỉ có thời lượng, và không bao giờ để AI tự ý thay đổi sổ cái khi bạn chưa bấm đồng ý.  
-> *Truthful tracking over fake hustle: plans stay distinct from actuals, rest is respected alongside deep work, your records stay local-first on your device, and Wally only proposes changes — you always decide.*
-
----
-
-## Product Demo
-
-<!-- YOUTUBE_EMBED -->
-
----
-
-## Why Time Wallet? · Vì sao chọn Time Wallet?
-
-| Vấn đề thường gặp ở app truyền thống | Cách Wally `v2.1.2` giải quyết |
-|---|---|
-| Bắt ghi quá nhiều nơi: app lịch riêng, to-do riêng, bấm giờ riêng → ngại mở hoặc nhập trùng | **Một vòng khép kín tự nhiên:** từ *Inbox / Việc cần làm* đẩy lên *Lịch*, bấm `▶` đo ngay kèm checklist *Subtasks*, và tự khớp hoàn thành *Thói quen* nếu đúng Tag & đủ phút. |
-| Gộp chung dự kiến với thực tế, hoặc tự đoán khung giờ cho ghi nhận rời rạc | **Trung thực tuyệt đối với dữ liệu 24h:** tách rõ *Đã đo (`MEASURED`)*, *Có mốc giờ (`REPORTED_TIMED`)*, *Chỉ thời lượng (`Chưa gắn giờ`)* và *Kế hoạch (`PLANNED`)*. |
-| Chấm điểm năng suất gây áp lực khi nghỉ ngơi | **Nhìn rõ không phán xét:** phân 4 tầng *Mục tiêu · Phi mục tiêu · Lãng phí (chỉ khi bạn tự đánh dấu) · Chưa rõ*, tách nghỉ ngơi hợp lý khỏi lãng phí. |
-| Phụ thuộc cloud, đòi nhiều quyền hệ thống, khó biết AI đang đọc gì | **Local-first & Privacy-first:** chỉ xin 4 quyền Android tối thiểu (`INTERNET`, `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`, `REQUEST_INSTALL_PACKAGES` cho cài đặt bản cập nhật có xác thực từ GitHub Releases), bật/tắt chi tiết **4 phạm vi đọc của AI**, khóa API mã hóa AES-GCM trong Android Keystore và không xuất ra sao lưu. |
-
----
-
-## Key Capabilities in `v2.1.2`
-
-- **Lịch trình là trung tâm (`Lịch trình · Ngày / 3 ngày / Tuần / Tháng`):** Thiết kế *Timeline-first* gom thống kê 24h (`1h 30 / 24h ▾`) vào hộp thoại bật nhanh, giữ thanh **`Chưa giờ (N)` & `+` ghim cố định ở hàng điều khiển**, thanh công cụ ngữ cảnh neo nổi đối diện khối/vùng đang chọn & chừa vùng trống vừa khít bên trái bóng Wally (không đẩy/co lưới hay làm trôi header ngoài); cuộn dọc luôn ưu tiên mượt bất kể qua thẻ chưa chọn hay đang chọn, chỉ kích hoạt dời khối khi **nhấn giữ có phản hồi xúc giác** và chỉ hiện tay nắm co dãn ở tâm cạnh trên/dưới (`68.dp`/`48.dp`) khi thẻ được chọn; kiểm tra trùng giờ trực tiếp + chuẩn `21:00–24:00` và bộ lọc/chú giải trong menu `⋮`.
-- **Việc cần làm, Subtasks, Thói quen & Mục tiêu hợp nhất:** Chụp nhanh ý tưởng vào *Inbox*, quản lý *Priority (`P1–P3`)*, mở rộng *Subtasks* ngay trên thẻ, theo dõi chuỗi *Thói quen* 7 ngày (`T2–CN`) tự khớp từ sổ cái (`⚡`), và gộp *Mục tiêu tối thiểu (`MIN`)* cùng *Ngân sách giới hạn (`MAX`)* theo chu kỳ. Bật thêm *Kanban* hoặc *Ma trận Eisenhower* trong Cài đặt nếu cần.
-- **Tập trung thực chiến & Ghim thông báo (`Focus Pin`):** Chuyển đổi nhanh giữa *Đếm xuôi*, *Pomodoro 25p* và *Sâu 45p*; đo từ một *Task* sẽ mang theo mục tiêu phút và checklist *Subtasks* xuống ngay dưới đồng hồ. Bật **Ghim thông báo tập trung (`id = 910301`)** để giữ phiên đang đo, kế hoạch hiện tại hoặc gợi ý theo lịch sử (`tuần trước / hôm qua / 3 ngày gần đây`) ngay trên thanh thông báo kèm nút `Bỏ ghim`.
-- **Trợ lý `✦ Wally` (`Wally Pro / Wally Flash`), Pop-on & Ngữ cảnh thích ứng (Method A):** Mở nhanh từ mọi tab qua **bóng chat Pop-on thu gọn (`48.dp`) kéo thả tự hít mép** hoặc nút `✦ Wally` trên thanh trên cùng (`WallyAiOverlay`). Chọn trực tiếp giữa **`Wally Pro`** (`Claude Sonnet 4.6`, mặc định ưu tiên chất lượng `95.8%`) và **`Wally Flash`** (`Claude Haiku 4.5`, tùy chọn phản hồi nhanh `~2.35s`) với tên model thực tế hiển thị rõ bên dưới (`Auto` tạm khóa chờ đạt ngưỡng router). `AdaptiveContextRouter` & `WallyContextEngine` chỉ đính kèm mục tiêu thiếu hụt, lịch trống và hội thoại nối tiếp trên các câu hỏi tư vấn kế hoạch (tuân thủ nghiêm `AiReadPermissions` và luôn chờ xác nhận trước khi lưu).
-- **Thống kê 3 lớp & Wally kể từ dữ liệu (`Mở rộng › Thống kê`):** Mặc định xem biểu đồ 24h × 7 ngày theo **5 nhóm hoạt động thực tế** (`Ngủ, nghỉ · Công việc · Học tập · Sức khỏe · Giải trí & Khác`) tách bạch với `Chưa ghi nhận` và `Chưa gắn giờ`, kèm chuyển nhanh góc nhìn **4 tầng Mục tiêu** (`Hoạt động | Mục tiêu`), chạm ngày xem chi tiết Tag/hoạt động + `% so với tuần trước`, giải thích tự động khi mục tiêu `0p` do thiếu gắn Tag, và thẻ **Wally kể từ dữ liệu** 4 bước (`Điều gì xảy ra → Đáng chú ý → Ảnh hưởng mục tiêu → Có thể làm tiếp`) có ghi chú thận trọng khi dữ liệu chưa đủ.
-- **Cập nhật ứng dụng qua GitHub Releases & Tùy biến giao diện:** Hỗ trợ kiểm tra bản phát hành mới trực tiếp từ GitHub Releases (kênh phân phối chính khi chưa phát hành Google Play), xác thực 3 lớp (HTTPS origin chính thức + `SHA-256` + chữ ký APK) trước khi mở trình cài đặt mà không làm mất dữ liệu; chuyển nhanh chủ đề *Theo máy / Sáng / Tối*, **Cỡ chữ hiển thị (`Nhỏ / Vừa / To`)**, bật tắt từng module, quy tắc phân loại offline, xuất/nhập **JSON `schemaVersion = 2`** và xuất **Markdown** Obsidian.
-
----
-
-## UI Preview (`v2.0.0` · Light & Dark Mode)
-
-<p align="center">
-  <img src="docs/screenshots/ui-preview/_tong-hop_wally-2.0.jpg" alt="Time Wallet v2.0.0 — Light & Dark 5-Screen Overview" width="960" />
-</p>
-
-<p align="center">
-  <sub><i>Gallery covers 36 screenshots (plus 5-panel overview banner) captured on the isolated <code>WallyQA</code> emulator (Android 9, <code>780×1688 @320dpi</code>) using synthetic QA data: refreshed Day Schedule, 3-Layer Activity/Wally Story Stats &amp; Wally Overlay captures (<code>01</code>, <code>15</code>, <code>15b</code>, <code>24</code>, <code>26</code>, <code>26b</code>, banner) come directly from the latest signed Release APK <code>9CEA64A0C9C1…</code> (<code>v2.0.0</code> · <code>versionCode 18</code>), alongside unchanged screens from prior <code>BEDEE1904C58…</code> / <code>50EBDFFF…</code> baseline checks. Owner personal instance (<code>index 0</code>), live AI eval on <code>v2.0.0</code> / Adaptive Context, Android 13–16 AEHD, cold-boot, and physical device remain untouched / <code>NOT_TESTED</code>.</i></sub>
-</p>
-
 <details>
-<summary>Browse all 36 Light &amp; Dark screen captures (<code>docs/screenshots/ui-preview/</code>)</summary>
+<summary><strong>Xem thêm ảnh chụp màn hình Light / Dark và bộ sưu tập chi tiết v2.2.0</strong></summary>
 
-| Screen / Flow | Capture | Highlights |
-|---|---|---|
-| Day Schedule (Today · Light) | [01_lich-trinh-hom-nay_light.png](docs/screenshots/ui-preview/01_lich-trinh-hom-nay_light.png) | Collapsible 1-line 24h Wallet strip (`22/11`), timeline with sleep/planned blocks, draggable Wally Pop-on bubble |
-| Day Schedule (`18/11` · `Hôm nay` Pill) | [02_lich-trinh-ngay_light.png](docs/screenshots/ui-preview/02_lich-trinh-ngay_light.png) | Clean `Hôm nay` shortcut pill, `UC-15` overnight blocks, Pop-on floating bubble |
-| 3-Day / Week / Month Schedule | [03_lich-trinh-3ngay_light.png](docs/screenshots/ui-preview/03_lich-trinh-3ngay_light.png) · [04_lich-trinh-tuan_light.png](docs/screenshots/ui-preview/04_lich-trinh-tuan_light.png) · [05_lich-trinh-thang_light.png](docs/screenshots/ui-preview/05_lich-trinh-thang_light.png) | Enlarged horizontally-scrollable 3-day & `T2–CN` week grids with pinned hour axis, plus enlarged monthly detail cards |
-| Calendar `⋮` Menu | [06_lich-trinh-menu_light.png](docs/screenshots/ui-preview/06_lich-trinh-menu_light.png) | Secondary controls (`＋ Ghi mới hoạt động`, category filter, 4-state legend) tucked cleanly into `⋮` |
-| Compact Tasks & Habits (Light) | [07_cong-viec_light.png](docs/screenshots/ui-preview/07_cong-viec_light.png) · [08_thoi-quen_light.png](docs/screenshots/ui-preview/08_thoi-quen_light.png) | Unclipped `FlowRow` module/filter pills, 1-line Inbox bar, compact rows (`▶` Focus + `⋯`), daily habits |
-| Unified Goals, Kanban & Eisenhower (Light) | [09_muc-tieu_light.png](docs/screenshots/ui-preview/09_muc-tieu_light.png) · [10_kanban_light.png](docs/screenshots/ui-preview/10_kanban_light.png) · [10b_ma-tran-eisenhower_light.png](docs/screenshots/ui-preview/10b_ma-tran-eisenhower_light.png) | `MIN`/`MAX` unified goals, wide opt-in Kanban columns, and `Q1–Q4` Eisenhower matrix |
-| Focus Timer & Standalone Focus Pin (`id=910301`) | [11_tap-trung_light.png](docs/screenshots/ui-preview/11_tap-trung_light.png) · [12_ghim-focus-cho.png](docs/screenshots/ui-preview/12_ghim-focus-cho.png) · [13_ghim-focus-dang-do.png](docs/screenshots/ui-preview/13_ghim-focus-dang-do.png) | Dual Stopwatch/Pomodoro timer & independent ongoing Focus notification (idle & active) |
-| Offline Quick Capture & Obsidian Export | [14_ghi-nhanh-offline_light.png](docs/screenshots/ui-preview/14_ghi-nhanh-offline_light.png) · [18_xuat-markdown_obsidian.png](docs/screenshots/ui-preview/18_xuat-markdown_obsidian.png) | Accentless duration parsing (`"Doc sach 20 phut"`) & local-only Obsidian Markdown export |
-| 3-Layer 24h Activity Stats, Wally Data Story & Tools (Light) | [15_thong-ke-24h_light.png](docs/screenshots/ui-preview/15_thong-ke-24h_light.png) · [15b_thong-ke-wally-story_light.png](docs/screenshots/ui-preview/15b_thong-ke-wally-story_light.png) · [16_cong-cu_light.png](docs/screenshots/ui-preview/16_cong-cu_light.png) · [17_cai-dat_light.png](docs/screenshots/ui-preview/17_cai-dat_light.png) | Activity/Goal-tier stacked 24h bars, `"Đã ghi nhận: X / 24h"`, Tag & week-over-week breakdown, 4-step `Wally kể từ dữ liệu` + partial-week note, neat Tools hub & Settings |
-| Week Schedule & Empty-Slot Selection (Dark) | [19_lich-trinh-tuan_dark.png](docs/screenshots/ui-preview/19_lich-trinh-tuan_dark.png) · [20_chon-gio-trong_dark.png](docs/screenshots/ui-preview/20_chon-gio-trong_dark.png) | Enlarged dark `T2–CN` columns & high-contrast selected slot action card (`Đã chọn 17:00–18:00`) |
-| Task Subtasks → Live Focus & Task Done Dialog (Dark) | [21_cong-viec-subtasks_dark.png](docs/screenshots/ui-preview/21_cong-viec-subtasks_dark.png) · [22_tap-trung-task_dark.png](docs/screenshots/ui-preview/22_tap-trung-task_dark.png) · [23_da-xong-viec-dialog_dark.png](docs/screenshots/ui-preview/23_da-xong-viec-dialog_dark.png) | Inline subtasks, live Focus session with unclipped TopBar `time wallet. ● 00:02`, and dark AlertDialogs |
-| Wally Pop-on Overlay & Offline Task Privacy Block (Dark) | [24_wally-overlay_dark.png](docs/screenshots/ui-preview/24_wally-overlay_dark.png) · [25_wally-chan-quyen-ai_dark.png](docs/screenshots/ui-preview/25_wally-chan-quyen-ai_dark.png) | Pop-on chat opened via floating bubble with wrapped `FlowRow` prompt pills & deterministic `Xếp Inbox` privacy block |
-| Dark 3-Layer Stats, Wally Story, Settings, Dialogs & Opt-in Views | [26_thong-ke-24h_dark.png](docs/screenshots/ui-preview/26_thong-ke-24h_dark.png) · [26b_thong-ke-wally-story_dark.png](docs/screenshots/ui-preview/26b_thong-ke-wally-story_dark.png) · [27_cai-dat_dark.png](docs/screenshots/ui-preview/27_cai-dat_dark.png) · [28_nhap-json_dark.png](docs/screenshots/ui-preview/28_nhap-json_dark.png) · [29_xac-nhan-gio-dialog_dark.png](docs/screenshots/ui-preview/29_xac-nhan-gio-dialog_dark.png) · [30_thoi-quen_dark.png](docs/screenshots/ui-preview/30_thoi-quen_dark.png) · [31_muc-tieu_dark.png](docs/screenshots/ui-preview/31_muc-tieu_dark.png) · [32_kanban_dark.png](docs/screenshots/ui-preview/32_kanban_dark.png) · [33_ma-tran-eisenhower_dark.png](docs/screenshots/ui-preview/33_ma-tran-eisenhower_dark.png) | Complete Dark Mode token coverage across 3-Layer Statistics & Wally Data Story, Settings, Backup/Reconciliation dialogs, Habits, Goals, Kanban, and Eisenhower |
+<br/>
 
-See capture details in [docs/screenshots/ui-preview/README.md](docs/screenshots/ui-preview/README.md) (baseline `v1.0.11` preserved in [docs/screenshots/ldplayer-android9/README.md](docs/screenshots/ldplayer-android9/README.md)).
+| Tập trung Tạm dừng | Trợ lý nổi + Launcher | AI To-do Dark Mode | Cài đặt Dark Mode |
+| :---: | :---: | :---: | :---: |
+| <img src="docs/screenshots/ui-preview/v220_05_tap-trung-tam-dung_light.png" width="190" /> | <img src="docs/screenshots/ui-preview/v220_06_wally-noi-bong-bong.png" width="190" /> | <img src="docs/screenshots/ui-preview/v220_04_cong-viec-canh-bao_dark.png" width="190" /> | <img src="docs/screenshots/ui-preview/v220_09_cai-dat_dark.png" width="190" /> |
+
+👉 Xem toàn bộ thư viện ảnh và chú thích kiểm chứng chi tiết tại **[docs/screenshots/ui-preview/README.md](docs/screenshots/ui-preview/README.md)**.
 
 </details>
 
 ---
 
-## Verification & Quality Status (`v2.1.2` · `57450152…`)
+## Tải và cài đặt
 
-- **JVM & Contract Tests:** **`665/669` PASS** (`0` failures, `0` errors across `75` files; 4 Live AI suites `V110CoachLiveEvalTest`, `V120LiveAiEvalTest`, `V210HaikuVsSonnetLiveEvalTest`, `V210HybridRoutingEvalTest` skipped offline), including `V210ScheduleInteractionTest` (`5/5`), `V210AutoUpdateTest` (`5/5`), `V210WallyModelModeTest` (`3/3`), `WallyContextEngineTest` (`6/6`), `WallyOriginBindingTest` (`11/11`), `WallySecurityStaticTest` (`5/5`), and `V106UiContractTest`.
-- **Static Analysis & Packaging:** `lintRelease` reports **0 errors** (`64` warnings) and `lintDebug` reports **0 errors** (`74` warnings); Release APK (`9,206,940` bytes, SHA-256 `574501528F513F7AF6EB5210792EA570A614C179954606605391D15D360593E7`) and Debug APK (`13,817,902` bytes, SHA-256 `4604595ACFB49DB5483257C5903FA1DDA4CC3DBBE9B1789C0A9C93DED45754EE`) verified with `apksigner` (`39f5712d…`).
-- **Controlled AI Benchmark (`24×2 = 48` Live Foza Calls):** `Wally Pro` (`cinb/claude-sonnet-4-6`) reached **`23/24` (`95.8%`, `6.78s` avg, `0` safety violations)** vs `Wally Flash` (`hoang/claude-haiku-4.5`) **`19/24` (`79.2%`, `2.35s` avg, `0` safety violations)** vs `Hybrid` **`20/24` (`83.3%`, `p95 = 10.67s`)** — establishing `Pro` as default, `Flash` as user-selectable speed mode, and `Auto` locked pending router quality.
-- **QA Emulator Validation (`WallyQA`):** Prior `v2.0.0` baseline captured `36` Light/Dark gallery screens, and `v2.1.1` verified `Tuần` & `3 ngày` density. On final `v2.1.2` Release APK `57450152…` (`versionCode 21`) installed over `v2.1.1`, synthetic QA confirmed smooth vertical scrolling directly over selected `"Code Lich"` (header `"Lịch trình"` stays pinned cleanly without outer blank bottom gap) and centered pill edge-resize draft (`WallyQA` shut down cleanly afterward). Long-press drag on physical touchscreen, full E2E in-app download/install via GitHub Releases, cold-boot, Android 13–16 AEHD per Rule 14, and Owner physical device remain `NOT_TESTED`.
+1. Tải tệp **`TimeWallet-MVP-v2.2.0-release.apk`** từ trang **[GitHub Releases v2.2.0](https://github.com/caonguyenthanhan/Time_Wallet/releases/tag/v2.2.0)** (`Android 8.0+`).
+2. Mở tệp `.apk` vừa tải và cho phép cài đặt từ trình duyệt / trình quản lý tệp.
+   *(Nếu lần đầu cài APK ngoài Play Store và Android / Play Protect hỏi xác nhận, chọn **"Vẫn cài đặt"** hoặc xem mã `SHA-256` kèm theo trên trang Release để tự đối chiếu.)*
+3. Nếu đã cài các bản Release trước (`v2.0.0` – `v2.1.2`), bạn có thể cài đè trực tiếp hoặc cập nhật ngay bên trong **⚙ Hồ sơ & Cài đặt** mà không mất dữ liệu lịch, To-do hay khóa AI đã lưu.
+
+> **Muốn dùng AI Cloud:** vào **⚙ Hồ sơ & Cài đặt › Cấu hình Wally AI** để nhập API key riêng của bạn (hỗ trợ OpenAI-compatible, Gemini, Claude, Groq, Ollama...). Toàn bộ tính năng Lịch trình, Tập trung, To-do, Widget và Trợ lý nổi vẫn dùng bình thường ngay cả khi ngoại tuyến.
 
 ---
 
-## Technical Architecture & Repository Structure
+## Quyền riêng tư & Tài liệu kỹ thuật
 
-- **Platform:** Android Native · Kotlin (`2.0.21`) · Jetpack Compose M3 · Room SQLite (`v7`, `MIGRATION_1_7`)
-- **Current Release (`Latest`):** Wally `v2.1.2` (`versionCode 21`, scroll-safe timeline & edge-pill polish) · baseline feature handoff [WALLY_V210_CANDIDATE.md](WALLY_V210_CANDIDATE.md) (`v2.1.0`, `versionCode 19`)
-- **Previous Baselines:** [WALLY_V200_CANDIDATE.md](WALLY_V200_CANDIDATE.md) · [WALLY_V120_PRODUCTION_CANDIDATE.md](WALLY_V120_PRODUCTION_CANDIDATE.md)
+- **Dữ liệu ở trên máy:** nhật ký thời gian, To-do, mục tiêu và thói quen lưu hoàn toàn cục bộ trên điện thoại; không tài khoản bắt buộc, không theo dõi người dùng.
+- **Không đọc trộm màn hình:** Trợ lý nổi chỉ hiển thị lớp phủ khi bạn bật; ứng dụng không dùng quyền Trợ năng (`Accessibility`) để đọc nội dung ứng dụng khác.
+- **Kiểm soát quyền đọc cho AI:** bật hoặc tắt từng mảng dữ liệu (Sổ cái, Công việc, Thói quen, Mục tiêu) ngay trong phần Cài đặt.
+- **Minh bạch mã nguồn & xác thực cập nhật:** mỗi bản phát hành đều đính kèm tệp `.sha256` và được ứng dụng kiểm tra chữ ký số trước khi cài đè.
 
 <details>
-<summary>Expand architecture layers, Room v7 schema, and directory tree</summary>
+<summary><strong>Dành cho nhà phát triển & Tài liệu chuyên sâu</strong></summary>
 
-### Layer Map
-
-| Layer | Key Modules | Responsibility |
-|---|---|---|
-| **UI (Compose M3)** | `MainActivity`, `ScheduleCalendarView`, `TasksHabitsScreen`, `TimerScreen`, `ChatScreen`, `InsightsScreen`, `ProfileSettingsScreen`, `AppUpdateDialog`, `OverviewScreen`, `HistoryScreen`, `ManualEntrySheet`, `DailyReviewScreen`, `ComponentsAndDialogs`, `DataManagementDialog`, `ConfirmationAndBreakDialogs`, `UiKit`, `Theme` | 4-tab calendar-first shell, `✦ Wally` pop-on bubble & overlay with `Wally Pro / Flash` selector, Light/Dark tokens + `Nhỏ / Vừa / To` font scaling, inline subtasks, Kanban/Eisenhower opt-in views, 3-layer 24h analytics & in-app GitHub Release update dialog |
-| **State & Coordinators** | `TimeWalletViewModel`, `AppUpdateCoordinator`, `WallyIntelligenceCoordinator`, `Wally20Coordinator`, `WallyChatRunner`, `WallyChatReducer`, `ManualEntryDraftCoordinator` | `TimerTickState` 1s slicing, GitHub release check/download state machine, adaptive context planning/conflict checking & Coach→Chat continuity, permission-aware AI digests & Inbox guards, draft persistence, Focus/Task linking |
-| **Domain (Pure Kotlin)** | `AppUpdateContract`, `AdaptiveContextRouter`, `WallyContextEngine`, `TaskHabitEngine`, `FocusPinPolicy`, `MarkdownSummaryExporter`, `ScheduleGridEngine`, `ManualEntry`, `LedgerValidator`, `LedgerAnalyticsCalculator`, `LedgerQueryEngine`, `ConfirmationEngine`, `ActivityBreakEngine`, `BatchProposalPlanner`, `BudgetPolicy`, `TagRules`, `GoalRules`, `VietnameseChatParser`, `WallyAiGuards`, `CoachDigestBuilder`, `CoachGuard`, `Rx` | Pure JVM business rules: `AppUpdateChannel` + 3-layer GitHub release trust policy, Method A adaptive routing, bounded goal-deficit/free-slot context, 3-layer activity buckets + week-over-week delta + 4-step Wally story, task/habit aggregation, Focus Pin policy, Obsidian Markdown, calendar 15-min math, `UC-15` handling, deterministic AI guards |
-| **Data & System** | `TimeWalletDatabase` (Room v7, `MIGRATION_1_7`), `GitHubAppUpdater`, `TaskHabitEntities`, `LedgerDao`, `BudgetDao`, `DailyReviewDao`, `TagGoalEntities`, `LedgerJsonBackup` (v1 & v2), `TimerAndSettingsStore`, `GeminiProposalClient`, `CompletionReminder` | Atomic SQLite transactions, GitHub REST release/SHA-256 download + APK cert verification + `FileProvider` install launcher, lossless JSON backup (`MERGE_SAFE` / `REPLACE_ALL`), AES-GCM Keystore API vault + `WallyModelPreset`, `AlarmManager`, Focus Pin `NotificationManager` |
-
-### Repository Structure
-
-```text
-Time_Wallet/
-├── .agents/                        # Project rules & QA environment safeguards
-├── Time_Wallet_MVP/                # MVP specification & original HTML prototype
-├── ai_test/                        # Gateway test script (reads FOZA_API_KEY env var)
-├── docs/
-│   ├── archive/                    # Historical dossiers, reviews & QA records (v1.0.5–v1.0.13)
-│   ├── brand/                      # Icon Design System v3 SVG & Wally WebP showcase
-│   └── screenshots/                # v2.0.0 Light/Dark UI previews & v1.0.11 baseline
-├── promo-video/                    # HyperFrames product intro video project
-├── app/
-│   ├── build.gradle.kts            # Kotlin, Compose, Room schema export, external Release signing
-│   ├── schemas/                    # Exported Room DB schemas (v4, v5, v6, v7)
-│   └── src/
-│       ├── main/java/com/timewallet/mvp/
-│       │   ├── MainActivity.kt
-│       │   ├── data/               # AI client, GitHub Updater, Diagnostics, Room DAO/Entities (v7), Backup JSON v2, Settings
-│       │   ├── domain/             # Pure Kotlin models & engines (UpdateContract, Task/Habit, FocusPin, Calendar, Analytics, Guards)
-│       │   ├── notifications/      # Focus Pin & AlarmManager CompletionReminder + CompletionBootReceiver
-│       │   └── ui/                 # TimeWalletViewModel, AppUpdateCoordinator, WallyIntelligenceCoordinator, Screens, Theme, UiKit
-│       └── test/java/com/timewallet/mvp/  # JVM unit & static contract test suites (669 test cases)
-├── WALLY_TECHNICAL_SPEC.md         # Detailed technical spec & Mermaid diagrams
-├── WALLY_V210_CANDIDATE.md         # v2.1.0 Candidate handoff, SHA-256, Benchmark & Product Backlog
-├── WALLY_V200_CANDIDATE.md         # v2.0.0 Release handoff baseline
-├── WALLY_V120_PRODUCTION_CANDIDATE.md  # v1.2.0 historical baseline handoff
-└── CONTEXT_MANIFEST.md
-```
+- **[Kiến trúc, Quyền riêng tư & Kết quả kiểm chứng v2.2.0](docs/ARCHITECTURE_AND_PRIVACY.md)** — Mô tả chi tiết 4 tầng dữ liệu, Room Database, quy chế bảo mật khóa API, kết quả test/lint/QA thiết bị thật và hướng dẫn build Gradle.
+- **[Đặc tả sản phẩm Time Wallet & Wally](SPEC_TIME_WALLET_WALLY.md)** — Triết lý thiết kế và các bất biến nghiệp vụ cốt lõi.
+- **[Thư viện ảnh giao diện ui-preview](docs/screenshots/ui-preview/README.md)** — Toàn bộ ảnh chụp kiểm chứng thực tế qua từng phiên bản.
 
 </details>
-
----
-
-## Build, Test & Documentation
-
-1. **Android Studio:** Open `Time_Wallet`, wait for Gradle sync, and press **Run (`Shift + F10`)**.
-2. **Run JVM unit tests, Android Lint, and build Debug APK:**
-   ```powershell
-   .\gradlew.bat testDebugUnitTest lintRelease assembleDebug
-   ```
-3. **Build personally signed Release APK** *(keystore config stays outside Git at `%USERPROFILE%\.timewallet\keystore.properties` or via `TIMEWALLET_KEYSTORE_*` env vars)*:
-   ```powershell
-   .\gradlew.bat assembleRelease
-   ```
-4. **Documentation:**
-   - [Candidate `v2.1.0` Handoff, Auto-Update, Pro/Flash Benchmark & Backlog](WALLY_V210_CANDIDATE.md)
-   - [Baseline `v2.0.0` Handoff & Acceptance Matrix](WALLY_V200_CANDIDATE.md)
-   - [Historical `v1.2.0` Production Candidate](WALLY_V120_PRODUCTION_CANDIDATE.md)
-   - [Technical Specification](WALLY_TECHNICAL_SPEC.md)
-   - [MVP Specification](Time_Wallet_MVP/Time_Wallet_MVP_Spec.md)
-   - [Owner Device Self-Check Checklist](WALLY_OWNER_CHECKLIST_V110.md)

@@ -1,5 +1,22 @@
 <resources>
     <string name="app_name">Time Wallet</string>
     <string name="app_tagline">THỜI GIAN LÀ TÀI SẢN</string>
+    <string name="wally_widget_name">Wally · Lịch &amp; To-do</string>
+    <string name="wally_widget_desc">Xem nhanh hoạt động đang làm, sắp tới, thời gian trống, To-do và gợi ý Wally ngay trên màn hình chính.</string>
+    <string name="widget_brand_wally">Wally</string>
+    <string name="widget_brand_full">Wally · Trợ lý Thời gian</string>
+    <string name="widget_cd_mascot">Linh vật Wally</string>
+    <string name="widget_cd_chat">Mở trò chuyện Wally</string>
+    <string name="widget_cd_refresh">Làm mới dữ liệu</string>
+    <string name="widget_label_doing">ĐANG LÀM</string>
+    <string name="widget_label_upcoming">Sắp làm</string>
+    <string name="widget_label_schedule">Lịch trình hôm nay</string>
+    <string name="widget_label_todo">To-do hôm nay</string>
+    <string name="widget_todo_add">+ Việc</string>
+    <string name="widget_todo_empty">Chưa có To-do tồn đọng hôm nay</string>
+    <string name="widget_action_chat">Chat</string>
+    <string name="widget_action_stop">⏹ Lưu</string>
+    <string name="widget_action_check">✓</string>
+    <string name="widget_action_start">▶</string>
+    <string name="widget_action_next">▸</string>
 </resources>
-

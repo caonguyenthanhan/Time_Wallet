@@ -9,6 +9,7 @@ import com.timewallet.mvp.domain.usecase.AppUpdateStatus
 import com.timewallet.mvp.domain.usecase.AppUpdateUiState
 import com.timewallet.mvp.domain.usecase.DistributionChannel
 import com.timewallet.mvp.domain.usecase.GitHubReleaseTrustPolicy
+import com.timewallet.mvp.domain.usecase.UpdateCheckInterval
 import com.timewallet.mvp.domain.usecase.UpdateCheckOutcome
 import com.timewallet.mvp.domain.usecase.UpdatePrepareOutcome
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -53,10 +54,17 @@ class AppUpdateCoordinator(
         if (current.channel != DistributionChannel.GITHUB_DIRECT) return
         if (!current.preferences.autoCheckEnabled) return
         val elapsed = nowMs() - current.preferences.lastCheckEpochMs
-        if (current.preferences.lastCheckEpochMs > 0L && elapsed < GitHubReleaseTrustPolicy.AUTO_CHECK_COOLDOWN_MS) {
+        val cooldownMs = GitHubReleaseTrustPolicy.effectiveCooldownMs(current.preferences, current.availableCandidate)
+        if (current.preferences.lastCheckEpochMs > 0L && elapsed < cooldownMs) {
             return
         }
         checkForUpdate(manual = false)
+    }
+
+    fun setCheckInterval(interval: UpdateCheckInterval) {
+        val nextPrefs = state.value.appUpdate.preferences.copy(checkInterval = interval)
+        settingsStore.saveUpdatePreferences(nextPrefs, immediate = false)
+        state.update { it.copy(appUpdate = it.appUpdate.copy(preferences = nextPrefs)) }
     }
 
     fun openDialog() {
@@ -80,7 +88,10 @@ class AppUpdateCoordinator(
     fun skipAvailableCandidate() {
         val cur = state.value.appUpdate
         val codeToSkip = cur.availableCandidate?.embeddedVersionCode ?: (cur.installedVersionCode + 1L)
-        val nextPrefs = cur.preferences.copy(skippedVersionCode = codeToSkip)
+        val nextPrefs = cur.preferences.copy(
+            skippedVersionCode = codeToSkip,
+            promptedVersionCode = maxOf(cur.preferences.promptedVersionCode, codeToSkip)
+        )
         settingsStore.saveUpdatePreferences(nextPrefs, immediate = false)
         state.update {
             it.copy(
@@ -140,20 +151,29 @@ class AppUpdateCoordinator(
                         }
                         return@launch
                     }
+                    val candVerKey = candCode ?: (outcome.candidate.versionName.hashCode().toLong() and 0x7FFFFFFFL).coerceAtLeast(1L)
+                    val shouldAutoPopup = !manual && candVerKey > checkedPrefs.promptedVersionCode && candVerKey > skippedCode
+                    val finalPrefs = if (shouldAutoPopup) {
+                        checkedPrefs.copy(promptedVersionCode = candVerKey).also {
+                            settingsStore.saveUpdatePreferences(it, immediate = false)
+                        }
+                    } else {
+                        checkedPrefs
+                    }
                     state.update {
                         it.copy(
                             appUpdate = it.appUpdate.copy(
-                                preferences = checkedPrefs,
+                                preferences = finalPrefs,
                                 availableCandidate = outcome.candidate,
                                 verification = null,
                                 status = AppUpdateStatus.AVAILABLE,
                                 statusMessageVi = null,
                                 securityRejected = false,
-                                showDialog = if (manual) true else it.appUpdate.showDialog
+                                showDialog = if (manual || shouldAutoPopup) true else it.appUpdate.showDialog
                             )
                         )
                     }
-                    if (!manual && !before.showDialog) {
+                    if (!manual && !shouldAutoPopup && !before.showDialog && before.availableCandidate?.tagName != outcome.candidate.tagName) {
                         toast("Có bản cập nhật ${outcome.candidate.tagName} trong Cài đặt.")
                     }
                 }

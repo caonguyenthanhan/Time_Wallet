@@ -62,6 +62,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.timewallet.mvp.domain.model.ActiveTimerSession
+import com.timewallet.mvp.domain.model.PausedTimerContinuation
 import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.usecase.CognitiveState
 import com.timewallet.mvp.domain.usecase.DiceActionKind
@@ -72,6 +73,7 @@ import com.timewallet.mvp.domain.model.Tag
 import com.timewallet.mvp.domain.model.TaskItem
 import com.timewallet.mvp.domain.usecase.FocusPinPolicy
 import com.timewallet.mvp.domain.usecase.FocusPinState
+import com.timewallet.mvp.domain.usecase.TimeRange
 import com.timewallet.mvp.ui.theme.WalletBg
 import com.timewallet.mvp.ui.theme.WalletCardBg
 import com.timewallet.mvp.ui.theme.WalletDangerSolid
@@ -110,6 +112,10 @@ fun TimerScreen(
     onStartTimer: () -> Unit,
     onStopAndSaveTimer: () -> Unit,
     onCancelTimer: () -> Unit,
+    pausedTimer: PausedTimerContinuation? = null,
+    onPauseTimer: () -> Unit = {},
+    onResumePausedTimer: () -> Unit = {},
+    onDiscardPausedTimer: () -> Unit = {},
     // v1.1.0: Tag cá nhân cho phiên đo (gợi ý gần đây/thường dùng; bấm lại để bỏ chọn).
     tagSuggestions: List<com.timewallet.mvp.domain.model.Tag> = emptyList(),
     selectedTagId: String? = null,
@@ -404,6 +410,51 @@ fun TimerScreen(
         }
 
         if (!isRunning) {
+            if (pausedTimer != null) {
+                val savedLabel = if (pausedTimer.accumulatedSeconds >= 60L) {
+                    "Đã lưu ${TimeRange.formatDuration(((pausedTimer.accumulatedSeconds + 30L) / 60L).toInt().coerceAtLeast(1))}"
+                } else {
+                    "Đã tạm dừng"
+                }
+                SoftCard(padding = 12.dp) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = "⏸ Tạm dừng · ${pausedTimer.title}",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = WalletInk
+                            )
+                            Text(
+                                text = "$savedLabel · bấm Tiếp tục để nối phiên mới không đứt đoạn",
+                                fontSize = 11.5.sp,
+                                color = WalletMuted
+                            )
+                        }
+                        WalletPill(
+                            onClickLabel = "Tiếp tục đo ${pausedTimer.title}",
+                            containerColor = WalletMintDark,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
+                            onClick = onResumePausedTimer
+                        ) {
+                            Text("▶ Tiếp tục", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                        WalletPill(
+                            onClickLabel = "Đóng thẻ tạm dừng",
+                            containerColor = WalletCardBg,
+                            borderColor = WalletStroke,
+                            contentPadding = PaddingValues(horizontal = 9.dp, vertical = 7.dp),
+                            onClick = onDiscardPausedTimer
+                        ) {
+                            Text("✕", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = WalletMuted)
+                        }
+                    }
+                }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -438,25 +489,42 @@ fun TimerScreen(
         } else {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 DangerOutlineButton(
-                    text = "Hủy phiên",
+                    text = "Hủy",
                     modifier = Modifier
-                        .weight(0.9f)
+                        .weight(0.7f)
                         .heightIn(min = 54.dp),
                     onClick = onCancelTimer
                 )
+                OutlinedButton(
+                    onClick = onPauseTimer,
+                    modifier = Modifier
+                        .weight(0.95f)
+                        .heightIn(min = 54.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    border = BorderStroke(1.2.dp, WalletMintAccent),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 14.dp)
+                ) {
+                    Text(
+                        text = "⏸ Tạm dừng",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = WalletMintAccent,
+                        maxLines = 1
+                    )
+                }
                 Button(
                     onClick = onStopAndSaveTimer,
                     modifier = Modifier
-                        .weight(1.4f)
+                        .weight(1.2f)
                         .heightIn(min = 54.dp),
                     shape = RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
-                    contentPadding = PaddingValues(vertical = 14.dp)
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 14.dp)
                 ) {
-                    Text(text = "■ Kết thúc & lưu", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(text = "■ Lưu", fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
                 }
             }
         }

@@ -41,6 +41,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -49,6 +50,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -1191,31 +1193,54 @@ private fun SelectedSlotsActionBar(
     onCreate: () -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(12.dp),
         color = WalletCardBg.copy(alpha = 0.97f),
         border = BorderStroke(1.5.dp, WalletMint),
-        shadowElevation = 6.dp,
+        shadowElevation = 5.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            val cleanSummary = summaryText.removePrefix("1 sự kiện · ")
-            Text(
-                text = if (slotCount <= 1) cleanSummary else "($slotCount) $cleanSummary",
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = WalletInk,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            ActionChipButton(label = "Hủy", bg = WalletSoftNeutral, fg = WalletInk, onClick = onClear)
-            ActionChipButton(label = "+ Thêm", bg = WalletMint, fg = Color.White, onClick = onCreate)
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 34.dp) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                val cleanSummary = summaryText.removePrefix("1 sự kiện · ")
+                Text(
+                    text = if (slotCount <= 1) cleanSummary else "($slotCount) $cleanSummary",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = WalletInk,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(WalletSoftNeutral)
+                        .border(1.dp, WalletStroke.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                        .semantics { contentDescription = "Bỏ chọn khung giờ" }
+                        .walletClickable(onClickLabel = "Bỏ chọn khung giờ", onClick = onClear),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("✕", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = WalletMuted)
+                }
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(WalletMint)
+                        .semantics { contentDescription = "Thêm hoạt động vào khung giờ" }
+                        .walletClickable(onClickLabel = "Thêm hoạt động vào khung giờ", onClick = onCreate),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("+", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                }
+            }
         }
     }
 }
@@ -1231,69 +1256,66 @@ private fun SelectedBlockActionBar(
     onDismiss: () -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(12.dp),
         color = WalletCardBg.copy(alpha = 0.97f),
         border = BorderStroke(1.5.dp, WalletMint),
-        shadowElevation = 6.dp,
+        shadowElevation = 5.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(5.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 34.dp) {
+            Column(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                Text(
-                    text = "${block.title} · ${ScheduleGridEngine.formatHmWindow(block.startMinute, block.endMinute)}",
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = WalletInk,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                Box(
-                    modifier = Modifier
-                        .semantics { contentDescription = "Bỏ chọn hoạt động" }
-                        .walletClickable(onClickLabel = "Bỏ chọn hoạt động", onClick = onDismiss),
-                    contentAlignment = Alignment.Center
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
+                    Text(
+                        text = "${block.title} · ${ScheduleGridEngine.formatHmWindow(block.startMinute, block.endMinute)}",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = WalletInk,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
                     Box(
                         modifier = Modifier
+                            .size(28.dp)
                             .clip(RoundedCornerShape(7.dp))
                             .background(WalletSoftNeutral)
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                            .semantics { contentDescription = "Bỏ chọn hoạt động" }
+                            .walletClickable(onClickLabel = "Bỏ chọn hoạt động", onClick = onDismiss),
                         contentAlignment = Alignment.Center
                     ) {
                         Text("✕", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = WalletMuted)
                     }
                 }
-            }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                ActionChipButton(
-                    label = if (block.isActiveTimer) "Đồng hồ" else "Sửa",
-                    bg = WalletMintTint,
-                    fg = WalletMintDark,
-                    onClick = onEdit
-                )
-                if (block.canDragMoveOrResize && !block.crossesMidnightFromPrev && !block.crossesMidnightToNext) {
-                    ActionChipButton(label = "▲ Sớm 15p", bg = WalletSoftNeutral, fg = WalletInk, onClick = onNudgeEarlier)
-                    ActionChipButton(label = "▼ Muộn 15p", bg = WalletSoftNeutral, fg = WalletInk, onClick = onNudgeLater)
-                }
-                if (onConfirm != null) {
-                    ActionChipButton(label = "✓ Xác nhận", bg = UnconfirmedAmber, fg = Color.White, onClick = onConfirm)
-                }
-                if (onDelete != null) {
-                    ActionChipButton(label = "Xóa", bg = WalletDangerBg, fg = WalletDangerText, onClick = onDelete)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ActionChipButton(
+                        label = if (block.isActiveTimer) "Đồng hồ" else "Sửa",
+                        bg = WalletMintTint,
+                        fg = WalletMintAccent,
+                        onClick = onEdit
+                    )
+                    if (block.canDragMoveOrResize && !block.crossesMidnightFromPrev && !block.crossesMidnightToNext) {
+                        ActionChipButton(label = "−15p", bg = WalletSoftNeutral, fg = WalletInk, onClick = onNudgeEarlier)
+                        ActionChipButton(label = "+15p", bg = WalletSoftNeutral, fg = WalletInk, onClick = onNudgeLater)
+                    }
+                    if (onConfirm != null) {
+                        ActionChipButton(label = "✓ Xác nhận", bg = UnconfirmedAmber, fg = Color.White, onClick = onConfirm)
+                    }
+                    if (onDelete != null) {
+                        ActionChipButton(label = "Xóa", bg = WalletDangerBg, fg = WalletDangerText, onClick = onDelete)
+                    }
                 }
             }
         }
@@ -1313,55 +1335,57 @@ private fun DraftTransformActionBar(
     val bgColor = if (hasConflict) WalletWarningBg else WalletCardBg
 
     Surface(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(12.dp),
         color = bgColor.copy(alpha = 0.98f),
         border = BorderStroke(1.5.dp, borderColor),
-        shadowElevation = 6.dp,
+        shadowElevation = 5.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 34.dp) {
+            Column(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                Text(
-                    text = "${draft.original.title}: ${TimeRange.formatHm(draft.original.startMinute)}–${ScheduleGridEngine.formatHmEnd(draft.original.endMinute)} → ${ScheduleGridEngine.formatHmWindow(draft.draftStartMin, draft.draftEndMin)}",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = if (hasConflict) WalletWarningText else WalletMintDark,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            if (hasConflict) {
-                Text(
-                    text = "⚠ ${conflicts.summaryVi()}",
-                    fontSize = 10.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = WalletWarningText,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                ActionChipButton(label = "Sửa", bg = WalletSoftNeutral, fg = WalletInk, onClick = onEditDetails)
-                Spacer(modifier = Modifier.weight(1f))
-                ActionChipButton(label = "Hủy", bg = WalletSoftNeutral, fg = WalletDangerText, onClick = onCancel)
-                ActionChipButton(
-                    label = if (conflicts.hardConflicts.isNotEmpty()) "Xử lý trùng…" else "✓ Lưu",
-                    bg = if (hasConflict) UnconfirmedAmber else WalletMint,
-                    fg = Color.White,
-                    onClick = onCommit
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Text(
+                        text = "${draft.original.title}: ${TimeRange.formatHm(draft.original.startMinute)}–${ScheduleGridEngine.formatHmEnd(draft.original.endMinute)} → ${ScheduleGridEngine.formatHmWindow(draft.draftStartMin, draft.draftEndMin)}",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = if (hasConflict) WalletWarningText else WalletMintAccent,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (hasConflict) {
+                    Text(
+                        text = "⚠ ${conflicts.summaryVi()}",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = WalletWarningText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ActionChipButton(label = "Sửa", bg = WalletSoftNeutral, fg = WalletInk, onClick = onEditDetails)
+                    Spacer(modifier = Modifier.weight(1f))
+                    ActionChipButton(label = "Hủy", bg = WalletSoftNeutral, fg = WalletDangerText, onClick = onCancel)
+                    ActionChipButton(
+                        label = if (conflicts.hardConflicts.isNotEmpty()) "Trùng…" else "✓ Lưu",
+                        bg = if (hasConflict) UnconfirmedAmber else WalletMint,
+                        fg = Color.White,
+                        onClick = onCommit
+                    )
+                }
             }
         }
     }
@@ -1380,48 +1404,50 @@ private fun UntimedPlacementActionBar(
     val hasRange = targetDateLocal != null && startMinute != null && endMinute != null
     val hasConflict = conflicts?.hasBlockingOrWarningConflict == true
     Surface(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(12.dp),
         color = (if (hasConflict) WalletWarningBg else WalletInfoBg).copy(alpha = 0.98f),
         border = BorderStroke(1.5.dp, if (hasConflict) UnconfirmedAmber else PlannedAccentBlue),
-        shadowElevation = 6.dp,
+        shadowElevation = 5.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 9.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Text(
-                    text = "Đặt \"${record.title}\" (${TimeRange.formatDuration(record.durationMinutes)})",
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = WalletInk,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = when {
-                        !hasRange -> "Chạm ô giờ trống để chọn vị trí đặt."
-                        hasConflict -> "⚠ ${conflicts!!.summaryVi()} (${ScheduleGridEngine.formatHmWindow(startMinute!!, endMinute!!)})"
-                        else -> "$targetDateLocal · ${ScheduleGridEngine.formatHmWindow(startMinute!!, endMinute!!)}"
-                    },
-                    fontSize = 10.5.sp,
-                    color = if (hasConflict) WalletWarningText else WalletInfoText,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            ActionChipButton(label = "Hủy", bg = WalletCardBg, fg = WalletInk, onClick = onCancel)
-            if (hasRange) {
-                ActionChipButton(
-                    label = if (hasConflict) "Đối soát…" else "✓ Đặt",
-                    bg = if (hasConflict) UnconfirmedAmber else WalletMint,
-                    fg = Color.White,
-                    onClick = onConfirmPlace
-                )
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 34.dp) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    Text(
+                        text = "Đặt \"${record.title}\" (${TimeRange.formatDuration(record.durationMinutes)})",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = WalletInk,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = when {
+                            !hasRange -> "Chạm ô giờ trống để đặt vị trí."
+                            hasConflict -> "⚠ ${conflicts!!.summaryVi()} (${ScheduleGridEngine.formatHmWindow(startMinute!!, endMinute!!)})"
+                            else -> "$targetDateLocal · ${ScheduleGridEngine.formatHmWindow(startMinute!!, endMinute!!)}"
+                        },
+                        fontSize = 10.5.sp,
+                        color = if (hasConflict) WalletWarningText else WalletInfoText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                ActionChipButton(label = "Hủy", bg = WalletCardBg, fg = WalletInk, onClick = onCancel)
+                if (hasRange) {
+                    ActionChipButton(
+                        label = if (hasConflict) "Trùng…" else "✓ Đặt",
+                        bg = if (hasConflict) UnconfirmedAmber else WalletMint,
+                        fg = Color.White,
+                        onClick = onConfirmPlace
+                    )
+                }
             }
         }
     }
@@ -1435,26 +1461,22 @@ private fun ActionChipButton(
     onClick: () -> Unit
 ) {
     Box(
-        modifier = Modifier.walletClickable(onClickLabel = label, onClick = onClick),
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(bg)
+            .border(1.dp, WalletStroke.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+            .walletClickable(onClickLabel = label, onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(bg)
-                .border(1.dp, WalletStroke.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                .padding(horizontal = 9.dp, vertical = 5.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = label,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = fg,
-                maxLines = 1,
-                softWrap = false
-            )
-        }
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = fg,
+            maxLines = 1,
+            softWrap = false
+        )
     }
 }
 
@@ -1706,7 +1728,7 @@ private fun DayTimelineGrid(
                                         contentAlignment = Alignment.CenterStart
                                     ) {
                                         Text(
-                                            text = "Trống ${TimeRange.formatHm(visStart)}–${TimeRange.formatHm(visEnd)} · chạm hoặc nhấn giữ kéo chọn",
+                                            text = "Trống ${TimeRange.formatHm(visStart)}–${TimeRange.formatHm(visEnd)}",
                                             fontSize = 10.5.sp,
                                             color = WalletMuted.copy(alpha = 0.72f),
                                             maxLines = 1,
@@ -1737,7 +1759,7 @@ private fun DayTimelineGrid(
                             text = "Chọn: ${ScheduleGridEngine.formatHmWindow(sMin, eMin)}",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = WalletMintDark
+                            color = WalletMintAccent
                         )
                     }
                 }
@@ -1761,45 +1783,20 @@ private fun DayTimelineGrid(
                             .background(WalletMintSoft)
                             .border(1.8.dp, WalletMint, RoundedCornerShape(10.dp))
                     ) {
-                        Row(
+                        Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(horizontal = 10.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            contentAlignment = Alignment.CenterStart
                         ) {
                             Text(
                                 text = ScheduleGridEngine.formatHmWindow(group.startMinute, group.endMinute),
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.ExtraBold,
-                                color = WalletMintDark,
+                                color = WalletMintAccent,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
+                                overflow = TextOverflow.Ellipsis
                             )
-                            Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(WalletCardBg)
-                                        .border(1.dp, WalletStroke, RoundedCornerShape(8.dp))
-                                        .walletClickable(onClickLabel = "Bỏ chọn khung giờ") { onClearSelection() }
-                                        .padding(horizontal = 7.dp, vertical = 4.dp)
-                                ) {
-                                    Text("✕", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = WalletMuted)
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(WalletMint)
-                                        .walletClickable(onClickLabel = "Thêm hoạt động vào khung giờ này") {
-                                            onQuickAddSelectedGroup(group)
-                                        }
-                                        .padding(horizontal = 9.dp, vertical = 4.dp)
-                                ) {
-                                    Text("+ Thêm", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
-                                }
-                            }
                         }
                         // Tay nắm mép trên/dưới cho vùng chọn khoảng trống (tự cuộn khi kéo sát mép)
                         ResizeEdgeHandle(

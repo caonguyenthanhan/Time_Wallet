@@ -1840,10 +1840,30 @@ internal fun WallyModelModeSelector(
     showAutoFutureHint: Boolean = false
 ) {
     val activePreset = WallyModelPreset.fromModelName(currentModelName)
+    val customModelId = currentModelName.trim().ifEmpty { com.timewallet.mvp.data.local.AiPreferences.DEFAULT_AI_MODEL }
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp)
     ) {
+        if (activePreset == null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(WalletMintSoft)
+                    .border(1.dp, WalletMint, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
+            ) {
+                Text(
+                    text = "Model đang dùng: $customModelId",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = WalletMintAccent,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1884,7 +1904,7 @@ internal fun WallyModelModeSelector(
                                 text = preset.displayTitle,
                                 fontSize = if (compact) 12.sp else 12.5.sp,
                                 fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
-                                color = if (isSelected) WalletMintDark else WalletInk,
+                                color = if (isSelected) WalletMintAccent else WalletInk,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )

@@ -39,6 +39,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -54,6 +55,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -78,6 +80,7 @@ import com.timewallet.mvp.data.diagnostics.CrashRecorder
 import com.timewallet.mvp.data.diagnostics.CrashReportInfo
 import com.timewallet.mvp.R
 import com.timewallet.mvp.data.local.AiPreferences
+import com.timewallet.mvp.data.local.AiProviderPreset
 import com.timewallet.mvp.data.local.BackupRestoreMode
 import com.timewallet.mvp.domain.model.BudgetPeriod
 import com.timewallet.mvp.domain.model.CategoryTimeBudget
@@ -138,7 +141,8 @@ fun TimeWalletTopBar(
     onOpenProfileSettings: (() -> Unit)? = null,
     onOpenWallyOverlay: (() -> Unit)? = null,
     onOpenQuickCapture: (() -> Unit)? = null,
-    wallyHasDrafts: Boolean = false
+    wallyHasDrafts: Boolean = false,
+    hasUpdateBadge: Boolean = false
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
@@ -283,11 +287,12 @@ fun TimeWalletTopBar(
                 if (onOpenProfileSettings != null) {
                     TopBarCircleButton(
                         glyph = WalletGlyph.SETTINGS,
-                        contentDescription = "Hồ sơ và cài đặt",
+                        contentDescription = if (hasUpdateBadge) "Hồ sơ và cài đặt (Có bản cập nhật mới)" else "Hồ sơ và cài đặt",
+                        showBadge = hasUpdateBadge,
                         onClick = onOpenProfileSettings
                     )
                 } else {
-                    TopBarCircleButton(glyph = WalletGlyph.MORE, contentDescription = "Menu", onClick = { menuOpen = true })
+                    TopBarCircleButton(glyph = WalletGlyph.MORE, contentDescription = "Menu", showBadge = hasUpdateBadge, onClick = { menuOpen = true })
                     DropdownMenu(
                         expanded = menuOpen,
                         onDismissRequest = { menuOpen = false },
@@ -317,20 +322,36 @@ fun TimeWalletTopBar(
 private fun TopBarCircleButton(
     glyph: WalletGlyph,
     contentDescription: String,
+    showBadge: Boolean = false,
     onClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
             .minimumInteractiveComponentSize()
-            .size(36.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(WalletCardBg)
-            .border(1.dp, WalletStroke, RoundedCornerShape(12.dp))
             .semantics { this.contentDescription = contentDescription; role = Role.Button }
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        GlyphIcon(glyph = glyph, color = WalletInk, size = 20.dp)
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(WalletCardBg)
+                .border(1.dp, WalletStroke, RoundedCornerShape(12.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            GlyphIcon(glyph = glyph, color = WalletInk, size = 20.dp)
+        }
+        if (showBadge) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(10.dp)
+                    .clip(CircleShape)
+                    .background(WalletDangerSolid)
+                    .border(1.5.dp, WalletBg, CircleShape)
+            )
+        }
     }
 }
 
@@ -1469,6 +1490,7 @@ fun ImportJsonDialog(
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AiSettingsDialog(
     initialPreferences: AiPreferences,
@@ -1477,7 +1499,10 @@ fun AiSettingsDialog(
     connectionTestMessage: String? = null,
     connectionTesting: Boolean = false,
     diagnosticsText: String = "",
-    onTestConnection: (baseUrl: String, apiKey: String, modelName: String) -> Unit = { _, _, _ -> }
+    onTestConnection: (baseUrl: String, apiKey: String, modelName: String) -> Unit = { _, _, _ -> },
+    availableModels: List<String> = emptyList(),
+    modelsLoading: Boolean = false,
+    onFetchModels: (baseUrl: String, apiKey: String) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     var optIn by remember { mutableStateOf(initialPreferences.optInEnabled) }
@@ -1490,6 +1515,12 @@ fun AiSettingsDialog(
     }
     val currentValidatedHost = remember(baseUrl) {
         AiPreferences.extractValidatedHttpsHost(baseUrl)
+    }
+    val activeProvider = remember(baseUrl) {
+        AiProviderPreset.detectFromBaseUrl(baseUrl)
+    }
+    val modelChoices = remember(availableModels, activeProvider) {
+        (availableModels + activeProvider.suggestedModels).distinct()
     }
     // v1.0.12 (P1-AI): báo NGAY trong hộp thoại (thông báo dạng toast nằm sau hộp thoại nên người dùng không thấy) và không cho lưu/kiểm tra khóa hỏng.
     val keyProblem = remember(apiKey) { ApiKeyHygiene.check(ApiKeyHygiene.normalize(apiKey)) }
@@ -1514,23 +1545,21 @@ fun AiSettingsDialog(
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(9.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(9.dp))
                         .background(WalletMicroBg)
-                        .padding(9.dp)
+                        .padding(horizontal = 9.dp, vertical = 7.dp)
                 ) {
-                    val hostDisplay = currentValidatedHost ?: "URL chưa hợp lệ (bắt buộc https://)"
+                    val hostDisplay = currentValidatedHost ?: "URL cần https://"
                     Text(
-                        text = "• Wally dùng AI trên máy chủ để hiểu và trả lời. Khi chưa có khóa hoặc đang tắt, Wally không phân tích thay; bạn vẫn dùng Ghi thủ công, Đồng hồ, Nhật ký, Ngân sách và Tổng quan bình thường (offline).\n" +
-                            "• Khi bật: mỗi câu bạn nhập ở tab Wally kèm ngày, giờ hiện tại và múi giờ được gửi tới $hostDisplay (/v1/chat/completions). Số liệu thống kê được tính trên máy bạn, không gửi sổ cái lên máy chủ.\n" +
-                            "• Bảo mật: Bắt buộc HTTPS. Khóa API do bạn nhập, được mã hóa AES-GCM trong Android Keystore, gắn với host đích ($hostDisplay), không nằm trong ứng dụng hay bản sao lưu.",
-                        fontSize = 10.sp,
+                        text = "HTTPS · Key mã hóa AES-GCM gắn theo host ($hostDisplay) · Không gửi sổ cái.",
+                        fontSize = 10.5.sp,
                         color = WalletMicroText,
-                        lineHeight = 14.5.sp
+                        lineHeight = 14.sp
                     )
                 }
 
@@ -1541,7 +1570,7 @@ fun AiSettingsDialog(
                 ) {
                     Text(
                         text = if (currentValidatedHost != null) {
-                            "Gửi câu Chat tới $currentValidatedHost (Opt-in)"
+                            "Bật AI qua $currentValidatedHost"
                         } else {
                             "Bật AI API (Opt-in)"
                         },
@@ -1551,6 +1580,55 @@ fun AiSettingsDialog(
                         modifier = Modifier.weight(1f)
                     )
                     Switch(checked = optIn, onCheckedChange = { optIn = it })
+                }
+
+                Text("Nhà cung cấp", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = WalletMuted)
+                CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 34.dp) {
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        AiProviderPreset.entries.forEach { preset ->
+                            val isSel = activeProvider == preset
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(100.dp))
+                                    .background(if (isSel) WalletMintDark else WalletSoftNeutral)
+                                    .border(
+                                        1.dp,
+                                        if (isSel) WalletMintDark else WalletStroke,
+                                        RoundedCornerShape(100.dp)
+                                    )
+                                    .semantics { selected = isSel }
+                                    .walletClickable(
+                                        onClickLabel = "Chọn nhà cung cấp ${preset.labelVi}",
+                                        role = Role.RadioButton
+                                    ) {
+                                        if (preset != AiProviderPreset.CUSTOM && preset.baseUrl.isNotEmpty()) {
+                                            val nextHost = AiPreferences.extractValidatedHttpsHost(preset.baseUrl)
+                                            if (nextHost != null && !nextHost.equals(initialHost, ignoreCase = true) && apiKey == initialPreferences.apiKey) {
+                                                apiKey = ""
+                                            }
+                                            baseUrl = preset.baseUrl
+                                            if (preset.suggestedModels.isNotEmpty() && modelName.trim() !in preset.suggestedModels) {
+                                                modelName = preset.suggestedModels.first()
+                                            }
+                                        }
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = preset.labelVi,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSel) Color.White else WalletInk,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
                 }
 
                 OutlinedTextField(
@@ -1563,8 +1641,8 @@ fun AiSettingsDialog(
                         }
                         baseUrl = nextUrl
                     },
-                    label = { Text("Base URL (Bắt buộc https://)") },
-                    placeholder = { Text("https://api.foza.ai/v1") },
+                    label = { Text("Base URL (OpenAI-compatible https://)") },
+                    placeholder = { Text("https://api.openai.com/v1") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1605,30 +1683,78 @@ fun AiSettingsDialog(
                     value = modelName,
                     onValueChange = { modelName = it },
                     label = { Text("Tên model (ID gửi API)") },
-                    placeholder = { Text(AiPreferences.DEFAULT_AI_MODEL) },
+                    placeholder = { Text(activeProvider.suggestedModels.firstOrNull() ?: AiPreferences.DEFAULT_AI_MODEL) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                WallyModelModeSelector(
-                    currentModelName = modelName,
-                    onSelectPreset = { modelName = it.modelId },
-                    compact = false,
-                    showAutoFutureHint = true
-                )
+                if (modelChoices.isNotEmpty()) {
+                    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 34.dp) {
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            verticalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            modelChoices.take(12).forEach { id ->
+                                val isSel = modelName.trim().equals(id, ignoreCase = true)
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isSel) WalletMintSoft else WalletSoftNeutral)
+                                        .border(1.dp, if (isSel) WalletMint else WalletStroke, RoundedCornerShape(8.dp))
+                                        .semantics { selected = isSel }
+                                        .walletClickable(
+                                            onClickLabel = "Chọn model $id",
+                                            role = Role.RadioButton
+                                        ) { modelName = id }
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = id,
+                                        fontSize = 10.sp,
+                                        fontWeight = if (isSel) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                        color = if (isSel) WalletMintAccent else WalletInk,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                if (activeProvider == AiProviderPreset.FOZA) {
+                    WallyModelModeSelector(
+                        currentModelName = modelName,
+                        onSelectPreset = { modelName = it.modelId },
+                        compact = false,
+                        showAutoFutureHint = true
+                    )
+                }
 
                 // WALLY: kiểm tra kết nối bằng payload tổng hợp "ping"; không gửi nhật ký của bạn.
-                OutlinedButton(
-                    onClick = { onTestConnection(baseUrl, apiKey, modelName) },
-                    enabled = !connectionTesting && currentValidatedHost != null && apiKey.isNotBlank() && keyProblem == null,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(if (connectionTesting) "Đang kiểm tra…" else "Kiểm tra kết nối", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    OutlinedButton(
+                        onClick = { onFetchModels(baseUrl, apiKey) },
+                        enabled = !modelsLoading && !connectionTesting && currentValidatedHost != null && apiKey.isNotBlank() && keyProblem == null,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                    ) {
+                        Text(if (modelsLoading) "Đang tải…" else "Tải model", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    }
+                    OutlinedButton(
+                        onClick = { onTestConnection(baseUrl, apiKey, modelName) },
+                        enabled = !connectionTesting && !modelsLoading && currentValidatedHost != null && apiKey.isNotBlank() && keyProblem == null,
+                        modifier = Modifier.weight(1.25f).heightIn(min = 48.dp)
+                    ) {
+                        Text(if (connectionTesting) "Đang kiểm tra…" else "Kiểm tra kết nối", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    }
                 }
                 if (!connectionTestMessage.isNullOrBlank()) {
                     Text(text = connectionTestMessage, fontSize = 11.sp, color = WalletInk, lineHeight = 15.sp)
                     if (connectionTestMessage.startsWith("✗") && (connectionTestMessage.contains("503") || connectionTestMessage.contains("5xx") || connectionTestMessage.contains("403") || connectionTestMessage.contains("404"))) {
                         Text(
-                            text = "Gợi ý: Nếu tuyến đang chọn lỗi 503/403 hoặc 404, hãy chạm chọn Wally Pro (${AiPreferences.DEFAULT_AI_MODEL}) ở trên rồi Kiểm tra kết nối lại.",
+                            text = "Gợi ý: Kiểm tra lại Base URL, bấm Tải model hoặc đổi sang model khác rồi Kiểm tra lại.",
                             fontSize = 10.sp,
                             color = WalletWarningText,
                             lineHeight = 14.sp
@@ -1706,7 +1832,7 @@ fun ProductInfoDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = "\"Thời gian là tài sản hữu hạn và không thể tích lũy. Quản lý thời gian để hiểu và chủ động phân bổ, không để phán xét nghỉ ngơi hay tối đa hóa thời gian làm việc.\"",
+                    text = "Trợ lý thời gian cá nhân giúp sinh viên và người đi làm học tập, làm việc có chủ đích hơn — hiểu đúng 24 giờ để chủ động phân bổ mà không phán xét nghỉ ngơi.",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium,
                     color = WalletMicroText,

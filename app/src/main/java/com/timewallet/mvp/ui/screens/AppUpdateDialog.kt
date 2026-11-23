@@ -1,12 +1,18 @@
 package com.timewallet.mvp.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -15,6 +21,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -22,15 +29,27 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.timewallet.mvp.domain.usecase.AppUpdateStatus
 import com.timewallet.mvp.domain.usecase.AppUpdateUiState
 import com.timewallet.mvp.domain.usecase.DistributionChannel
+import com.timewallet.mvp.domain.usecase.GitHubReleaseTrustPolicy
+import com.timewallet.mvp.domain.usecase.UpdateCheckInterval
 import com.timewallet.mvp.ui.theme.WalletCardBg
 import com.timewallet.mvp.ui.theme.WalletDangerBg
 import com.timewallet.mvp.ui.theme.WalletDangerBorder
@@ -47,6 +66,7 @@ import com.timewallet.mvp.ui.theme.WalletStroke
 import com.timewallet.mvp.ui.theme.WalletWarningBg
 import com.timewallet.mvp.ui.theme.WalletWarningText
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AppUpdateDialog(
     state: AppUpdateUiState,
@@ -55,6 +75,7 @@ fun AppUpdateDialog(
     onLaunchVerifiedInstaller: () -> Unit,
     onSkipCandidate: () -> Unit,
     onToggleAutoCheck: (Boolean) -> Unit,
+    onSelectCheckInterval: (UpdateCheckInterval) -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val candidate = state.availableCandidate
@@ -64,9 +85,14 @@ fun AppUpdateDialog(
         containerColor = WalletCardBg,
         title = {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("Cập nhật ứng dụng", fontWeight = FontWeight.ExtraBold, color = WalletInk, fontSize = 17.sp)
                 Text(
-                    text = "Kênh: ${state.channel.labelVi}",
+                    text = if (candidate != null) "Có bản mới ${candidate.tagName}" else "Cập nhật ứng dụng",
+                    fontWeight = FontWeight.ExtraBold,
+                    color = WalletInk,
+                    fontSize = 16.5.sp
+                )
+                Text(
+                    text = "Đang cài: v${state.installedVersionName.ifBlank { "—" }} (build ${state.installedVersionCode})",
                     fontSize = 11.5.sp,
                     color = WalletMuted
                 )
@@ -77,63 +103,89 @@ fun AppUpdateDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = WalletMintSoft,
-                    border = BorderStroke(1.dp, WalletStroke),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            text = "Phiên bản đang cài: v${state.installedVersionName.ifBlank { "—" }} (build ${state.installedVersionCode})",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = WalletInk
-                        )
-                        Text(
-                            text = "Nâng cấp hợp lệ cùng chữ ký sẽ giữ nguyên toàn bộ Sổ cái, Mục tiêu, Tag, Task và khóa AI.",
-                            fontSize = 11.sp,
-                            color = WalletMuted
-                        )
-                    }
-                }
-
                 if (candidate != null) {
+                    val formattedLines = remember(candidate.releaseNotes) {
+                        GitHubReleaseTrustPolicy.formatCompactReleaseNotes(candidate.releaseNotes)
+                    }
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = WalletCardBg,
+                        color = WalletMintSoft,
                         border = BorderStroke(1.dp, WalletMint),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(
-                                text = "Có bản mới: ${candidate.tagName}",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = WalletMintAccent
-                            )
-                            Text(
-                                text = "Tệp APK: ${candidate.apkFileName} (${(candidate.apkSizeBytes / (1024 * 1024f)).let { java.lang.String.format(java.util.Locale.US, "%.1f MB", it) }})",
-                                fontSize = 11.sp,
-                                color = WalletMuted
-                            )
+                        Column(modifier = Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = candidate.apkFileName,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = WalletMintAccent,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = "${(candidate.apkSizeBytes / (1024 * 1024f)).let { java.lang.String.format(java.util.Locale.US, "%.1f MB", it) }}",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = WalletMintAccent
+                                )
+                            }
                             HorizontalDivider(color = WalletDivider)
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                formattedLines.forEach { item ->
+                                    when {
+                                        item.isHeading -> {
+                                            Text(
+                                                text = item.text,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = WalletMintAccent
+                                            )
+                                        }
+                                        item.isBullet -> {
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                                verticalAlignment = Alignment.Top
+                                            ) {
+                                                Text("•", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = WalletMintAccent)
+                                                Text(
+                                                    text = markdownInlineAnnotatedString(item.text),
+                                                    fontSize = 11.5.sp,
+                                                    color = WalletInk,
+                                                    lineHeight = 16.sp,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                            }
+                                        }
+                                        else -> {
+                                            Text(
+                                                text = markdownInlineAnnotatedString(item.text),
+                                                fontSize = 11.5.sp,
+                                                color = WalletInk,
+                                                lineHeight = 16.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                             Text(
-                                text = candidate.releaseNotes,
-                                fontSize = 12.sp,
-                                color = WalletInk,
-                                lineHeight = 17.sp
-                            )
-                            Text(
-                                text = "Bảo mật 3 lớp: Nguồn GitHub HTTPS + SHA-256 + Xác minh chữ ký APK trước khi mở trình cài đặt.",
-                                fontSize = 10.5.sp,
-                                color = WalletMicroText,
-                                lineHeight = 15.sp
+                                text = "GitHub HTTPS · SHA-256 · Khớp chữ ký giữ nguyên dữ liệu",
+                                fontSize = 10.sp,
+                                color = WalletMicroText
                             )
                         }
                     }
+                } else {
+                    Text(
+                        text = "${state.channel.labelVi} · Giữ nguyên sổ cái & khóa AI.",
+                        fontSize = 11.sp,
+                        color = WalletMuted
+                    )
                 }
 
                 if (state.status == AppUpdateStatus.DOWNLOADING) {
@@ -204,8 +256,8 @@ fun AppUpdateDialog(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                            Text("Tự kiểm tra khi mở app", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = WalletInk)
-                            Text("Tối đa 12 giờ/lần ở nền, không tự ý cài", fontSize = 10.5.sp, color = WalletMuted)
+                            Text("Tự kiểm tra khi mở app", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = WalletInk)
+                            Text(state.preferences.checkInterval.labelVi, fontSize = 10.5.sp, color = WalletMuted)
                         }
                         Switch(
                             checked = state.preferences.autoCheckEnabled,
@@ -215,6 +267,44 @@ fun AppUpdateDialog(
                                 checkedTrackColor = WalletMintDark
                             )
                         )
+                    }
+                    if (state.preferences.autoCheckEnabled) {
+                        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 34.dp) {
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                UpdateCheckInterval.entries.forEach { interval ->
+                                    val isSelected = state.preferences.checkInterval == interval
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(100.dp))
+                                            .background(if (isSelected) WalletMintDark else WalletCardBg)
+                                            .border(
+                                                1.dp,
+                                                if (isSelected) WalletMintDark else WalletStroke,
+                                                RoundedCornerShape(100.dp)
+                                            )
+                                            .semantics { selected = isSelected }
+                                            .walletClickable(
+                                                onClickLabel = "Tần suất ${interval.labelVi}",
+                                                role = Role.RadioButton
+                                            ) { onSelectCheckInterval(interval) }
+                                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = interval.shortLabel,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isSelected) Color.White else WalletInk,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -267,4 +357,27 @@ fun AppUpdateDialog(
             }
         }
     )
+}
+
+internal fun markdownInlineAnnotatedString(rawText: String): AnnotatedString = buildAnnotatedString {
+    var idx = 0
+    while (idx < rawText.length) {
+        val boldStart = rawText.indexOf("**", startIndex = idx)
+        if (boldStart < 0) {
+            append(rawText.substring(idx))
+            break
+        }
+        val boldEnd = rawText.indexOf("**", startIndex = boldStart + 2)
+        if (boldEnd < 0) {
+            append(rawText.substring(idx))
+            break
+        }
+        if (boldStart > idx) {
+            append(rawText.substring(idx, boldStart))
+        }
+        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+            append(rawText.substring(boldStart + 2, boldEnd))
+        }
+        idx = boldEnd + 2
+    }
 }

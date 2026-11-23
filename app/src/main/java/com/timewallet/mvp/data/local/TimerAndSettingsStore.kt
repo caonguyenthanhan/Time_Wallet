@@ -6,6 +6,7 @@ import android.provider.Settings
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import com.timewallet.mvp.domain.model.ActiveTimerSession
+import com.timewallet.mvp.domain.model.PausedTimerContinuation
 import com.timewallet.mvp.domain.model.ActivityReviewNote
 import com.timewallet.mvp.domain.model.AiReadPermissions
 import com.timewallet.mvp.domain.model.CategoryTimeBudget
@@ -40,6 +41,61 @@ import javax.crypto.spec.GCMParameterSpec
  * - Pro (mặc định): Claude Sonnet 4.6 (`cinb/claude-sonnet-4-6`) — ưu tiên chất lượng & suy luận phức tạp.
  * - Flash (tùy chọn): Claude Haiku 4.5 (`hoang/claude-haiku-4.5`) — ưu tiên tốc độ phản hồi cho tác vụ nhẹ.
  */
+enum class AiProviderPreset(
+    val storageKey: String,
+    val labelVi: String,
+    val baseUrl: String,
+    val suggestedModels: List<String>
+) {
+    FOZA(
+        storageKey = "foza",
+        labelVi = "Foza",
+        baseUrl = AiPreferences.DEFAULT_AI_BASE_URL,
+        suggestedModels = listOf(AiPreferences.DEFAULT_AI_MODEL, AiPreferences.FLASH_AI_MODEL)
+    ),
+    OPENAI(
+        storageKey = "openai",
+        labelVi = "OpenAI",
+        baseUrl = "https://api.openai.com/v1",
+        suggestedModels = listOf("gpt-4o-mini", "gpt-4o", "gpt-4.1-mini")
+    ),
+    GEMINI(
+        storageKey = "gemini",
+        labelVi = "Gemini",
+        baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai",
+        suggestedModels = listOf("gemini-2.5-flash", "gemini-2.5-pro")
+    ),
+    OPENROUTER(
+        storageKey = "openrouter",
+        labelVi = "OpenRouter",
+        baseUrl = "https://openrouter.ai/api/v1",
+        suggestedModels = listOf("anthropic/claude-sonnet-4", "openai/gpt-4o-mini", "google/gemini-2.5-flash")
+    ),
+    GROQ(
+        storageKey = "groq",
+        labelVi = "Groq",
+        baseUrl = "https://api.groq.com/openai/v1",
+        suggestedModels = listOf("llama-3.3-70b-versatile", "qwen/qwen3-32b")
+    ),
+    CUSTOM(
+        storageKey = "custom",
+        labelVi = "HTTPS khác",
+        baseUrl = "",
+        suggestedModels = emptyList()
+    );
+
+    companion object {
+        fun detectFromBaseUrl(rawUrl: String?): AiProviderPreset {
+            val host = AiPreferences.extractValidatedHttpsHost(rawUrl.orEmpty())?.substringBefore(':')
+                ?: return CUSTOM
+            return entries.firstOrNull { preset ->
+                preset.baseUrl.isNotEmpty() &&
+                    AiPreferences.extractValidatedHttpsHost(preset.baseUrl)?.substringBefore(':') == host
+            } ?: CUSTOM
+        }
+    }
+}
+
 enum class WallyModelPreset(
     val displayTitle: String,
     val shortLabel: String,
@@ -859,7 +915,11 @@ class TimerAndSettingsStore(
     fun loadUpdatePreferences(): UpdatePreferences = UpdatePreferences(
         autoCheckEnabled = prefs.getBoolean(KEY_UPDATE_AUTO_CHECK, true),
         skippedVersionCode = prefs.getLong(KEY_UPDATE_SKIPPED_VERSION_CODE, 0L),
-        lastCheckEpochMs = prefs.getLong(KEY_UPDATE_LAST_CHECK_MS, 0L)
+        lastCheckEpochMs = prefs.getLong(KEY_UPDATE_LAST_CHECK_MS, 0L),
+        promptedVersionCode = prefs.getLong(KEY_UPDATE_PROMPTED_VERSION_CODE, 0L),
+        checkInterval = com.timewallet.mvp.domain.usecase.UpdateCheckInterval.fromStorageKey(
+            prefs.getString(KEY_UPDATE_CHECK_INTERVAL, null)
+        )
     )
 
     fun saveUpdatePreferences(updatePreferences: UpdatePreferences, immediate: Boolean = false) {
@@ -867,8 +927,79 @@ class TimerAndSettingsStore(
             .putBoolean(KEY_UPDATE_AUTO_CHECK, updatePreferences.autoCheckEnabled)
             .putLong(KEY_UPDATE_SKIPPED_VERSION_CODE, updatePreferences.skippedVersionCode)
             .putLong(KEY_UPDATE_LAST_CHECK_MS, updatePreferences.lastCheckEpochMs)
+            .putLong(KEY_UPDATE_PROMPTED_VERSION_CODE, updatePreferences.promptedVersionCode)
+            .putString(KEY_UPDATE_CHECK_INTERVAL, updatePreferences.checkInterval.storageKey)
         if (immediate) edit.commit() else edit.apply()
     }
+
+    fun loadPausedTimer(): PausedTimerContinuation? {
+        val raw = prefs.getString(KEY_TIMER_PAUSED_JSON, null)?.takeIf { it.isNotBlank() } ?: return null
+        return runCatching {
+            val o = JSONObject(raw)
+            val title = o.optString("title", "").takeIf { it.isNotBlank() } ?: return null
+            PausedTimerContinuation(
+                title = title,
+                categoryKey = o.optString("categoryKey", "work"),
+                targetDurationSeconds = if (o.has("targetDurationSeconds") && !o.isNull("targetDurationSeconds")) {
+                    o.optLong("targetDurationSeconds").takeIf { it > 0L }
+                } else null,
+                pausedAtEpochMs = o.optLong("pausedAtEpochMs", 0L),
+                accumulatedSeconds = o.optLong("accumulatedSeconds", 0L).coerceAtLeast(0L),
+                tagId = if (o.isNull("tagId")) null else o.optString("tagId").takeIf { it.isNotBlank() },
+                taskId = if (o.isNull("taskId")) null else o.optString("taskId").takeIf { it.isNotBlank() },
+                habitId = if (o.isNull("habitId")) null else o.optString("habitId").takeIf { it.isNotBlank() }
+            )
+        }.getOrNull()
+    }
+
+    fun savePausedTimer(paused: PausedTimerContinuation?, immediate: Boolean = true) {
+        val edit = prefs.edit()
+        if (paused == null) {
+            edit.remove(KEY_TIMER_PAUSED_JSON)
+        } else {
+            val o = JSONObject()
+                .put("title", paused.title)
+                .put("categoryKey", paused.categoryKey)
+                .put("targetDurationSeconds", paused.targetDurationSeconds ?: JSONObject.NULL)
+                .put("pausedAtEpochMs", paused.pausedAtEpochMs)
+                .put("accumulatedSeconds", paused.accumulatedSeconds)
+                .put("tagId", paused.tagId ?: JSONObject.NULL)
+                .put("taskId", paused.taskId ?: JSONObject.NULL)
+                .put("habitId", paused.habitId ?: JSONObject.NULL)
+            edit.putString(KEY_TIMER_PAUSED_JSON, o.toString())
+        }
+        if (immediate) edit.commit() else edit.apply()
+    }
+
+    data class FloatingAssistantPrefs(
+        val enabled: Boolean = false,
+        val edgeLeft: Boolean = false,
+        val yFraction: Float = 0.42f
+    )
+
+    fun loadFloatingAssistantPrefs(): FloatingAssistantPrefs = FloatingAssistantPrefs(
+        enabled = prefs.getBoolean(KEY_FLOATING_ENABLED, false),
+        edgeLeft = prefs.getBoolean(KEY_FLOATING_EDGE_LEFT, false),
+        yFraction = prefs.getFloat(KEY_FLOATING_Y_FRACTION, 0.42f).coerceIn(0.08f, 0.85f)
+    )
+
+    fun saveFloatingAssistantPrefs(config: FloatingAssistantPrefs, immediate: Boolean = false) {
+        val edit = prefs.edit()
+            .putBoolean(KEY_FLOATING_ENABLED, config.enabled)
+            .putBoolean(KEY_FLOATING_EDGE_LEFT, config.edgeLeft)
+            .putFloat(KEY_FLOATING_Y_FRACTION, config.yFraction.coerceIn(0.08f, 0.85f))
+        if (immediate) edit.commit() else edit.apply()
+    }
+
+    fun saveTodoAiAnalysisJson(rawJson: String?, immediate: Boolean = false) {
+        val edit = prefs.edit()
+        if (rawJson.isNullOrBlank()) edit.remove(KEY_TODO_AI_ANALYSIS_JSON)
+        else edit.putString(KEY_TODO_AI_ANALYSIS_JSON, rawJson)
+        if (immediate) edit.commit() else edit.apply()
+    }
+
+    fun loadTodoAiAnalysisJson(): String? =
+        prefs.getString(KEY_TODO_AI_ANALYSIS_JSON, null)?.takeIf { it.isNotBlank() }
 
     companion object {
         const val PREFS_NAME = "time_wallet_prefs_v1"
@@ -905,6 +1036,13 @@ class TimerAndSettingsStore(
         private const val KEY_UPDATE_AUTO_CHECK = "app_update_auto_check_v1"
         private const val KEY_UPDATE_SKIPPED_VERSION_CODE = "app_update_skipped_version_code_v1"
         private const val KEY_UPDATE_LAST_CHECK_MS = "app_update_last_check_ms_v1"
+        private const val KEY_UPDATE_PROMPTED_VERSION_CODE = "app_update_prompted_version_code_v1"
+        private const val KEY_UPDATE_CHECK_INTERVAL = "app_update_check_interval_v1"
+        private const val KEY_TIMER_PAUSED_JSON = "timer_paused_continuation_v1"
+        private const val KEY_FLOATING_ENABLED = "wally_floating_enabled_v1"
+        private const val KEY_FLOATING_EDGE_LEFT = "wally_floating_edge_left_v1"
+        private const val KEY_FLOATING_Y_FRACTION = "wally_floating_y_fraction_v1"
+        private const val KEY_TODO_AI_ANALYSIS_JSON = "wally_todo_ai_analysis_v1"
         private const val MAX_CHAT_HISTORY_ENTRIES = 60
 
         fun isFocusPinEnabled(context: Context): Boolean =
@@ -1116,6 +1254,7 @@ object LedgerJsonExporter {
                     .append(", \"createdAt\": ").append(t.createdAt)
                     .append(", \"updatedAt\": ").append(t.updatedAt)
                     .append(", \"completedAt\": ").append(t.completedAt?.toString() ?: "null")
+                    .append(", \"postponedCount\": ").append(t.postponedCount)
                     .append(", \"subtasks\": [")
                 t.subtasks.forEachIndexed { sIdx, s ->
                     sb.append("{\"id\": ").append(serializeJsonString(s.id))

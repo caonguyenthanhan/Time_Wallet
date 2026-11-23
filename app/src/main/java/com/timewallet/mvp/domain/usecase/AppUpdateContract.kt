@@ -13,10 +13,35 @@ enum class DistributionChannel(val storageKey: String, val labelVi: String) {
     GOOGLE_PLAY("google_play", "Google Play (Play In-App Updates)")
 }
 
+enum class UpdateCheckInterval(
+    val storageKey: String,
+    val labelVi: String,
+    val shortLabel: String,
+    val intervalMs: Long
+) {
+    RAPID_1H("rapid_1h", "Giai đoạn tối ưu (1 giờ/lần)", "1 giờ", 1L * 60L * 60_000L),
+    BALANCED_12H("balanced_12h", "Bình thường (12 giờ/lần)", "12 giờ", 12L * 60L * 60_000L),
+    MAINTENANCE_7D("maintenance_7d", "Bảo trì (7 ngày/lần)", "7 ngày", 7L * 24L * 60L * 60_000L),
+    MONTHLY_30D("monthly_30d", "Ổn định (30 ngày/lần)", "30 ngày", 30L * 24L * 60L * 60_000L);
+
+    companion object {
+        fun fromStorageKey(raw: String?): UpdateCheckInterval =
+            entries.firstOrNull { it.storageKey.equals(raw?.trim(), ignoreCase = true) } ?: RAPID_1H
+    }
+}
+
 data class UpdatePreferences(
     val autoCheckEnabled: Boolean = true,
     val skippedVersionCode: Long = 0L,
-    val lastCheckEpochMs: Long = 0L
+    val lastCheckEpochMs: Long = 0L,
+    val promptedVersionCode: Long = 0L,
+    val checkInterval: UpdateCheckInterval = UpdateCheckInterval.RAPID_1H
+)
+
+data class ReleaseMarkdownLine(
+    val text: String,
+    val isHeading: Boolean = false,
+    val isBullet: Boolean = false
 )
 
 data class SemanticVersion(
@@ -84,7 +109,8 @@ data class VerifiedReleaseCandidate(
     val apkSizeBytes: Long,
     val sha256Url: String,
     val htmlUrl: String,
-    val publishedAtIso: String?
+    val publishedAtIso: String?,
+    val recommendedCooldownHours: Int? = null
 )
 
 data class ApkVerificationSummary(
@@ -219,27 +245,40 @@ object GitHubReleaseTrustPolicy {
         return if (safe.isEmpty() || safe == "." || safe == "..") "timewallet-update.apk" else safe
     }
 
-    fun parseVersionCodeHint(tagName: String, body: String): Long? {
-        fun scanNumberAfterKeyword(text: String, keyword: String): Long? {
-            var searchFrom = 0
-            while (searchFrom < text.length) {
-                val idx = text.indexOf(keyword, startIndex = searchFrom, ignoreCase = true)
-                if (idx < 0) return null
-                var pos = idx + keyword.length
-                while (pos < text.length && text[pos] in setOf(' ', '\t', ':', '=', '#', '-')) pos++
-                val startDigits = pos
-                while (pos < text.length && text[pos].isDigit() && (pos - startDigits) < 9) pos++
-                if (pos > startDigits) {
-                    val parsed = text.substring(startDigits, pos).toLongOrNull()
-                    if (parsed != null && parsed > 0L) return parsed
-                }
-                searchFrom = idx + keyword.length
+    private fun scanNumberAfterKeyword(text: String, keyword: String): Long? {
+        var searchFrom = 0
+        while (searchFrom < text.length) {
+            val idx = text.indexOf(keyword, startIndex = searchFrom, ignoreCase = true)
+            if (idx < 0) return null
+            var pos = idx + keyword.length
+            while (pos < text.length && text[pos] in setOf(' ', '\t', ':', '=', '#', '-')) pos++
+            val startDigits = pos
+            while (pos < text.length && text[pos].isDigit() && (pos - startDigits) < 9) pos++
+            if (pos > startDigits) {
+                val parsed = text.substring(startDigits, pos).toLongOrNull()
+                if (parsed != null && parsed > 0L) return parsed
             }
-            return null
+            searchFrom = idx + keyword.length
         }
-        return scanNumberAfterKeyword(body, "versionCode")
+        return null
+    }
+
+    fun parseVersionCodeHint(tagName: String, body: String): Long? =
+        scanNumberAfterKeyword(body, "versionCode")
             ?: scanNumberAfterKeyword(body, "build")
             ?: scanNumberAfterKeyword(tagName, "build")
+
+    fun parseCooldownHoursHint(body: String): Int? =
+        (scanNumberAfterKeyword(body, "cooldownHours") ?: scanNumberAfterKeyword(body, "cooldownHour"))
+            ?.toInt()
+            ?.takeIf { it in 1..720 }
+
+    fun effectiveCooldownMs(
+        prefs: UpdatePreferences,
+        candidate: VerifiedReleaseCandidate? = null
+    ): Long {
+        val recMs = candidate?.recommendedCooldownHours?.takeIf { it in 1..720 }?.let { it.toLong() * 60L * 60_000L }
+        return if (recMs != null) minOf(prefs.checkInterval.intervalMs, recMs) else prefs.checkInterval.intervalMs
     }
 
     /**
@@ -292,6 +331,7 @@ object GitHubReleaseTrustPolicy {
             val currentSemver = SemanticVersion.parse(currentVersionName)
             val rawBody = root.optString("body", "").trim()
             val embeddedCode = parseVersionCodeHint(tagName, rawBody)
+            val recommendedCooldownHours = parseCooldownHoursHint(rawBody)
 
             val isNewer = when {
                 embeddedCode != null && currentSemver != null ->
@@ -357,7 +397,8 @@ object GitHubReleaseTrustPolicy {
                     apkSizeBytes = apkAsset.size,
                     sha256Url = shaAsset.url,
                     htmlUrl = htmlUrl,
-                    publishedAtIso = root.optString("published_at", "").takeIf { it.isNotBlank() }
+                    publishedAtIso = root.optString("published_at", "").takeIf { it.isNotBlank() },
+                    recommendedCooldownHours = recommendedCooldownHours
                 ),
                 channel = channel
             )
@@ -366,13 +407,77 @@ object GitHubReleaseTrustPolicy {
         }
     }
 
+    fun formatCompactReleaseNotes(rawMarkdown: String, maxLines: Int = 7): List<ReleaseMarkdownLine> {
+        val rawLines = rawMarkdown.lineSequence().map { it.trim() }.toList()
+        val result = mutableListOf<ReleaseMarkdownLine>()
+        var inCodeFence = false
+        var skippingTechnicalSection = false
+
+        for (line in rawLines) {
+            if (line.startsWith("```")) {
+                inCodeFence = !inCodeFence
+                continue
+            }
+            if (inCodeFence || line.isEmpty()) continue
+            if (line.startsWith("|") || line.startsWith("---") || line.startsWith("===")) continue
+            if (line.startsWith("<!--")) continue
+            val lower = line.lowercase(Locale.US)
+            if (lower.startsWith("versioncode:") || lower.startsWith("version code:") ||
+                lower.startsWith("cooldownhours:") || lower.startsWith("sha256:") || lower.startsWith("sha-256:")
+            ) {
+                continue
+            }
+
+            if (line.startsWith("#")) {
+                val heading = line.trimStart('#', ' ', '\t').replace("`", "").trim()
+                val hLower = heading.lowercase(Locale.US)
+                skippingTechnicalSection = hLower.contains("tệp cài đặt") ||
+                    hLower.contains("tệp apk") ||
+                    hLower.contains("checksum") ||
+                    hLower.contains("sha-256") ||
+                    hLower.contains("sha256") ||
+                    hLower.contains("xác minh")
+                if (!skippingTechnicalSection && heading.isNotEmpty()) {
+                    if (result.lastOrNull()?.isHeading == true) {
+                        result.removeAt(result.lastIndex)
+                    }
+                    result += ReleaseMarkdownLine(text = heading, isHeading = true)
+                }
+                continue
+            }
+            if (skippingTechnicalSection) continue
+
+            val isBullet = line.startsWith("- ") || line.startsWith("* ") || line.startsWith("• ")
+            val cleaned = line
+                .removePrefix("- ")
+                .removePrefix("* ")
+                .removePrefix("• ")
+                .replace("`", "")
+                .trim()
+            if (cleaned.isEmpty()) continue
+            if (cleaned.lowercase(Locale.US).contains("xem sha-256")) continue
+
+            result += ReleaseMarkdownLine(text = cleaned, isHeading = false, isBullet = isBullet)
+            if (result.count { !it.isHeading } >= maxLines) break
+        }
+        while (result.isNotEmpty() && result.last().isHeading) {
+            result.removeAt(result.lastIndex)
+        }
+        return result.ifEmpty {
+            listOf(ReleaseMarkdownLine("Cập nhật cải tiến độ ổn định và trải nghiệm."))
+        }
+    }
+
     fun summarizeReleaseNotes(rawBody: String): String {
-        val compactLines = rawBody.lineSequence()
-            .map { it.trim() }
-            .filter { it.isNotEmpty() && !it.startsWith("```") }
-            .take(12)
-            .joinToString("\n")
-        return compactLines.ifBlank { "Cập nhật cải tiến độ ổn định và trải nghiệm." }.take(1_200)
+        val compact = formatCompactReleaseNotes(rawBody, maxLines = 8)
+            .joinToString("\n") { item ->
+                when {
+                    item.isHeading -> "### ${item.text}"
+                    item.isBullet -> "- ${item.text}"
+                    else -> item.text
+                }
+            }
+        return compact.ifBlank { "Cập nhật cải tiến độ ổn định và trải nghiệm." }.take(900)
     }
 
     /**

@@ -93,3 +93,18 @@ data class TimerElapsedSnapshot(
     val clockSkewDetected: Boolean,
     val rebootFallbackUsed: Boolean = false
 )
+
+/**
+ * Trạng thái tạm dừng đồng hồ: phần thời gian vừa chạy đã được chốt thực tế vào Sổ cái,
+ * chỉ giữ thông tin phiên để người dùng bấm "Tiếp tục" mở đoạn đo mới (không bao giờ lùi giờ giả lập).
+ */
+data class PausedTimerContinuation(
+    val title: String,
+    val categoryKey: String,
+    val targetDurationSeconds: Long? = null,
+    val pausedAtEpochMs: Long,
+    val accumulatedSeconds: Long = 0L,
+    val tagId: String? = null,
+    val taskId: String? = null,
+    val habitId: String? = null
+)

@@ -76,6 +76,7 @@ object GeminiProposalClient {
         "Không thể kết nối máy chủ AI. Hãy thử lại hoặc Ghi thủ công."
 
     const val PROMPT_VERSION = "wally-prompt-8"
+    const val TODO_PROMPT_VERSION = "wally-todo-1"
 
     // v1.0.13: 45 s overall (was 30 s). Observed gemini latency p50 ~8 s, p95 ~21 s, max ~34 s: 30 s timed out valid answers.
     private const val DEADLINE_MS = 45_000L
@@ -387,6 +388,125 @@ object GeminiProposalClient {
         }
     }
 
+    /** Kết quả tải danh sách model khả dụng từ endpoint OpenAI-compatible (`/models`). */
+    data class ModelDiscoveryResult(
+        val ok: Boolean,
+        val models: List<String>,
+        val detailVi: String,
+        val httpStatus: Int? = null,
+        val requestId: String
+    )
+
+    suspend fun fetchAvailableModels(
+        baseUrl: String,
+        apiKey: String,
+        trustedHost: String? = null,
+        connectionFactory: HttpOpener = DEFAULT_OPENER,
+        nowMs: () -> Long = { System.nanoTime() / 1_000_000L }
+    ): ModelDiscoveryResult {
+        val requestId = AiDiagnostics.newRequestId()
+        val cleanBaseUrl = baseUrl.trim().ifEmpty { AiPreferences.DEFAULT_AI_BASE_URL }.trimEnd('/')
+        val host = AiPreferences.extractValidatedHttpsHost(cleanBaseUrl)
+        val cleanKey = ApiKeyHygiene.normalize(apiKey)
+        ApiKeyHygiene.check(cleanKey)?.let { p ->
+            return ModelDiscoveryResult(
+                ok = false,
+                models = emptyList(),
+                detailVi = AiFault.KEY_INVALID.messageVi + " (vị trí ${p.position}: ${p.kindVi})",
+                requestId = requestId
+            )
+        }
+        if (host == null || cleanKey.isBlank() ||
+            (!trustedHost.isNullOrBlank() && !host.equals(trustedHost.trim(), ignoreCase = true))
+        ) {
+            return ModelDiscoveryResult(
+                ok = false,
+                models = emptyList(),
+                detailVi = "Cần Base URL https:// hợp lệ và API Key để tải danh sách model.",
+                requestId = requestId
+            )
+        }
+        val baseWithoutChat = cleanBaseUrl.removeSuffix("/chat/completions").trimEnd('/')
+        val modelsEndpoint = if (baseWithoutChat.endsWith("/models")) baseWithoutChat else "$baseWithoutChat/models"
+        return try {
+            val body = executeTrustedHttp(
+                endpoint = modelsEndpoint,
+                method = "GET",
+                apiKey = cleanKey,
+                payload = null,
+                opener = connectionFactory,
+                remainingMs = CONNECT_TIMEOUT_MS,
+                expectedOrigin = host
+            )
+            val ids = parseModelIdsJson(body)
+            if (ids.isEmpty()) {
+                ModelDiscoveryResult(
+                    ok = false,
+                    models = emptyList(),
+                    detailVi = "Máy chủ không trả về danh sách model (/models). Hãy nhập tên model trực tiếp.",
+                    httpStatus = 200,
+                    requestId = requestId
+                )
+            } else {
+                ModelDiscoveryResult(
+                    ok = true,
+                    models = ids,
+                    detailVi = "Đã tải ${ids.size} model từ $host.",
+                    httpStatus = 200,
+                    requestId = requestId
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val f = classify(e)
+            ModelDiscoveryResult(
+                ok = false,
+                models = emptyList(),
+                detailVi = testFailureDetail(f),
+                httpStatus = f.status,
+                requestId = requestId
+            )
+        }
+    }
+
+    internal fun parseModelIdsJson(body: String): List<String> {
+        return try {
+            val root = StrictJson.parseSingleObject(body)
+            val dataArr = root.optJSONArray("data") ?: root.optJSONArray("models") ?: return emptyList()
+            val seen = LinkedHashSet<String>()
+            for (i in 0 until dataArr.length()) {
+                val item = dataArr.opt(i)
+                val rawId = when (item) {
+                    is JSONObject -> item.optString("id", "").ifBlank {
+                        item.optString("name", "").removePrefix("models/")
+                    }
+                    is String -> item
+                    else -> ""
+                }.trim()
+                if (rawId.isNotEmpty() && seen.size < 60) {
+                    seen += rawId
+                }
+            }
+            seen.toList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    internal suspend fun executeTodoPlannerCompletion(
+        endpoint: String,
+        apiKey: String,
+        payload: String,
+        opener: HttpOpener? = null,
+        remainingMs: Long = 30_000L,
+        expectedOrigin: String
+    ): String = postJson(endpoint, apiKey, payload, opener ?: DEFAULT_OPENER, remainingMs, expectedOrigin)
+
+    internal fun classifyTodoPlannerError(e: Exception): AiHttpException = classify(e)
+
+    internal fun describeTodoPlannerError(e: AiHttpException): String = testFailureDetail(e)
+
     /** Kết quả kiểm tra kết nối (payload tổng hợp, không chứa dữ liệu người dùng). */
     data class ConnectionTestResult(
         val ok: Boolean,
@@ -486,7 +606,7 @@ object GeminiProposalClient {
         f.fault == AiFault.RATE_LIMIT && f.retryAfterMs != null ->
             f.fault.messageVi + " Thử lại sau khoảng ${(f.retryAfterMs + 999) / 1000} giây."
         f.fault == AiFault.SERVER ->
-            "Tuyến model hiện tại trên máy chủ AI đang gặp lỗi (5xx). Hãy đổi sang model khác (ví dụ cinb/claude-sonnet-4-6) hoặc thử lại sau."
+            "Tuyến model hiện tại trên máy chủ AI đang gặp lỗi (5xx). Hãy đổi model khác hoặc thử lại sau."
         f.fault == AiFault.NOT_FOUND ->
             "Không tìm thấy endpoint hoặc model này trên máy chủ (404). Kiểm tra Base URL hoặc chọn lại model."
         f.fault == AiFault.MALFORMED ->
@@ -755,6 +875,24 @@ object GeminiProposalClient {
         opener: HttpOpener,
         remainingMs: Long,
         expectedOrigin: String
+    ): String = executeTrustedHttp(
+        endpoint = endpoint,
+        method = "POST",
+        apiKey = apiKey,
+        payload = payload,
+        opener = opener,
+        remainingMs = remainingMs,
+        expectedOrigin = expectedOrigin
+    )
+
+    private suspend fun executeTrustedHttp(
+        endpoint: String,
+        method: String,
+        apiKey: String,
+        payload: String?,
+        opener: HttpOpener,
+        remainingMs: Long,
+        expectedOrigin: String
     ): String = withContext(Dispatchers.IO) {
         coroutineScope {
             val url = URL(endpoint)
@@ -774,22 +912,28 @@ object GeminiProposalClient {
             }
             try {
                 connection.apply {
-                    requestMethod = "POST"
+                    requestMethod = method
                     connectTimeout = minOf(CONNECT_TIMEOUT_MS, remainingMs).toInt()
                     readTimeout = minOf(READ_TIMEOUT_MS, remainingMs).toInt()
                     instanceFollowRedirects = false
-                    doOutput = true
+                    doOutput = payload != null
                     try {
                         setRequestProperty("Authorization", "Bearer $apiKey")
                     } catch (e: IllegalArgumentException) {
                         // Lớp phòng thủ cuối: nền tảng chỉ ném ở đây với ký tự điều khiển (đã đo; ApiKeyHygiene.check đã chặn từ trước) hoặc quy tắc riêng của một máy: lỗi cục bộ, chưa mở kết nối.
                         throw AiHttpException(AiFault.KEY_INVALID, errorClass = e.javaClass.simpleName)
                     }
-                    setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                    if (payload != null) {
+                        setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                    } else {
+                        setRequestProperty("Accept", "application/json")
+                    }
                 }
-                OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { writer ->
-                    writer.write(payload)
-                    writer.flush()
+                if (payload != null) {
+                    OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { writer ->
+                        writer.write(payload)
+                        writer.flush()
+                    }
                 }
                 val status = connection.responseCode
                 if (status !in 200..299) {

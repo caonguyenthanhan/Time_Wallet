@@ -1,0 +1,344 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_card_bg"
+    android:orientation="vertical"
+    android:padding="12dp">
+
+    <!-- Header -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:contentDescription="@string/widget_cd_mascot"
+            android:src="@drawable/ic_wally" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:text="@string/widget_brand_wally"
+            android:textColor="@color/widget_ink"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widget_header_meta"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/widget_muted"
+            android:textSize="11sp"
+            tools:text="Thực tế 1h40 · Trống 3h10" />
+
+        <TextView
+            android:id="@+id/widget_btn_chat"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/widget_pill_outline"
+            android:contentDescription="@string/widget_cd_chat"
+            android:paddingHorizontal="9dp"
+            android:paddingVertical="4dp"
+            android:text="@string/widget_action_chat"
+            android:textColor="@color/widget_mint_accent"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widget_btn_refresh"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:background="@drawable/widget_pill_outline"
+            android:contentDescription="@string/widget_cd_refresh"
+            android:paddingHorizontal="7dp"
+            android:paddingVertical="4dp"
+            android:text="↻"
+            android:textColor="@color/widget_ink"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            tools:ignore="HardcodedText" />
+    </LinearLayout>
+
+    <!-- Row 1: Đang làm + Sắp làm & Trống -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:baselineAligned="false"
+        android:orientation="horizontal">
+
+        <LinearLayout
+            android:id="@+id/widget_current_box"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1.2"
+            android:background="@drawable/widget_mint_box_bg"
+            android:orientation="vertical"
+            android:padding="9dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/widget_current_badge"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:maxLines="1"
+                    android:text="@string/widget_label_doing"
+                    android:textColor="@color/widget_mint_accent"
+                    android:textSize="10sp"
+                    android:textStyle="bold" />
+
+                <Chronometer
+                    android:id="@+id/widget_current_chronometer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/widget_mint_accent"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/widget_current_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/widget_ink"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                tools:text="Phát triển Widget" />
+
+            <TextView
+                android:id="@+id/widget_current_sub"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/widget_muted"
+                android:textSize="11sp"
+                tools:text="Đang đo thực tế · từ 09:00" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/widget_btn_primary"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:background="@drawable/widget_pill_mint"
+                    android:ellipsize="end"
+                    android:gravity="center"
+                    android:maxLines="1"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="4dp"
+                    android:textColor="@color/widget_on_mint"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    tools:text="⏸ Tạm dừng" />
+
+                <TextView
+                    android:id="@+id/widget_btn_stop"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="5dp"
+                    android:background="@drawable/widget_pill_outline"
+                    android:paddingHorizontal="8dp"
+                    android:paddingVertical="4dp"
+                    android:text="@string/widget_action_stop"
+                    android:textColor="@color/widget_ink"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/widget_upcoming_box"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:background="@drawable/widget_inner_bg"
+            android:orientation="vertical"
+            android:padding="9dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/widget_label_upcoming"
+                android:textColor="@color/widget_muted"
+                android:textSize="10sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_upcoming_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:textColor="@color/widget_ink"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                tools:text="14:00 · Họp nhóm" />
+
+            <TextView
+                android:id="@+id/widget_upcoming_meta"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/widget_mint_accent"
+                android:textSize="11sp"
+                tools:text="còn 20p" />
+
+            <ProgressBar
+                android:id="@+id/widget_day_progress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="5dp"
+                android:layout_marginTop="6dp"
+                android:max="100"
+                android:progress="45"
+                android:progressDrawable="@drawable/widget_progress_bar" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Row 2: To-do Spotlight + Action pills -->
+    <LinearLayout
+        android:id="@+id/widget_medium_todo_card"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="7dp"
+        android:background="@drawable/widget_inner_bg"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="10dp"
+        android:paddingVertical="7dp">
+
+        <TextView
+            android:id="@+id/widget_btn_toggle_top_todo"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:background="@drawable/widget_pill_outline"
+            android:gravity="center"
+            android:text="@string/widget_action_check"
+            android:textColor="@color/widget_mint_accent"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/widget_medium_todo_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/widget_ink"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                tools:text="Gửi báo cáo tuần (3 việc)" />
+
+            <TextView
+                android:id="@+id/widget_medium_todo_meta"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/widget_muted"
+                android:textSize="10sp"
+                tools:text="Hạn hôm nay · ~30p" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/widget_btn_start_top_todo"
+            android:layout_width="wrap_content"
+            android:layout_height="26dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/widget_pill_mint"
+            android:gravity="center"
+            android:paddingHorizontal="9dp"
+            android:text="@string/widget_action_start"
+            android:textColor="@color/widget_on_mint"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widget_btn_next_todo"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:layout_marginStart="5dp"
+            android:background="@drawable/widget_pill_outline"
+            android:gravity="center"
+            android:text="@string/widget_action_next"
+            android:textColor="@color/widget_muted"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Wally AI strip -->
+    <LinearLayout
+        android:id="@+id/widget_ai_box"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/widget_ai_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/widget_pill_outline"
+            android:paddingHorizontal="7dp"
+            android:paddingVertical="2dp"
+            android:textColor="@color/widget_mint_accent"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            tools:text="⚡ Tổng hợp" />
+
+        <TextView
+            android:id="@+id/widget_ai_text"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/widget_muted"
+            android:textSize="11sp"
+            tools:text="Khoảng trống tốt nhất: 15:00–16:30." />
+    </LinearLayout>
+</LinearLayout>

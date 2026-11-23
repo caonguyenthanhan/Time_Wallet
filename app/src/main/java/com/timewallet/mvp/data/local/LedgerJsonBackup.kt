@@ -333,7 +333,8 @@ object LedgerJsonBackupParser {
                         createdAt = o.optNullableLong("createdAt") ?: fallbackNowMs,
                         updatedAt = o.optNullableLong("updatedAt") ?: fallbackNowMs,
                         completedAt = o.optNullableLong("completedAt"),
-                        subtasks = subs
+                        subtasks = subs,
+                        postponedCount = (o.optNullableInt("postponedCount") ?: 0).coerceAtLeast(0)
                     )
                 )
             }

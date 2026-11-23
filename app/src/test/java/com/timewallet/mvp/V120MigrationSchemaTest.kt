@@ -21,6 +21,7 @@ class V120MigrationSchemaTest {
     private val schemaFile = File("schemas/com.timewallet.mvp.data.local.TimeWalletDatabase/5.json")
     private val schemaV6File = File("schemas/com.timewallet.mvp.data.local.TimeWalletDatabase/6.json")
     private val schemaV7File = File("schemas/com.timewallet.mvp.data.local.TimeWalletDatabase/7.json")
+    private val schemaV8File = File("schemas/com.timewallet.mvp.data.local.TimeWalletDatabase/8.json")
 
     private fun proxy(conn: Connection): SupportSQLiteDatabase = Proxy.newProxyInstance(
         SupportSQLiteDatabase::class.java.classLoader, arrayOf(SupportSQLiteDatabase::class.java)
@@ -204,6 +205,50 @@ class V120MigrationSchemaTest {
                         assertEquals(0, rs.getInt("isMarkedWaste"))
                     }
                 }
+            }
+        } finally {
+            ref.close()
+            migFile.delete()
+        }
+    }
+
+    @Test
+    fun `schema version 8 adds postponedCount to tasks and chained migration 1 to 8 matches Room v8 schema`() {
+        val json = loadSchema(schemaV8File)
+        assertEquals(8, json.getJSONObject("database").getInt("version"))
+
+        val ref = DriverManager.getConnection("jdbc:sqlite::memory:")
+        val migFile = File.createTempFile("timewallet_migration_v1_to_v8_", ".db")
+        try {
+            entitySql(json).forEach { (_, sql) -> ref.createStatement().use { it.execute(sql) } }
+            indexSql(json).forEach { sql -> ref.createStatement().use { it.execute(sql) } }
+
+            val v6Json = loadSchema(schemaV6File)
+            val url = "jdbc:sqlite:${migFile.absolutePath}"
+            DriverManager.getConnection(url).use { conn ->
+                conn.createStatement().use { st ->
+                    st.execute(v3LedgerSql)
+                    st.execute("CREATE UNIQUE INDEX IF NOT EXISTS `index_ledger_records_idempotencyKey` ON `ledger_records` (`idempotencyKey`)")
+                    st.execute("CREATE INDEX IF NOT EXISTS `index_ledger_records_date` ON `ledger_records` (`date`)")
+                    st.execute("CREATE INDEX IF NOT EXISTS `index_ledger_records_startedAt_endedAt` ON `ledger_records` (`startedAt`, `endedAt`)")
+                    entitySql(v6Json).filter { it.first in setOf("category_budgets", "daily_reviews", "activity_review_notes") }.forEach { st.execute(it.second) }
+                    indexSql(v6Json).filter { it.contains("category_budgets") || it.contains("daily_reviews") || it.contains("activity_review_notes") }.forEach { st.execute(it) }
+                }
+                val db = proxy(conn)
+                TimeWalletDatabase.MIGRATION_1_2.migrate(db)
+                TimeWalletDatabase.MIGRATION_2_3.migrate(db)
+                TimeWalletDatabase.MIGRATION_3_4.migrate(db)
+                TimeWalletDatabase.MIGRATION_4_5.migrate(db)
+                TimeWalletDatabase.MIGRATION_5_6.migrate(db)
+                TimeWalletDatabase.MIGRATION_6_7.migrate(db)
+                TimeWalletDatabase.MIGRATION_7_8.migrate(db)
+            }
+
+            DriverManager.getConnection(url).use { conn ->
+                val a = columns(ref, "tasks")
+                val b = columns(conn, "tasks")
+                assertEquals(a.map { listOf(it.name, it.type, it.notNull, it.pk) }, b.map { listOf(it.name, it.type, it.notNull, it.pk) })
+                assertEquals(indices(ref, "tasks"), indices(conn, "tasks"))
             }
         } finally {
             ref.close()

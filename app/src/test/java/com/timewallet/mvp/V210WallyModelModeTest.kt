@@ -87,4 +87,24 @@ class V210WallyModelModeTest {
         assertTrue(vm.contains("fun selectWallyPreset(preset: WallyModelPreset)"))
         assertTrue(main.contains("onSelectWallyPreset = viewModel::selectWallyPreset"))
     }
+
+    @Test
+    fun `AiProviderPreset detects known OpenAI-compatible hosts and GeminiProposalClient parses models JSON`() {
+        assertEquals(
+            com.timewallet.mvp.data.local.AiProviderPreset.OPENAI,
+            com.timewallet.mvp.data.local.AiProviderPreset.detectFromBaseUrl("https://api.openai.com/v1")
+        )
+        assertEquals(
+            com.timewallet.mvp.data.local.AiProviderPreset.GEMINI,
+            com.timewallet.mvp.data.local.AiProviderPreset.detectFromBaseUrl("https://generativelanguage.googleapis.com/v1beta/openai")
+        )
+        assertEquals(
+            com.timewallet.mvp.data.local.AiProviderPreset.CUSTOM,
+            com.timewallet.mvp.data.local.AiProviderPreset.detectFromBaseUrl("https://llm.internal.example/v1")
+        )
+        val parsed = com.timewallet.mvp.data.ai.GeminiProposalClient.parseModelIdsJson(
+            """{"data":[{"id":"gpt-4o-mini"},{"id":"gpt-4o"},{"id":"gpt-4o-mini"}]}"""
+        )
+        assertEquals(listOf("gpt-4o-mini", "gpt-4o"), parsed)
+    }
 }

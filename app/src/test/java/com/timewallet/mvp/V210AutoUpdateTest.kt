@@ -290,7 +290,13 @@ class V210AutoUpdateTest {
 
         val prefs = InMemorySharedPreferences()
         val store = TimerAndSettingsStore(prefs, InMemoryApiKeyVault())
-        val saved = UpdatePreferences(autoCheckEnabled = false, skippedVersionCode = 20L, lastCheckEpochMs = 123_456L)
+        val saved = UpdatePreferences(
+            autoCheckEnabled = false,
+            skippedVersionCode = 20L,
+            lastCheckEpochMs = 123_456L,
+            promptedVersionCode = 21L,
+            checkInterval = com.timewallet.mvp.domain.usecase.UpdateCheckInterval.BALANCED_12H
+        )
         store.saveUpdatePreferences(saved, immediate = true)
         assertEquals(saved, store.loadUpdatePreferences())
 
@@ -301,5 +307,34 @@ class V210AutoUpdateTest {
         assertEquals(com.timewallet.mvp.domain.model.FontScalePreference.SMALL, store.loadCustomizationSettings().fontScale)
         assertTrue(com.timewallet.mvp.domain.model.FontScalePreference.SMALL.multiplier < com.timewallet.mvp.domain.model.FontScalePreference.MEDIUM.multiplier)
         assertTrue(com.timewallet.mvp.domain.model.FontScalePreference.MEDIUM.multiplier < com.timewallet.mvp.domain.model.FontScalePreference.LARGE.multiplier)
+    }
+
+    @Test
+    fun `formatCompactReleaseNotes strips SHA table, code blocks and verbose sections while keeping concise points`() {
+        val rawBody = """
+            ## Điểm mới v2.1.3
+            - **Tự bật pop-up cập nhật** khi có bản mới và chấm đỏ báo **Mới** ở icon cài đặt.
+            - Chuẩn hóa **Markdown** gọn, dễ đọc.
+            versionCode: 22
+            cooldownHours: 2
+
+            ### Tệp cài đặt & SHA-256
+            | Tệp | SHA-256 |
+            | --- | --- |
+            | `TimeWallet-MVP-v2.1.3-release.apk` | `deadbeef` |
+        """.trimIndent()
+        val parsed = GitHubReleaseTrustPolicy.formatCompactReleaseNotes(rawBody)
+        assertTrue(parsed.any { it.isHeading && it.text == "Điểm mới v2.1.3" })
+        assertTrue(parsed.any { it.isBullet && it.text.contains("**Tự bật pop-up cập nhật**") })
+        assertFalse(parsed.any { it.text.contains("deadbeef") || it.text.contains("versionCode") || it.text.contains("|") })
+        assertEquals(2, GitHubReleaseTrustPolicy.parseCooldownHoursHint(rawBody))
+    }
+
+    @Test
+    fun `effectiveCooldownMs adapts between rapid release and maintenance intervals`() {
+        val rapidPrefs = UpdatePreferences(checkInterval = com.timewallet.mvp.domain.usecase.UpdateCheckInterval.RAPID_1H)
+        assertEquals(3_600_000L, GitHubReleaseTrustPolicy.effectiveCooldownMs(rapidPrefs))
+        val monthlyPrefs = UpdatePreferences(checkInterval = com.timewallet.mvp.domain.usecase.UpdateCheckInterval.MONTHLY_30D)
+        assertEquals(30L * 24L * 60L * 60_000L, GitHubReleaseTrustPolicy.effectiveCooldownMs(monthlyPrefs))
     }
 }

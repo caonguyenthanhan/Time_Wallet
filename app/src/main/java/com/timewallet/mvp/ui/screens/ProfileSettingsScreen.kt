@@ -42,8 +42,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -104,13 +107,29 @@ fun ProfileSettingsScreen(
     onAddLocalRule: (keyword: String, categoryKey: String, markWaste: Boolean) -> Unit = { _, _, _ -> },
     onDeleteLocalRule: (String) -> Unit = {},
     appUpdate: AppUpdateUiState = AppUpdateUiState(),
-    onOpenAppUpdate: () -> Unit = {}
+    onOpenAppUpdate: () -> Unit = {},
+    floatingAssistantEnabled: Boolean = false,
+    onToggleFloatingAssistant: (Boolean) -> Unit = {},
+    onRequestOverlayPermission: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var canDrawOverlays by remember {
+        mutableStateOf(android.provider.Settings.canDrawOverlays(context))
+    }
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val obs = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                canDrawOverlays = android.provider.Settings.canDrawOverlays(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
     val versionLabel = remember {
         runCatching {
-            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "2.1.2"
-        }.getOrDefault("2.1.2")
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "2.2.0"
+        }.getOrDefault("2.2.0")
     }
 
     Box(
@@ -301,6 +320,46 @@ fun ProfileSettingsScreen(
                             subtitle = "Nút mở nhanh Wally ở thanh trên cùng",
                             checked = customization.enableAiAssistant,
                             onCheckedChange = { v -> onUpdateCustomization { it.copy(enableAiAssistant = v) } }
+                        )
+                        if (canDrawOverlays) {
+                            SettingsSwitchRow(
+                                title = "Trợ lý nổi trên ứng dụng khác",
+                                subtitle = "Bong bóng Wally nổi · Chạm Chat · Nhấn giữ mở Bảng nhanh",
+                                checked = floatingAssistantEnabled,
+                                onCheckedChange = onToggleFloatingAssistant
+                            )
+                        } else {
+                            HorizontalDivider(color = WalletDivider)
+                            SettingsRowItem(
+                                glyph = WalletGlyph.SETTINGS,
+                                title = "Trợ lý nổi trên ứng dụng khác",
+                                subtitle = "Chạm để cấp quyền Hiển thị trên ứng dụng khác (SYSTEM_ALERT_WINDOW)",
+                                badgeText = "Cấp quyền",
+                                onClick = onRequestOverlayPermission
+                            )
+                        }
+                        HorizontalDivider(color = WalletDivider)
+                        SettingsRowItem(
+                            glyph = WalletGlyph.GOAL,
+                            title = "Ghim Widget Wally lên màn hình chính",
+                            subtitle = "Xem Đang làm, Sắp làm, thời gian trống & To-do ngay ngoài màn hình chính",
+                            badgeText = "Widget",
+                            onClick = {
+                                val mgr = android.appwidget.AppWidgetManager.getInstance(context)
+                                val provider = android.content.ComponentName(
+                                    context,
+                                    com.timewallet.mvp.widget.WallyHomeWidgetProvider::class.java
+                                )
+                                if (mgr.isRequestPinAppWidgetSupported) {
+                                    mgr.requestPinAppWidget(provider, null, null)
+                                } else {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Nhấn giữ màn hình chính → chọn Widget → Wally · Lịch & To-do.",
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            }
                         )
                     }
                 }
@@ -682,10 +741,10 @@ fun AppIntroDialog(
                 highlight = "Kế hoạch 60p vs Thực tế 72p hiển thị song song, không tự ghi đè"
             ),
             IntroSlide(
-                stepTitle = "4 / 4 · Wally làm trợ lý, bạn làm chủ",
-                headline = "Mọi đề xuất đều chờ bạn kiểm tra trước khi lưu",
-                body = "Kể lại ngày của bạn ở tab Wally hoặc Copy/Sửa + Revert prompt bất kỳ lúc nào. Từng đề xuất có đủ 3 nút ✓ Xác nhận · ✎ Sửa · ✕ Bỏ; không gì tự lưu vào sổ khi bạn chưa bấm đồng ý.",
-                highlight = "Bạn toàn quyền kiểm soát 100% dữ liệu của mình"
+                stepTitle = "4 / 4 · Wally đồng hành mọi lúc",
+                headline = "Trợ lý thời gian cá nhân giúp bạn học & làm có chủ đích hơn",
+                body = "Đồng hành qua Widget màn hình chính, Trợ lý nổi Wally và AI To-do — hỗ trợ sinh viên & người đi làm sắp xếp ưu tiên, phát hiện trễ hạn nhưng mọi thay đổi luôn chờ bạn xác nhận.",
+                highlight = "Wally gợi ý thông minh · Bạn luôn giữ quyền xác nhận cuối cùng"
             )
         )
     }

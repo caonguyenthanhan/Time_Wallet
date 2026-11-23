@@ -21,7 +21,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         HabitEntity::class,
         HabitLogEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = true   // v1.1.0+: schema JSON trong app/schemas để test migration đối chiếu DDL với Room thật
 )
 abstract class TimeWalletDatabase : RoomDatabase() {
@@ -337,6 +337,16 @@ abstract class TimeWalletDatabase : RoomDatabase() {
             }
         }
 
+        // v2.2.0 (7 -> 8): bổ sung bộ đếm số lần hoãn To-do để AI phát hiện nguy cơ trì hoãn & đề xuất chia nhỏ.
+        const val SQL_ADD_TASK_POSTPONED_COUNT =
+            "ALTER TABLE `tasks` ADD COLUMN `postponedCount` INTEGER NOT NULL DEFAULT 0"
+
+        val MIGRATION_7_8: Migration = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(SQL_ADD_TASK_POSTPONED_COUNT)
+            }
+        }
+
         @Volatile
         private var INSTANCE: TimeWalletDatabase? = null
 
@@ -347,7 +357,7 @@ abstract class TimeWalletDatabase : RoomDatabase() {
                     TimeWalletDatabase::class.java,
                     "time_wallet_ledger.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                     .build()
                     .also { INSTANCE = it }
             }

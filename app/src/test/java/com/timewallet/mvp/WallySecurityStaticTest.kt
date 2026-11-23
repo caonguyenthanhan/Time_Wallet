@@ -37,9 +37,14 @@ class WallySecurityStaticTest {
             "android.permission.INTERNET",
             "android.permission.POST_NOTIFICATIONS",
             "android.permission.RECEIVE_BOOT_COMPLETED",
-            "android.permission.REQUEST_INSTALL_PACKAGES"
+            "android.permission.REQUEST_INSTALL_PACKAGES",
+            "android.permission.SYSTEM_ALERT_WINDOW",
+            "android.permission.FOREGROUND_SERVICE",
+            "android.permission.FOREGROUND_SERVICE_SPECIAL_USE"
         )
-        assertTrue("chỉ xin quyền hợp lệ tối thiểu cho mạng/thông báo/cài APK cập nhật, phát hiện: $perms", perms.isNotEmpty() && perms.all { it in allowedPerms })
+        assertTrue("chỉ xin quyền hợp lệ tối thiểu cho mạng/thông báo/cài APK cập nhật/tiện ích nổi, phát hiện: $perms", perms.isNotEmpty() && perms.all { it in allowedPerms })
+        assertFalse("không dùng AccessibilityService đọc màn hình ngoài app", manifest.contains("BIND_ACCESSIBILITY_SERVICE"))
+        assertFalse("không xin quyền quét danh sách gói ứng dụng khác", manifest.contains("QUERY_ALL_PACKAGES") || manifest.contains("PACKAGE_USAGE_STATS"))
     }
 
     @Test

@@ -293,12 +293,16 @@ class V200ArchitectureAndFeatureTest {
     }
 
     @Test
-    fun `AndroidManifest retains strict 3-permission security contract and 4 tabs exist`() {
+    fun `AndroidManifest retains scoped permissions without invasive accessibility or usage stats and 4 tabs exist`() {
         val manifest = File("src/main/AndroidManifest.xml").readText()
         assertTrue(manifest.contains("android.permission.INTERNET"))
         assertTrue(manifest.contains("android.permission.POST_NOTIFICATIONS"))
         assertTrue(manifest.contains("android.permission.RECEIVE_BOOT_COMPLETED"))
-        assertFalse(manifest.contains("FOREGROUND_SERVICE"))
+        assertTrue(manifest.contains("android.permission.SYSTEM_ALERT_WINDOW"))
+        assertTrue(manifest.contains("android.permission.FOREGROUND_SERVICE_SPECIAL_USE"))
+        assertFalse(manifest.contains("BIND_ACCESSIBILITY_SERVICE"))
+        assertFalse(manifest.contains("QUERY_ALL_PACKAGES"))
+        assertFalse(manifest.contains("PACKAGE_USAGE_STATS"))
         assertEquals(listOf(AppTab.SCHEDULE, AppTab.TASKS, AppTab.FOCUS, AppTab.MORE), AppTab.entries)
     }
 

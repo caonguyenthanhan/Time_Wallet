@@ -461,6 +461,11 @@ class CompletionBootReceiver : BroadcastReceiver() {
                         nowEpochMs = now
                     )
                 }
+                com.timewallet.mvp.data.local.WallyActionController.notifyAllWidgets(appContext)
+                val floatingPrefs = runCatching { TimerAndSettingsStore(appContext).loadFloatingAssistantPrefs() }.getOrNull()
+                if (floatingPrefs?.enabled == true && android.provider.Settings.canDrawOverlays(appContext)) {
+                    runCatching { com.timewallet.mvp.overlay.WallyFloatingService.start(appContext) }
+                }
             } finally {
                 pendingResult.finish()
             }

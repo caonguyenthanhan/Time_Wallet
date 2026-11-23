@@ -75,7 +75,8 @@ data class TaskItem(
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
     val completedAt: Long? = null,
-    val subtasks: List<SubtaskItem> = emptyList()
+    val subtasks: List<SubtaskItem> = emptyList(),
+    val postponedCount: Int = 0
 ) {
     val isDone: Boolean get() = status == TaskStatus.DONE
     val effectiveQuadrant: EisenhowerQuad

@@ -144,6 +144,8 @@ data class PendingFocusLaunch(
 class MainActivity : ComponentActivity() {
     private val pendingNotificationRecordId = mutableStateOf<String?>(null)
     private val pendingFocusLaunch = mutableStateOf<PendingFocusLaunch?>(null)
+    private val pendingTabRoute = mutableStateOf<String?>(null)
+    private val pendingOpenWallyChat = mutableStateOf(false)
 
     private fun captureNotificationIntent(targetIntent: Intent?) {
         pendingNotificationRecordId.value = targetIntent?.getStringExtra(CompletionNotificationHelper.EXTRA_CONFIRM_RECORD_ID)
@@ -153,6 +155,12 @@ class MainActivity : ComponentActivity() {
                 categoryKey = targetIntent.getStringExtra(FocusPinNotificationManager.EXTRA_FOCUS_CATEGORY_KEY),
                 tagId = targetIntent.getStringExtra(FocusPinNotificationManager.EXTRA_FOCUS_TAG_ID)
             )
+        }
+        targetIntent?.getStringExtra(com.timewallet.mvp.data.local.WallyActionController.EXTRA_OPEN_TAB)?.let { tab ->
+            pendingTabRoute.value = tab
+        }
+        if (targetIntent?.getBooleanExtra(com.timewallet.mvp.data.local.WallyActionController.EXTRA_OPEN_CHAT, false) == true) {
+            pendingOpenWallyChat.value = true
         }
     }
 
@@ -165,7 +173,11 @@ class MainActivity : ComponentActivity() {
                     pendingNotificationRecordId = pendingNotificationRecordId.value,
                     onNotificationHandled = { pendingNotificationRecordId.value = null },
                     pendingFocusLaunch = pendingFocusLaunch.value,
-                    onFocusLaunchHandled = { pendingFocusLaunch.value = null }
+                    onFocusLaunchHandled = { pendingFocusLaunch.value = null },
+                    pendingTabRoute = pendingTabRoute.value,
+                    onPendingTabHandled = { pendingTabRoute.value = null },
+                    pendingOpenWallyChat = pendingOpenWallyChat.value,
+                    onPendingOpenChatHandled = { pendingOpenWallyChat.value = false }
                 )
             }
         }
@@ -195,7 +207,11 @@ fun TimeWalletAppRoot(
     pendingNotificationRecordId: String? = null,
     onNotificationHandled: () -> Unit = {},
     pendingFocusLaunch: PendingFocusLaunch? = null,
-    onFocusLaunchHandled: () -> Unit = {}
+    onFocusLaunchHandled: () -> Unit = {},
+    pendingTabRoute: String? = null,
+    onPendingTabHandled: () -> Unit = {},
+    pendingOpenWallyChat: Boolean = false,
+    onPendingOpenChatHandled: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -208,10 +224,11 @@ fun TimeWalletAppRoot(
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                viewModel.onAppResumed()
-            } else if (event == Lifecycle.Event.ON_PAUSE) {
-                viewModel.onAppPaused()
+            when (event) {
+                Lifecycle.Event.ON_START -> viewModel.checkUpdatesOnForeground()
+                Lifecycle.Event.ON_RESUME -> viewModel.onAppResumed()
+                Lifecycle.Event.ON_PAUSE -> viewModel.onAppPaused()
+                else -> {}
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -328,6 +345,21 @@ fun TimeWalletAppRoot(
         onFocusLaunchHandled()
     }
 
+    LaunchedEffect(pendingTabRoute) {
+        val route = pendingTabRoute ?: return@LaunchedEffect
+        AppTab.entries.firstOrNull { it.routeKey == route }?.let { tab ->
+            viewModel.selectTab(tab)
+        }
+        onPendingTabHandled()
+    }
+
+    LaunchedEffect(pendingOpenWallyChat) {
+        if (pendingOpenWallyChat) {
+            viewModel.openWallyOverlay()
+            onPendingOpenChatHandled()
+        }
+    }
+
     LaunchedEffect(state.currentTab, state.isShowingDailyReview, state.selectedReviewDateLocal) {
         scrollState.scrollTo(0)
     }
@@ -390,7 +422,8 @@ fun TimeWalletAppRoot(
                         { viewModel.openWallyOverlay() }
                     } else null,
                     onOpenQuickCapture = { viewModel.openQuickCaptureDialog() },
-                    wallyHasDrafts = state.proposals.isNotEmpty()
+                    wallyHasDrafts = state.proposals.isNotEmpty(),
+                    hasUpdateBadge = state.appUpdate.availableCandidate != null
                 )
             },
             bottomBar = {
@@ -484,6 +517,10 @@ fun TimeWalletAppRoot(
                             onStartTimer = viewModel::startTimer,
                             onStopAndSaveTimer = viewModel::stopAndSaveTimer,
                             onCancelTimer = viewModel::cancelRunningTimer,
+                            pausedTimer = state.pausedTimer,
+                            onPauseTimer = viewModel::pauseRunningTimer,
+                            onResumePausedTimer = viewModel::resumePausedTimer,
+                            onDiscardPausedTimer = viewModel::discardPausedTimer,
                             tagSuggestions = tagSuggestions,
                             selectedTagId = state.timerInputTagId,
                             onSelectTag = viewModel::selectTimerTag,
@@ -542,7 +579,17 @@ fun TimeWalletAppRoot(
                         onPauseGoal = viewModel::pauseGoal,
                         onResumeGoal = viewModel::resumeGoal,
                         onEndGoal = viewModel::endGoal,
-                        onOpenCustomization = viewModel::openProfileSettings
+                        onOpenCustomization = viewModel::openProfileSettings,
+                        todoRiskAlerts = state.todoRiskAlerts,
+                        todoAiReport = state.todoAiReport,
+                        todoAiAnalyzing = state.todoAiAnalyzing,
+                        onQuickAddNaturalTask = viewModel::quickAddNaturalTask,
+                        onEditTask = viewModel::editTask,
+                        onPostponeTask = viewModel::postponeTask,
+                        onAnalyzeTodoPlanWithWally = viewModel::analyzeTodoPlanWithWally,
+                        onApplyTodoProposal = viewModel::applyTodoProposal,
+                        onApplyAllTodoProposals = viewModel::applyAllTodoProposals,
+                        onDismissTodoProposal = viewModel::dismissTodoProposal
                     )
 
                     AppTab.MORE -> {
@@ -651,7 +698,7 @@ fun TimeWalletAppRoot(
             state.showProductInfoDialog ||
             state.appUpdate.showDialog ||
             imeBottomPx > 0
-        if (state.customization.enableAiAssistant && !modalBlockingPopOn) {
+        if (state.customization.enableAiAssistant && !modalBlockingPopOn && !state.floatingAssistantEnabled) {
             WallyPopOnBubble(
                 hasDrafts = state.proposals.isNotEmpty(),
                 bottomClearanceDp = if (state.showScheduleWorkspace) 18 else 78,
@@ -770,7 +817,10 @@ fun TimeWalletAppRoot(
             connectionTestMessage = state.aiConnectionTestMessage,
             connectionTesting = state.aiConnectionTesting,
             diagnosticsText = state.aiDiagnosticsText,
-            onTestConnection = viewModel::testAiConnection
+            onTestConnection = viewModel::testAiConnection,
+            availableModels = state.aiAvailableModels,
+            modelsLoading = state.aiModelsLoading,
+            onFetchModels = viewModel::fetchAvailableAiModels
         )
     }
 
@@ -849,6 +899,7 @@ fun TimeWalletAppRoot(
             onLaunchVerifiedInstaller = viewModel::launchVerifiedInstaller,
             onSkipCandidate = viewModel::skipAvailableAppUpdate,
             onToggleAutoCheck = viewModel::setAutoUpdateCheckEnabled,
+            onSelectCheckInterval = viewModel::setUpdateCheckInterval,
             onDismiss = viewModel::dismissAppUpdateDialog
         )
     }
@@ -879,7 +930,16 @@ fun TimeWalletAppRoot(
             onAddLocalRule = { kw, catKey, markWaste -> viewModel.addLocalCategoryRule(kw, catKey, markWaste = markWaste) },
             onDeleteLocalRule = viewModel::deleteLocalCategoryRule,
             appUpdate = state.appUpdate,
-            onOpenAppUpdate = viewModel::openAppUpdateDialog
+            onOpenAppUpdate = viewModel::openAppUpdateDialog,
+            floatingAssistantEnabled = state.floatingAssistantEnabled,
+            onToggleFloatingAssistant = viewModel::setFloatingAssistantEnabled,
+            onRequestOverlayPermission = {
+                val pkgUri = Uri.parse("package:${context.packageName}")
+                val intent = Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, pkgUri)
+                runCatching { context.startActivity(intent) }.onFailure {
+                    viewModel.showToast("Không mở được màn hình cấp quyền Hiển thị trên ứng dụng khác.")
+                }
+            }
         )
     }
 

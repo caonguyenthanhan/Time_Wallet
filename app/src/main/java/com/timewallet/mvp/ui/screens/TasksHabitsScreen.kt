@@ -67,10 +67,13 @@ import com.timewallet.mvp.domain.model.TaskItem
 import com.timewallet.mvp.domain.model.TaskPriority
 import com.timewallet.mvp.domain.model.TaskStatus
 import com.timewallet.mvp.domain.model.TimeCategory
+import com.timewallet.mvp.domain.usecase.AiTodoAnalysisReport
+import com.timewallet.mvp.domain.usecase.AiTodoProposal
 import com.timewallet.mvp.domain.usecase.GoalRules
 import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
 import com.timewallet.mvp.domain.usecase.TaskHabitEngine
 import com.timewallet.mvp.domain.usecase.TaskSmartFilter
+import com.timewallet.mvp.domain.usecase.TodoRiskAlert
 import com.timewallet.mvp.ui.theme.WalletBg
 import com.timewallet.mvp.ui.theme.WalletCardBg
 import com.timewallet.mvp.ui.theme.WalletDangerBg
@@ -86,6 +89,7 @@ import com.timewallet.mvp.ui.theme.WalletMuted
 import com.timewallet.mvp.ui.theme.WalletSoftNeutral
 import com.timewallet.mvp.ui.theme.WalletStroke
 import com.timewallet.mvp.ui.theme.WalletUntrackedBar
+import com.timewallet.mvp.ui.theme.WalletWarningBg
 import com.timewallet.mvp.ui.theme.WalletWarningText
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -128,7 +132,17 @@ fun TasksHabitsScreen(
     onPauseGoal: (String) -> Unit,
     onResumeGoal: (String) -> Unit,
     onEndGoal: (String) -> Unit,
-    onOpenCustomization: () -> Unit
+    onOpenCustomization: () -> Unit,
+    todoRiskAlerts: List<TodoRiskAlert> = emptyList(),
+    todoAiReport: AiTodoAnalysisReport? = null,
+    todoAiAnalyzing: Boolean = false,
+    onQuickAddNaturalTask: (String) -> Unit = {},
+    onEditTask: (TaskItem, String, String, TaskPriority, Int?, String?, String?, String?) -> Unit = { _, _, _, _, _, _, _, _ -> },
+    onPostponeTask: (TaskItem, Long) -> Unit = { _, _ -> },
+    onAnalyzeTodoPlanWithWally: () -> Unit = {},
+    onApplyTodoProposal: (AiTodoProposal) -> Unit = {},
+    onApplyAllTodoProposals: () -> Unit = {},
+    onDismissTodoProposal: (String) -> Unit = {}
 ) {
     val visibleSections = remember(customization.enableHabits, customization.enableKanban, customization.enableEisenhower) {
         buildList {
@@ -143,6 +157,8 @@ fun TasksHabitsScreen(
     val activeSection = if (selectedSection in visibleSections) selectedSection else TasksHubSection.TASKS
 
     var showCreateTaskDialog by remember { mutableStateOf(false) }
+    var editingTask by remember { mutableStateOf<TaskItem?>(null) }
+    var naturalTodoText by remember { mutableStateOf("") }
     var showCreateHabitDialog by remember { mutableStateOf(false) }
 
     Column(
@@ -168,7 +184,7 @@ fun TasksHabitsScreen(
                         text = when (activeSection) {
                             TasksHubSection.GOALS -> "+ Mục tiêu"
                             TasksHubSection.HABITS -> "+ Thói quen"
-                            else -> "+ Thêm việc"
+                            else -> "+ Việc"
                         },
                         fontSize = 12.sp,
                         fontWeight = FontWeight.ExtraBold,
@@ -215,6 +231,184 @@ fun TasksHabitsScreen(
                     TaskHabitEngine.filterTasks(tasks, taskFilter, todayDateLocal)
                 }
                 val inboxCount = remember(tasks) { tasks.count { it.status == TaskStatus.INBOX && !it.isDone } }
+                val risksByTaskId = remember(todoRiskAlerts) { todoRiskAlerts.groupBy { it.taskId } }
+
+                // Nhập nhanh bằng ngôn ngữ tự nhiên + nút gọi Wally AI To-do
+                SoftCard(padding = 10.dp) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = naturalTodoText,
+                                onValueChange = { naturalTodoText = it },
+                                placeholder = { Text("Thêm nhanh (vd: Nộp báo cáo mai 15h 45p P1)", fontSize = 12.sp) },
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
+                            )
+                            Button(
+                                onClick = {
+                                    val clean = naturalTodoText.trim()
+                                    if (clean.isNotEmpty()) {
+                                        onQuickAddNaturalTask(clean)
+                                        naturalTodoText = ""
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.heightIn(min = 48.dp)
+                            ) {
+                                Text("+", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Tự tách hạn, thời lượng, P1–P3",
+                                fontSize = 11.sp,
+                                color = WalletMuted
+                            )
+                            WalletPill(
+                                onClickLabel = "Wally phân tích To-do & xếp lịch",
+                                containerColor = WalletMintSoft,
+                                borderColor = WalletMintAccent,
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
+                                onClick = { if (!todoAiAnalyzing) onAnalyzeTodoPlanWithWally() }
+                            ) {
+                                Text(
+                                    text = if (todoAiAnalyzing) "Đang phân tích..." else "✦ Wally lập kế hoạch",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = WalletMintAccent
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Cảnh báo rủi ro tất định (Quá hạn, trùng lịch, hoãn nhiều, quá tải)
+                if (todoRiskAlerts.isNotEmpty()) {
+                    SoftCard(padding = 10.dp) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "⚠ Lưu ý khối lượng & hạn (${todoRiskAlerts.size})",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = WalletWarningText
+                            )
+                            todoRiskAlerts.take(3).forEach { alert ->
+                                Text(
+                                    text = "• ${alert.taskTitle}: ${alert.detailVi}",
+                                    fontSize = 11.5.sp,
+                                    color = if (alert.severityHigh) WalletDangerText else WalletInk
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Kế hoạch & đề xuất Wally AI To-do (LUÔN chờ xác nhận người dùng)
+                if (todoAiReport != null && (todoAiReport.summaryVi.isNotBlank() || todoAiReport.proposals.isNotEmpty())) {
+                    SoftCard(padding = 10.dp) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (todoAiReport.fromCloudAi) "✦ Wally AI đề xuất kế hoạch" else "⚡ Gợi ý sắp xếp (trên máy)",
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = WalletMintAccent
+                                )
+                                if (todoAiReport.proposals.size > 1) {
+                                    WalletPill(
+                                        onClickLabel = "Áp dụng tất cả đề xuất hợp lệ",
+                                        containerColor = WalletMintDark,
+                                        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 4.dp),
+                                        onClick = onApplyAllTodoProposals
+                                    ) {
+                                        Text("✓ Áp dụng hết", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                    }
+                                }
+                            }
+                            if (todoAiReport.summaryVi.isNotBlank()) {
+                                Text(
+                                    text = todoAiReport.summaryVi,
+                                    fontSize = 12.sp,
+                                    color = WalletInk
+                                )
+                            }
+                            todoAiReport.proposals.forEach { prop ->
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(WalletBg)
+                                        .border(
+                                            1.dp,
+                                            if (prop.conflictWarningVi != null) WalletDangerText else WalletStroke,
+                                            RoundedCornerShape(12.dp)
+                                        )
+                                        .padding(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = "${prop.kind.labelVi}: ${prop.taskTitle}",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = WalletInk
+                                    )
+                                    val timeHint = if (!prop.startHm.isNullOrBlank() && !prop.endHm.isNullOrBlank()) {
+                                        " (${prop.targetDateLocal ?: todayDateLocal} · ${prop.startHm}–${prop.endHm})"
+                                    } else if (!prop.targetDateLocal.isNullOrBlank()) {
+                                        " → ${prop.targetDateLocal}"
+                                    } else ""
+                                    Text(
+                                        text = "${prop.reasonVi}$timeHint",
+                                        fontSize = 11.sp,
+                                        color = WalletMuted
+                                    )
+                                    if (!prop.conflictWarningVi.isNullOrBlank()) {
+                                        Text(
+                                            text = "⚠ ${prop.conflictWarningVi}",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = WalletDangerText
+                                        )
+                                    }
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        WalletPill(
+                                            onClickLabel = "Xác nhận áp dụng ${prop.taskTitle}",
+                                            containerColor = WalletMintDark,
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                            onClick = { onApplyTodoProposal(prop) }
+                                        ) {
+                                            Text("✓ Áp dụng", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                        }
+                                        WalletPill(
+                                            onClickLabel = "Bỏ qua đề xuất ${prop.taskTitle}",
+                                            containerColor = WalletCardBg,
+                                            borderColor = WalletStroke,
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                            onClick = { onDismissTodoProposal(prop.id) }
+                                        ) {
+                                            Text("Bỏ qua", fontSize = 11.sp, color = WalletMuted)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
@@ -286,8 +480,8 @@ fun TasksHabitsScreen(
                         EmptyState(
                             glyph = WalletGlyph.CONFIRM,
                             title = "Chưa có việc trong \"${taskFilter.labelVi}\"",
-                            hint = "Bấm '+ Thêm việc' hoặc nút '+ Ghi' ở thanh trên để thu thập nhanh.",
-                            actionLabel = "+ Thêm việc",
+                            hint = "Bấm '+ Việc' ở góc trên hoặc nhập nhanh bằng tiếng Việt.",
+                            actionLabel = "+ Việc",
                             onAction = { showCreateTaskDialog = true }
                         )
                     }
@@ -296,12 +490,15 @@ fun TasksHabitsScreen(
                         TaskCard(
                             task = task,
                             loggedSeconds = TaskHabitEngine.computeTaskLoggedSeconds(task.id, records),
+                            riskAlerts = risksByTaskId[task.id].orEmpty(),
                             onToggleDone = { onToggleTaskDone(task) },
                             onToggleSubtask = onToggleSubtaskDone,
                             onAddSubtask = { subTitle -> onAddSubtask(task.id, subTitle) },
                             onStartFocus = { onStartFocusOnTask(task) },
                             onSchedule = { onScheduleTaskOnCalendar(task) },
                             onBreakDown = { onBreakDownTaskWithWally(task) },
+                            onEdit = { editingTask = task },
+                            onPostpone = { plusDays -> onPostponeTask(task, plusDays) },
                             onDelete = { onDeleteTask(task.id) }
                         )
                     }
@@ -820,6 +1017,19 @@ fun TasksHabitsScreen(
         )
     }
 
+    editingTask?.let { targetTask ->
+        EditTaskDialog(
+            task = targetTask,
+            todayDateLocal = todayDateLocal,
+            tags = tags,
+            onSave = { title, catKey, prio, estMins, dueDate, dueTime, tagId ->
+                onEditTask(targetTask, title, catKey, prio, estMins, dueDate, dueTime, tagId)
+                editingTask = null
+            },
+            onDismiss = { editingTask = null }
+        )
+    }
+
     if (showCreateHabitDialog) {
         CreateHabitDialog(
             tags = tags,
@@ -836,12 +1046,15 @@ fun TasksHabitsScreen(
 private fun TaskCard(
     task: TaskItem,
     loggedSeconds: Long,
+    riskAlerts: List<TodoRiskAlert> = emptyList(),
     onToggleDone: () -> Unit,
     onToggleSubtask: (SubtaskItem) -> Unit,
     onAddSubtask: (String) -> Unit,
     onStartFocus: () -> Unit,
     onSchedule: () -> Unit,
     onBreakDown: () -> Unit,
+    onEdit: () -> Unit = {},
+    onPostpone: (Long) -> Unit = {},
     onDelete: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -912,9 +1125,23 @@ private fun TaskCard(
                         if (task.subtasks.isNotEmpty()) {
                             add("${task.subtasks.count { it.isDone }}/${task.subtasks.size} bước")
                         }
-                        task.dueDateLocal?.let { add("Hạn ${it.substring(5)}") }
+                        task.dueDateLocal?.let { d ->
+                            add(if (task.dueTimeLocal != null) "Hạn ${d.substring(5)} ${task.dueTimeLocal}" else "Hạn ${d.substring(5)}")
+                        }
+                        if (task.postponedCount > 0) add("Hoãn ${task.postponedCount}x")
                     }.joinToString(" · ")
                     Text(meta, fontSize = 11.sp, color = WalletMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    if (riskAlerts.isNotEmpty()) {
+                        val topRisk = riskAlerts.first()
+                        Text(
+                            text = "⚠ ${topRisk.kind.shortLabel}: ${topRisk.detailVi}",
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (topRisk.severityHigh) WalletDangerText else WalletWarningText,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
 
                 if (!task.isDone) {
@@ -959,10 +1186,31 @@ private fun TaskCard(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("✦ Chia nhỏ với Wally AI", fontSize = 13.sp, color = WalletMintAccent) },
+                                text = { Text("✦ Đề xuất chia nhỏ (Wally)", fontSize = 13.sp, color = WalletMintAccent) },
                                 onClick = {
                                     menuOpen = false
                                     onBreakDown()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("✎ Sửa công việc", fontSize = 13.sp, color = WalletInk) },
+                                onClick = {
+                                    menuOpen = false
+                                    onEdit()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("⏭ Hoãn +1 ngày", fontSize = 13.sp, color = WalletWarningText) },
+                                onClick = {
+                                    menuOpen = false
+                                    onPostpone(1L)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("⏭ Hoãn sang tuần sau (+7 ngày)", fontSize = 13.sp, color = WalletWarningText) },
+                                onClick = {
+                                    menuOpen = false
+                                    onPostpone(7L)
                                 }
                             )
                         }
@@ -1265,6 +1513,141 @@ private fun CreateHabitDialog(
                 colors = ButtonDefaults.buttonColors(containerColor = WalletMintDark, contentColor = Color.White)
             ) {
                 Text("Lưu thói quen", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Hủy", color = WalletMuted) }
+        }
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun EditTaskDialog(
+    task: TaskItem,
+    todayDateLocal: String,
+    tags: List<Tag>,
+    onSave: (title: String, categoryKey: String, priority: TaskPriority, estimatedMinutes: Int?, dueDateLocal: String?, dueTimeLocal: String?, tagId: String?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var title by remember(task.id) { mutableStateOf(task.title) }
+    var categoryKey by remember(task.id) { mutableStateOf(task.category.key) }
+    var priority by remember(task.id) { mutableStateOf(task.priority) }
+    var estMinsText by remember(task.id) { mutableStateOf(task.estimatedMinutes?.toString().orEmpty()) }
+    var dueDateText by remember(task.id) { mutableStateOf(task.dueDateLocal.orEmpty()) }
+    var dueTimeText by remember(task.id) { mutableStateOf(task.dueTimeLocal.orEmpty()) }
+    var selectedTagId by remember(task.id) { mutableStateOf(task.tagId) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = WalletCardBg,
+        title = { Text("Sửa công việc", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Tên công việc") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    TaskPriority.entries.forEach { p ->
+                        val isSel = priority == p
+                        Text(
+                            text = p.badgeText,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSel) Color.White else WalletInk,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(100.dp))
+                                .background(if (isSel) WalletMintDark else WalletMintTint)
+                                .walletClickable(onClickLabel = p.labelVi) { priority = p }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
+                    Text(
+                        text = if (dueDateText == todayDateLocal) "Hôm nay" else "Đặt Hôm nay",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (dueDateText == todayDateLocal) Color.White else WalletMintAccent,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(100.dp))
+                            .background(if (dueDateText == todayDateLocal) WalletMint else WalletMintTint)
+                            .walletClickable(onClickLabel = "Đặt hạn hôm nay") {
+                                dueDateText = todayDateLocal
+                            }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = dueDateText,
+                        onValueChange = { dueDateText = it.take(10) },
+                        label = { Text("Ngày (YYYY-MM-DD)") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1.3f)
+                    )
+                    OutlinedTextField(
+                        value = dueTimeText,
+                        onValueChange = { dueTimeText = it.take(5) },
+                        label = { Text("Giờ (HH:mm)") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                OutlinedTextField(
+                    value = estMinsText,
+                    onValueChange = { s -> estMinsText = s.filter(Char::isDigit).take(3) },
+                    label = { Text("Thời lượng dự kiến (phút)") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                CategoryChipRow(selectedKey = categoryKey, onSelectCategory = { categoryKey = it })
+                if (tags.isNotEmpty()) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        tags.filter { !it.isArchived }.take(6).forEach { t ->
+                            ChoiceChip(t.name, selectedTagId == t.id, "Tag ${t.name}", leadingCategory = t.category) {
+                                selectedTagId = if (selectedTagId == t.id) null else t.id
+                                categoryKey = t.category.key
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val est = estMinsText.toIntOrNull()?.coerceIn(5, 480)
+                    onSave(
+                        title,
+                        categoryKey,
+                        priority,
+                        est,
+                        dueDateText.trim().takeIf { it.isNotEmpty() },
+                        dueTimeText.trim().takeIf { it.isNotEmpty() },
+                        selectedTagId
+                    )
+                },
+                enabled = title.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = WalletMintDark, contentColor = Color.White)
+            ) {
+                Text("Lưu", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {

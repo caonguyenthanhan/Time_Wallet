@@ -28,7 +28,16 @@ import com.timewallet.mvp.data.local.TagEntity
 import com.timewallet.mvp.data.local.TimeWalletDatabase
 import com.timewallet.mvp.data.local.TimerAndSettingsStore
 import com.timewallet.mvp.data.local.TimerInputDraft
+import com.timewallet.mvp.data.local.WallyActionController
+import com.timewallet.mvp.domain.model.PausedTimerContinuation
+import com.timewallet.mvp.domain.usecase.AiTodoAnalysisReport
+import com.timewallet.mvp.domain.usecase.AiTodoEngine
+import com.timewallet.mvp.domain.usecase.AiTodoProposal
+import com.timewallet.mvp.domain.usecase.AiTodoProposalKind
 import com.timewallet.mvp.domain.usecase.AppUpdateUiState
+import com.timewallet.mvp.domain.usecase.TodoRiskAlert
+import com.timewallet.mvp.domain.usecase.fingerprint
+import com.timewallet.mvp.overlay.WallyFloatingService
 import com.timewallet.mvp.domain.model.ConfirmationState
 import com.timewallet.mvp.domain.model.Goal
 import com.timewallet.mvp.domain.model.GoalGroupState
@@ -444,6 +453,8 @@ data class TimeWalletUiState(
     val lastCrashReport: String? = null,
     val aiConnectionTestMessage: String? = null,
     val aiConnectionTesting: Boolean = false,
+    val aiAvailableModels: List<String> = emptyList(),
+    val aiModelsLoading: Boolean = false,
     val aiDiagnosticsText: String = "",
     val toastMessage: String? = null,
     // Wally 2.0 state
@@ -468,7 +479,12 @@ data class TimeWalletUiState(
     val exportedMarkdownContent: String? = null,
     val selectedMoreSection: Int = 0,
     val appUpdate: AppUpdateUiState = AppUpdateUiState(),
-    val pendingApkInstallPath: String? = null
+    val pendingApkInstallPath: String? = null,
+    val pausedTimer: PausedTimerContinuation? = null,
+    val todoRiskAlerts: List<TodoRiskAlert> = emptyList(),
+    val todoAiReport: AiTodoAnalysisReport? = null,
+    val todoAiAnalyzing: Boolean = false,
+    val floatingAssistantEnabled: Boolean = false
 )
 
 class TimeWalletViewModel(application: Application) : AndroidViewModel(application) {
@@ -587,7 +603,10 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 customization = runCatching { settingsStore.loadCustomizationSettings() }.getOrDefault(CustomizationSettings()),
                 aiReadPermissions = runCatching { settingsStore.loadAiReadPermissions() }.getOrDefault(AiReadPermissions()),
                 localRules = runCatching { settingsStore.loadLocalRules() }.getOrDefault(emptyList()),
-                appUpdate = appUpdater.initialUiState()
+                appUpdate = appUpdater.initialUiState(),
+                pausedTimer = runCatching { settingsStore.loadPausedTimer() }.getOrNull(),
+                floatingAssistantEnabled = runCatching { settingsStore.loadFloatingAssistantPrefs().enabled }.getOrDefault(false),
+                todoAiReport = runCatching { AiTodoEngine.deserializeReport(settingsStore.loadTodoAiAnalysisJson()) }.getOrNull()
             )
         }
         appUpdater.checkOnStartupIfDue()
@@ -679,7 +698,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             combine(taskDao.observeAllTasks(), taskDao.observeAllSubtasks()) { taskEntities, subtaskEntities ->
                 Wally20Coordinator.assembleTasks(taskEntities, subtaskEntities)
             }.collect { assembledTasks ->
-                _uiState.update { it.copy(tasks = assembledTasks) }
+                recomputeStats(records = _uiState.value.records, tasks = assembledTasks)
             }
         }
         viewModelScope.launch(safeHandler) {
@@ -881,6 +900,38 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             }
             if (seq != recomputeSeq.get()) return@launch
             reminderScheduler.syncFocusPin(pinEnabled, records, activeTimer, nowMs)
+            val currentPerms = _uiState.value.aiReadPermissions
+            val (todoRisks, revalidatedTodoReport) = withContext(Dispatchers.Default) {
+                val risks = AiTodoEngine.analyzeWorkloadAndRisks(
+                    tasks = tasks,
+                    records = records,
+                    activeTimer = activeTimer,
+                    todayLocal = todayStr,
+                    nowEpochMs = nowMs,
+                    zoneId = zone
+                )
+                val existingReport = _uiState.value.todoAiReport
+                val updatedReport = existingReport?.let { rep ->
+                    rep.copy(
+                        proposals = AiTodoEngine.revalidateTodoProposals(
+                            proposals = rep.proposals,
+                            tasks = tasks,
+                            records = records,
+                            activeTimer = activeTimer,
+                            todayLocal = todayStr,
+                            nowEpochMs = nowMs,
+                            zoneId = zone
+                        ),
+                        risks = risks
+                    )
+                }
+                risks to updatedReport
+            }
+            if (seq != recomputeSeq.get()) return@launch
+            if (revalidatedTodoReport != null && currentPerms.readTasks) {
+                settingsStore.saveTodoAiAnalysisJson(AiTodoEngine.serializeReport(revalidatedTodoReport))
+            }
+            WallyActionController.notifyAllWidgets(getApplication())
             _uiState.update { state ->
                 state.copy(
                     todayDateLocal = d.todayDateLocal,
@@ -895,7 +946,9 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                     focusPinPreview = resolvedPin,
                     unifiedGoals = unifiedGoalsList,
                     peakFocusWindow = extrasPair.first,
-                    planAccuracySummary = extrasPair.second
+                    planAccuracySummary = extrasPair.second,
+                    todoRiskAlerts = todoRisks,
+                    todoAiReport = revalidatedTodoReport
                 )
             }
         }
@@ -936,19 +989,24 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
      */
     fun onAppResumed() {
         val persistedTimer = settingsStore.loadActiveTimer()
+        val persistedPaused = runCatching { settingsStore.loadPausedTimer() }.getOrNull()
+        val persistedFloating = runCatching { settingsStore.loadFloatingAssistantPrefs().enabled }.getOrDefault(false)
         val persistedFocusPin = runCatching { settingsStore.isFocusPinEnabled() }.getOrDefault(false)
         _uiState.update { cur ->
             cur.copy(
-                activeTimer = if (cur.activeTimer == null && persistedTimer != null) persistedTimer else cur.activeTimer,
+                activeTimer = persistedTimer,
+                pausedTimer = persistedPaused,
+                floatingAssistantEnabled = persistedFloating && android.provider.Settings.canDrawOverlays(getApplication()),
                 focusPinEnabled = persistedFocusPin
             )
         }
         val nowMs = System.currentTimeMillis()
         reminderScheduler.syncReminders(_uiState.value.records, nowMs)
-        reminderScheduler.syncFocusPin(persistedFocusPin, _uiState.value.records, _uiState.value.activeTimer, nowMs)
+        reminderScheduler.syncFocusPin(persistedFocusPin, _uiState.value.records, persistedTimer, nowMs)
         refreshTimerTick()
         recomputeStats(_uiState.value.records)
         startTicker()
+        WallyActionController.notifyAllWidgets(getApplication())
     }
 
     fun toggleFocusPin(enabled: Boolean) {
@@ -1165,12 +1223,14 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             targetDurationSeconds = face.durationSeconds,
             startedBootCount = currentBootCount
         )
+        settingsStore.savePausedTimer(null, immediate = true)
         settingsStore.saveActiveTimer(session)
         settingsStore.saveTimerInputDraft(null, immediate = true)
         _timerTickState.value = TimerTickState()
         _uiState.update {
             it.copy(
                 activeTimer = session,
+                pausedTimer = null,
                 timerInputTitle = face.activityTitle,
                 timerInputCategoryKey = face.category.key,
                 currentTab = AppTab.FOCUS
@@ -1202,16 +1262,68 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             startedBootCount = currentBootCount,
             tagId = current.timerInputTagId
         )
+        settingsStore.savePausedTimer(null, immediate = true)
         settingsStore.saveActiveTimer(session)
         settingsStore.saveTimerInputDraft(null, immediate = true)
         _timerTickState.value = TimerTickState()
         _uiState.update {
             it.copy(
-                activeTimer = session
+                activeTimer = session,
+                pausedTimer = null
             )
         }
         recomputeStats(_uiState.value.records)
         showToast("Đồng hồ đã bắt đầu đo.")
+    }
+
+    fun pauseRunningTimer() {
+        if (_uiState.value.activeTimer == null) return
+        viewModelScope.launch(safeHandler) {
+            when (val res = WallyActionController.pauseActiveTimer(getApplication())) {
+                is WallyActionController.ActionOutcome.Ok -> {
+                    _timerTickState.value = TimerTickState()
+                    _uiState.update {
+                        it.copy(
+                            activeTimer = null,
+                            pausedTimer = settingsStore.loadPausedTimer()
+                        )
+                    }
+                    recomputeStats(_uiState.value.records)
+                    showToast(res.messageVi)
+                }
+                is WallyActionController.ActionOutcome.Blocked -> showToast(res.messageVi)
+            }
+        }
+    }
+
+    fun resumePausedTimer() {
+        if (_uiState.value.pausedTimer == null || _uiState.value.activeTimer != null) return
+        viewModelScope.launch(safeHandler) {
+            when (val res = WallyActionController.resumePausedTimer(getApplication())) {
+                is WallyActionController.ActionOutcome.Ok -> {
+                    val resumed = settingsStore.loadActiveTimer()
+                    _timerTickState.value = TimerTickState()
+                    _uiState.update {
+                        it.copy(
+                            activeTimer = resumed,
+                            pausedTimer = null
+                        )
+                    }
+                    refreshTimerTick()
+                    startTicker()
+                    recomputeStats(_uiState.value.records)
+                    showToast(res.messageVi)
+                }
+                is WallyActionController.ActionOutcome.Blocked -> showToast(res.messageVi)
+            }
+        }
+    }
+
+    fun discardPausedTimer() {
+        settingsStore.savePausedTimer(null, immediate = true)
+        _uiState.update { it.copy(pausedTimer = null) }
+        WallyActionController.notifyAllWidgets(getApplication())
+        showToast("Đã đóng bộ đếm đang tạm dừng (phần đã đo trước đó vẫn giữ trong Sổ cái).")
     }
 
     fun stopAndSaveTimer() {
@@ -1314,10 +1426,12 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
 
     private fun finishTimerAfterCommit() {
         settingsStore.saveActiveTimer(null)
+        settingsStore.savePausedTimer(null, immediate = true)
         _timerTickState.value = TimerTickState()
         _uiState.update {
             it.copy(
                 activeTimer = null,
+                pausedTimer = null,
                 currentTab = AppTab.SCHEDULE
             )
         }
@@ -3517,6 +3631,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 showAiSettingsDialog = show,
                 aiConnectionTestMessage = null,
                 aiConnectionTesting = false,
+                aiAvailableModels = emptyList(),
+                aiModelsLoading = false,
                 aiDiagnosticsText = if (show) aiDiagnosticsReport() else ""
             )
         }
@@ -3542,6 +3658,27 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                     aiConnectionTestMessage = (if (result.ok) "✓ " else "✗ ") + result.detailVi +
                         (result.httpStatus?.let { s -> " (HTTP $s)" } ?: "") + " · mã ${result.requestId}",
                     aiDiagnosticsText = aiDiagnosticsReport()
+                )
+            }
+        }
+    }
+
+    /** Tải danh sách model từ `/models` của endpoint đang cấu hình (HTTPS + khóa hợp lệ). */
+    fun fetchAvailableAiModels(baseUrl: String, apiKey: String) {
+        if (_uiState.value.aiModelsLoading) return
+        _uiState.update { it.copy(aiModelsLoading = true, aiConnectionTestMessage = null) }
+        aiTestJob?.cancel()
+        aiTestJob = viewModelScope.launch(safeHandler) {
+            val result = try {
+                GeminiProposalClient.fetchAvailableModels(baseUrl = baseUrl, apiKey = apiKey)
+            } finally {
+                _uiState.update { it.copy(aiModelsLoading = false) }
+            }
+            _uiState.update {
+                it.copy(
+                    aiAvailableModels = if (result.ok) result.models else it.aiAvailableModels,
+                    aiConnectionTestMessage = (if (result.ok) "✓ " else "✗ ") + result.detailVi +
+                        (result.httpStatus?.let { s -> " (HTTP $s)" } ?: "") + " · mã ${result.requestId}"
                 )
             }
         }
@@ -3815,12 +3952,14 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             tagId = task.tagId,
             taskId = task.id
         )
+        settingsStore.savePausedTimer(null, immediate = true)
         settingsStore.saveActiveTimer(session)
         settingsStore.saveTimerInputDraft(null, immediate = true)
         _timerTickState.value = TimerTickState()
         _uiState.update {
             it.copy(
                 activeTimer = session,
+                pausedTimer = null,
                 timerInputTitle = task.title,
                 timerInputCategoryKey = task.category.key,
                 timerInputTagId = task.tagId,
@@ -3829,6 +3968,96 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         }
         recomputeStats(_uiState.value.records)
         showToast("▶ Đã bắt đầu tập trung: ${task.title}.")
+    }
+
+    fun quickAddNaturalTask(rawInput: String) {
+        val cleanRaw = rawInput.trim()
+        if (cleanRaw.isEmpty()) {
+            showToast("Hãy nhập nội dung công việc.")
+            return
+        }
+        val s = _uiState.value
+        val today = runCatching { LocalDate.parse(s.todayDateLocal) }.getOrElse { LocalDate.now() }
+        val parsed = AiTodoEngine.parseNaturalTaskInput(
+            rawInput = cleanRaw,
+            today = today,
+            tags = s.tags,
+            rules = s.localRules
+        ) ?: run {
+            showToast("Không đọc được tên công việc.")
+            return
+        }
+        val nowMs = System.currentTimeMillis()
+        val matchedTag = parsed.tagId ?: TagRules.matchTitle(parsed.title, s.tags)?.id
+        val newTask = TaskItem(
+            id = UUID.randomUUID().toString(),
+            title = parsed.title,
+            category = parsed.category,
+            tagId = matchedTag,
+            priority = parsed.priority,
+            estimatedMinutes = parsed.estimatedMinutes,
+            dueDateLocal = parsed.dueDateLocal,
+            dueTimeLocal = parsed.dueTimeLocal,
+            status = if (parsed.dueDateLocal != null) TaskStatus.TODO else TaskStatus.INBOX,
+            createdAt = nowMs,
+            updatedAt = nowMs
+        )
+        viewModelScope.launch(safeHandler) {
+            taskDao.upsertTask(TaskEntity.fromDomain(newTask))
+            showToast("Đã thêm To-do: \"${newTask.title}\".")
+        }
+    }
+
+    fun editTask(
+        task: TaskItem,
+        title: String,
+        categoryKey: String,
+        priority: TaskPriority,
+        estimatedMinutes: Int?,
+        dueDateLocal: String?,
+        dueTimeLocal: String?,
+        tagId: String?
+    ) {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isEmpty()) {
+            showToast("Tên công việc không được để trống.")
+            return
+        }
+        val cleanDate = dueDateLocal?.trim()?.takeIf { it.isNotEmpty() }
+        val cleanTime = dueTimeLocal?.trim()?.takeIf { it.isNotEmpty() && cleanDate != null }
+        val updated = task.copy(
+            title = cleanTitle,
+            category = TimeCategory.fromKeyOrDefault(categoryKey),
+            priority = priority,
+            estimatedMinutes = estimatedMinutes?.coerceIn(5, 480),
+            dueDateLocal = cleanDate,
+            dueTimeLocal = cleanTime,
+            tagId = tagId,
+            status = if (cleanDate != null && task.status == TaskStatus.INBOX) TaskStatus.TODO else task.status,
+            updatedAt = System.currentTimeMillis()
+        )
+        viewModelScope.launch(safeHandler) {
+            taskDao.upsertTask(TaskEntity.fromDomain(updated))
+            showToast("Đã cập nhật \"${updated.title}\".")
+        }
+    }
+
+    fun postponeTask(task: TaskItem, plusDays: Long) {
+        val baseDate = task.dueDateLocal?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            ?: runCatching { LocalDate.parse(_uiState.value.todayDateLocal) }.getOrElse { LocalDate.now() }
+        val nextDate = baseDate.plusDays(plusDays.coerceAtLeast(1L)).toString()
+        val nextPostponed = task.postponedCount + 1
+        val updated = task.copy(
+            dueDateLocal = nextDate,
+            status = if (task.status == TaskStatus.INBOX) TaskStatus.TODO else task.status,
+            postponedCount = nextPostponed,
+            updatedAt = System.currentTimeMillis()
+        )
+        viewModelScope.launch(safeHandler) {
+            taskDao.upsertTask(TaskEntity.fromDomain(updated))
+            val extraHint = if (nextPostponed >= 2) " · Đã hoãn $nextPostponed lần, cân nhắc chia nhỏ." else ""
+            showToast("Đã hoãn \"${task.title}\" sang $nextDate$extraHint")
+        }
     }
 
     fun scheduleTaskOnCalendar(task: TaskItem, dateLocal: String? = null) {
@@ -3867,25 +4096,261 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    /**
+     * AI chỉ TẠO ĐỀ XUẤT chia nhỏ cần người dùng xác nhận, KHÔNG tự ý ghi subtask xuống DB.
+     */
     fun breakDownTaskWithWally(task: TaskItem) {
         if (!_uiState.value.aiReadPermissions.readTasks) {
             showToast("Quyền đọc Công việc & Inbox đang tắt trong Hồ sơ & Cài đặt.")
             return
         }
         val steps = Wally20Coordinator.proposeSubtasksOffline(task)
+        val proposal = AiTodoProposal(
+            id = "prop_split_${task.id}_${System.currentTimeMillis()}",
+            kind = AiTodoProposalKind.SPLIT_SUBTASKS,
+            taskId = task.id,
+            taskTitle = task.title,
+            reasonVi = "Đề xuất chia \"${task.title}\" thành ${steps.size} bước dễ bắt đầu hơn",
+            suggestedSubtasks = steps,
+            categoryKey = task.category.key,
+            needsConfirmation = true
+        )
+        val s = _uiState.value
+        val existing = s.todoAiReport
+        val mergedProposals = listOf(proposal) + (existing?.proposals.orEmpty().filterNot { it.taskId == task.id && it.kind == AiTodoProposalKind.SPLIT_SUBTASKS })
+        val nextReport = (existing ?: AiTodoAnalysisReport(
+            generatedAtEpochMs = System.currentTimeMillis(),
+            dateLocal = s.todayDateLocal,
+            fromCloudAi = false,
+            summaryVi = "Đã tạo đề xuất chia nhỏ cho \"${task.title}\" — hãy xem lại và bấm Áp dụng.",
+            orderedTaskIds = s.tasks.filter { !it.isDone }.map { it.id },
+            risks = s.todoRiskAlerts,
+            proposals = emptyList(),
+            permissionsFingerprint = s.aiReadPermissions.fingerprint()
+        )).copy(proposals = mergedProposals)
+        settingsStore.saveTodoAiAnalysisJson(AiTodoEngine.serializeReport(nextReport))
+        _uiState.update { it.copy(todoAiReport = nextReport) }
+        WallyActionController.notifyAllWidgets(getApplication())
+        showToast("✦ Wally đã tạo đề xuất chia nhỏ \"${task.title}\" — xem & bấm Áp dụng.")
+    }
+
+    fun analyzeTodoPlanWithWally() {
+        val s = _uiState.value
+        if (s.todoAiAnalyzing) return
+        if (!s.aiReadPermissions.readTasks) {
+            showToast("Hãy bật quyền AI đọc Công việc trong Hồ sơ & Cài đặt trước.")
+            return
+        }
+        _uiState.update { it.copy(todoAiAnalyzing = true) }
         viewModelScope.launch(safeHandler) {
-            val existingCount = task.subtasks.size
-            val newSubs = steps.mapIndexed { idx, stepTitle ->
-                SubtaskItem(
-                    id = UUID.randomUUID().toString(),
-                    taskId = task.id,
-                    title = stepTitle,
-                    isDone = false,
-                    sortOrder = existingCount + idx
+            try {
+                val ai = settingsStore.loadAiPreferences()
+                val outcome = com.timewallet.mvp.data.ai.WallyTodoAiPlanner.analyzeTodoPlan(
+                    tasks = s.tasks,
+                    records = s.records,
+                    activeTimer = s.activeTimer,
+                    todayLocal = s.todayDateLocal,
+                    nowTime = LocalTime.now(),
+                    zoneId = ZoneId.systemDefault(),
+                    aiReadPermissions = s.aiReadPermissions,
+                    optInEnabled = ai.optInEnabled,
+                    baseUrl = ai.baseUrl,
+                    apiKey = ai.apiKey,
+                    modelName = ai.actualModelDisplay(),
+                    trustedHost = ai.trustedHost
                 )
+                when (outcome) {
+                    is com.timewallet.mvp.data.ai.WallyTodoAiPlanner.TodoPlanOutcome.CloudReady -> {
+                        settingsStore.saveTodoAiAnalysisJson(AiTodoEngine.serializeReport(outcome.report))
+                        _uiState.update {
+                            it.copy(
+                                todoAiAnalyzing = false,
+                                todoAiReport = outcome.report,
+                                todoRiskAlerts = outcome.report.risks
+                            )
+                        }
+                        WallyActionController.notifyAllWidgets(getApplication())
+                        showToast("✦ Wally AI đã phân tích xong (${outcome.report.proposals.size} đề xuất chờ xác nhận).")
+                    }
+                    is com.timewallet.mvp.data.ai.WallyTodoAiPlanner.TodoPlanOutcome.OfflineFallback -> {
+                        settingsStore.saveTodoAiAnalysisJson(AiTodoEngine.serializeReport(outcome.report))
+                        _uiState.update {
+                            it.copy(
+                                todoAiAnalyzing = false,
+                                todoAiReport = outcome.report,
+                                todoRiskAlerts = outcome.report.risks
+                            )
+                        }
+                        WallyActionController.notifyAllWidgets(getApplication())
+                        showToast("${outcome.reasonVi} Đã tạo gợi ý trên máy chờ xác nhận.")
+                    }
+                    is com.timewallet.mvp.data.ai.WallyTodoAiPlanner.TodoPlanOutcome.Blocked -> {
+                        _uiState.update { it.copy(todoAiAnalyzing = false) }
+                        showToast(outcome.reasonVi)
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiState.update { it.copy(todoAiAnalyzing = false) }
+                showToast("Không thể phân tích AI To-do lúc này.")
             }
-            taskDao.upsertSubtasks(newSubs.map(SubtaskEntity::fromDomain))
-            showToast("✦ Wally đã chia \"${task.title}\" thành ${newSubs.size} bước nhỏ.")
+        }
+    }
+
+    fun applyTodoProposal(proposal: AiTodoProposal) {
+        viewModelScope.launch(safeHandler) {
+            val s = _uiState.value
+            val task = s.tasks.firstOrNull { it.id == proposal.taskId } ?: run {
+                dismissTodoProposal(proposal.id)
+                showToast("Công việc không còn tồn tại.")
+                return@launch
+            }
+            val nowMs = System.currentTimeMillis()
+            val zone = ZoneId.systemDefault()
+            val appliedOk = when (proposal.kind) {
+                AiTodoProposalKind.SPLIT_SUBTASKS -> {
+                    val existingCount = task.subtasks.size
+                    val subs = proposal.suggestedSubtasks.mapIndexed { idx, label ->
+                        SubtaskItem(
+                            id = UUID.randomUUID().toString(),
+                            taskId = task.id,
+                            title = label,
+                            isDone = false,
+                            sortOrder = existingCount + idx
+                        )
+                    }
+                    if (subs.isNotEmpty()) {
+                        taskDao.upsertSubtasks(subs.map(SubtaskEntity::fromDomain))
+                    }
+                    true
+                }
+
+                AiTodoProposalKind.PRIORITIZE_TODAY -> {
+                    val updated = task.copy(
+                        priority = proposal.suggestedPriority ?: TaskPriority.P1,
+                        dueDateLocal = proposal.targetDateLocal ?: s.todayDateLocal,
+                        status = if (task.status == TaskStatus.INBOX) TaskStatus.TODO else task.status,
+                        updatedAt = nowMs
+                    )
+                    taskDao.upsertTask(TaskEntity.fromDomain(updated))
+                    true
+                }
+
+                AiTodoProposalKind.POSTPONE_TO_TOMORROW -> {
+                    val nextDate = proposal.targetDateLocal ?: LocalDate.parse(s.todayDateLocal).plusDays(1).toString()
+                    val updated = task.copy(
+                        dueDateLocal = nextDate,
+                        postponedCount = task.postponedCount + 1,
+                        status = if (task.status == TaskStatus.INBOX) TaskStatus.TODO else task.status,
+                        updatedAt = nowMs
+                    )
+                    taskDao.upsertTask(TaskEntity.fromDomain(updated))
+                    true
+                }
+
+                AiTodoProposalKind.SCHEDULE_INTO_GAP -> {
+                    val targetDate = proposal.targetDateLocal ?: s.todayDateLocal
+                    val startHm = proposal.startHm
+                    val endHm = proposal.endHm
+                    if (startHm.isNullOrBlank() || endHm.isNullOrBlank()) {
+                        showToast("Đề xuất thiếu khung giờ — hãy xếp lịch thủ công.")
+                        false
+                    } else {
+                        val range = LedgerValidator.parseTimeRangeToEpochMillis(targetDate, startHm, endHm, zone)
+                        if (range == null || range.first <= nowMs) {
+                            showToast("Khung giờ $startHm–$endHm đã qua hoặc không hợp lệ — hãy bấm Phân tích lại.")
+                            false
+                        } else {
+                            val mins = ((range.second - range.first) / 60_000L).toInt().coerceIn(1, 1440)
+                            val input = BatchRecordInput(
+                                source = "todo_ai_plan",
+                                rawTitle = task.title,
+                                rawCategory = task.category.key,
+                                dateLocal = targetDate,
+                                durationMinutes = mins,
+                                startHm = startHm,
+                                endHm = endHm,
+                                convertFutureToPlanned = true,
+                                idempotencyKey = "todo_plan_${proposal.id}",
+                                tagId = task.tagId,
+                                taskId = task.id
+                            )
+                            when (val commitRes = com.timewallet.mvp.data.local.BatchConfirm.run(
+                                dao = ledgerDao,
+                                inputs = listOf(input),
+                                activeTimer = s.activeTimer,
+                                readActiveTimer = { settingsStore.loadActiveTimer() },
+                                nowEpochMs = nowMs,
+                                zone = zone
+                            )) {
+                                is com.timewallet.mvp.data.local.ConfirmResult.Committed -> {
+                                    taskDao.upsertTask(
+                                        TaskEntity.fromDomain(
+                                            task.copy(
+                                                dueDateLocal = targetDate,
+                                                dueTimeLocal = startHm,
+                                                status = if (task.status == TaskStatus.INBOX) TaskStatus.TODO else task.status,
+                                                updatedAt = nowMs
+                                            )
+                                        )
+                                    )
+                                    true
+                                }
+                                is com.timewallet.mvp.data.local.ConfirmResult.Aborted -> {
+                                    showToast("Khung giờ $startHm–$endHm vừa bị trùng: ${commitRes.message}")
+                                    false
+                                }
+                                is com.timewallet.mvp.data.local.ConfirmResult.Invalid -> {
+                                    showToast(commitRes.message)
+                                    false
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (appliedOk) {
+                dismissTodoProposal(proposal.id, silent = true)
+                showToast("✓ Đã áp dụng: ${proposal.kind.labelVi} cho \"${task.title}\".")
+            }
+        }
+    }
+
+    fun applyAllTodoProposals() {
+        val props = _uiState.value.todoAiReport?.proposals.orEmpty().filter { it.conflictWarningVi == null }
+        if (props.isEmpty()) {
+            showToast("Không có đề xuất hợp lệ để áp dụng.")
+            return
+        }
+        props.forEach { applyTodoProposal(it) }
+    }
+
+    fun dismissTodoProposal(proposalId: String, silent: Boolean = false) {
+        val rep = _uiState.value.todoAiReport ?: return
+        val remaining = rep.proposals.filterNot { it.id == proposalId }
+        val nextRep = if (!rep.fromCloudAi && remaining.isEmpty()) null else rep.copy(proposals = remaining)
+        settingsStore.saveTodoAiAnalysisJson(nextRep?.let(AiTodoEngine::serializeReport))
+        _uiState.update { it.copy(todoAiReport = nextRep) }
+        WallyActionController.notifyAllWidgets(getApplication())
+        if (!silent) showToast("Đã bỏ qua đề xuất.")
+    }
+
+    fun setFloatingAssistantEnabled(enabled: Boolean) {
+        val ctx = getApplication<Application>()
+        if (enabled && !android.provider.Settings.canDrawOverlays(ctx)) {
+            showToast("Hãy cấp quyền \"Hiển thị trên ứng dụng khác\" cho Time Wallet trước.")
+            return
+        }
+        val prev = settingsStore.loadFloatingAssistantPrefs()
+        settingsStore.saveFloatingAssistantPrefs(prev.copy(enabled = enabled), immediate = true)
+        _uiState.update { it.copy(floatingAssistantEnabled = enabled) }
+        if (enabled) {
+            runCatching { WallyFloatingService.start(ctx) }
+            showToast("Đã bật Trợ lý nổi Wally (chạm để chat · nhấn giữ mở bảng nhanh).")
+        } else {
+            runCatching { WallyFloatingService.stop(ctx) }
+            showToast("Đã tắt Trợ lý nổi Wally.")
         }
     }
 
@@ -4100,5 +4565,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
     fun launchVerifiedInstaller() = appUpdater.launchVerifiedInstaller()
     fun skipAvailableAppUpdate() = appUpdater.skipAvailableCandidate()
     fun setAutoUpdateCheckEnabled(enabled: Boolean) = appUpdater.setAutoCheckEnabled(enabled)
+    fun setUpdateCheckInterval(interval: com.timewallet.mvp.domain.usecase.UpdateCheckInterval) = appUpdater.setCheckInterval(interval)
+    fun checkUpdatesOnForeground() = appUpdater.checkOnStartupIfDue()
     fun consumePendingApkInstall() = appUpdater.consumePendingInstall()
 }

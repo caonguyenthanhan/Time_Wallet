@@ -1,0 +1,13 @@
+<resources>
+    <color name="widget_card_bg">#151D1B</color>
+    <color name="widget_card_stroke">#2A3B35</color>
+    <color name="widget_inner_bg">#1D2824</color>
+    <color name="widget_mint_soft">#1F473A</color>
+    <color name="widget_mint_solid">#2C8B6E</color>
+    <color name="widget_mint_accent">#7CE2BE</color>
+    <color name="widget_ink">#EEF5F1</color>
+    <color name="widget_muted">#9FB2A9</color>
+    <color name="widget_warning_bg">#332610</color>
+    <color name="widget_warning_text">#FFC97A</color>
+    <color name="widget_on_mint">#FFFFFF</color>
+</resources>

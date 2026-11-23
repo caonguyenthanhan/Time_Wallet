@@ -75,7 +75,8 @@ data class TaskEntity(
     val goalId: String?,
     val createdAt: Long,
     val updatedAt: Long,
-    val completedAt: Long?
+    val completedAt: Long?,
+    val postponedCount: Int = 0
 ) {
     fun toDomain(subtasks: List<SubtaskItem> = emptyList()): TaskItem = TaskItem(
         id = id,
@@ -94,7 +95,8 @@ data class TaskEntity(
         createdAt = createdAt,
         updatedAt = updatedAt,
         completedAt = completedAt,
-        subtasks = subtasks
+        subtasks = subtasks,
+        postponedCount = postponedCount
     )
 
     companion object {
@@ -114,7 +116,8 @@ data class TaskEntity(
             goalId = t.goalId,
             createdAt = t.createdAt,
             updatedAt = t.updatedAt,
-            completedAt = t.completedAt
+            completedAt = t.completedAt,
+            postponedCount = t.postponedCount.coerceAtLeast(0)
         )
     }
 }
