@@ -1839,17 +1839,41 @@ private fun DayTimelineGrid(
                     .verticalScroll(scrollState)
                     .padding(top = 4.dp, bottom = 10.dp)
             ) {
-                Column(modifier = Modifier.width(50.dp)) {
-                    for (h in 0 until 24) {
+                Box(modifier = Modifier.width(50.dp)) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        for (h in 0 until 24) {
+                            Box(
+                                modifier = Modifier.height(hourHeight).fillMaxWidth().padding(end = 5.dp),
+                                contentAlignment = Alignment.TopEnd
+                            ) {
+                                Text(
+                                    text = "%02d:00".format(h),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = WalletMuted,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+                    }
+                    if (isToday) {
+                        val nowYAxis = (nowMinute / 60f) * hourHeight.value
                         Box(
-                            modifier = Modifier.height(hourHeight).fillMaxWidth().padding(end = 5.dp),
-                            contentAlignment = Alignment.TopEnd
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .offset(y = (nowYAxis - 9f).dp)
+                                .padding(end = 4.dp)
+                                .zIndex(21f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(NowIndicatorCoral)
+                                .padding(horizontal = 4.5.dp, vertical = 1.dp)
                         ) {
                             Text(
-                                text = "%02d:00".format(h),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = WalletMuted,
+                                text = TimeRange.formatHm(nowMinute),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White,
                                 maxLines = 1,
                                 softWrap = false
                             )
@@ -2231,7 +2255,7 @@ private fun DayTimelineGrid(
                     }
 
                     val topDp = (effStart / 60f) * hourHeight.value
-                    val blockHeightDp = max(22f, (spanMinutes / 60f) * hourHeight.value)
+                    val blockHeightDp = max(28f, (spanMinutes / 60f) * hourHeight.value)
 
                     val latestBlock by rememberUpdatedState(block)
                     val latestEffRange by rememberUpdatedState(effStart to effEnd)
@@ -2438,39 +2462,26 @@ private fun DayTimelineGrid(
 
                 if (isToday) {
                     val nowY = (nowMinute / 60f) * hourHeight.value
+                    // Vẽ đường giờ hiện tại phía dưới lớp thẻ (zIndex 0.5f) để KHÔNG bao giờ che tên phiên ngắn;
+                    // nhãn giờ "HH:mm" đã được ghim gọn trong cột giờ bên trái.
                     Row(
                         modifier = Modifier
-                            .offset(y = (nowY - 9f).dp)
+                            .offset(y = (nowY - 3f).dp)
                             .fillMaxWidth()
-                            .zIndex(20f),
+                            .zIndex(0.5f),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(9.dp)
+                                .size(6.dp)
                                 .clip(CircleShape)
                                 .background(NowIndicatorCoral)
                         )
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(NowIndicatorCoral)
-                                .padding(horizontal = 5.dp, vertical = 1.dp)
-                        ) {
-                            Text(
-                                text = TimeRange.formatHm(nowMinute),
-                                fontSize = 9.5.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color.White,
-                                maxLines = 1,
-                                softWrap = false
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
                                 .weight(1f)
-                                .height(2.dp)
-                                .background(NowIndicatorCoral)
+                                .height(1.5.dp)
+                                .background(NowIndicatorCoral.copy(alpha = 0.8f))
                         )
                     }
                 }
@@ -2610,6 +2621,7 @@ private fun ScheduleEventCard(
         modifier = modifier
             .clipToBounds()
             .clip(RoundedCornerShape(10.dp))
+            .background(WalletCardBg)
             .background(
                 when {
                     hasConflictWarning -> WalletWarningBg.copy(alpha = 0.94f)
@@ -2655,6 +2667,11 @@ private fun ScheduleEventCard(
                     ),
                 verticalArrangement = Arrangement.spacedBy(if (block.laneCount > 1) 2.dp else 3.dp)
             ) {
+                val effectiveTimeLabel = if (isDraggingOrDraft) {
+                    "${TimeRange.formatHm(effectiveStartMin)}–${ScheduleGridEngine.formatHmEnd(effectiveEndMin)}"
+                } else {
+                    "${block.displayStartHm}–${block.displayEndHm}"
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -2667,8 +2684,8 @@ private fun ScheduleEventCard(
                     )
                     Text(
                         text = block.title,
-                        fontSize = if (compact) 12.sp else 13.5.sp,
-                        lineHeight = if (compact) 14.5.sp else 17.sp,
+                        fontSize = if (compact) 11.5.sp else 13.5.sp,
+                        lineHeight = if (compact) 13.sp else 17.sp,
                         fontWeight = FontWeight.Bold,
                         color = WalletInk,
                         maxLines = if (blockHeightDp >= 52.dp) 2 else 1,
@@ -2676,9 +2693,9 @@ private fun ScheduleEventCard(
                         modifier = Modifier.weight(1f)
                     )
                     if (block.laneCount == 1) {
-                        if (blockHeightDp < 32.dp) {
+                        if (compact) {
                             Text(
-                                text = "${TimeRange.formatHm(effectiveStartMin)}–${ScheduleGridEngine.formatHmEnd(effectiveEndMin)}",
+                                text = effectiveTimeLabel,
                                 fontSize = 10.5.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = accentColor,
@@ -2691,11 +2708,19 @@ private fun ScheduleEventCard(
                     }
                 }
 
-                if (!compact) {
+                if (compact && block.laneCount > 1) {
+                    Text(
+                        text = draggingLabel ?: effectiveTimeLabel,
+                        fontSize = 9.5.sp,
+                        lineHeight = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (hasConflictWarning) NowIndicatorCoral else accentColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                } else if (!compact) {
                     val timeWindow = draggingLabel ?: buildString {
-                        append(TimeRange.formatHm(effectiveStartMin))
-                        append("–")
-                        append(ScheduleGridEngine.formatHmEnd(effectiveEndMin))
+                        append(effectiveTimeLabel)
                         append(" · ")
                         append(TimeRange.formatDuration((effectiveEndMin - effectiveStartMin).coerceAtLeast(1)))
                         if (block.crossesMidnightFromPrev) append(" (từ hôm qua)")
@@ -3003,16 +3028,40 @@ private fun MultiDayTimelineGrid(
                         .verticalScroll(vScrollState)
                         .padding(top = 2.dp, bottom = 10.dp)
                 ) {
-                    Column(modifier = Modifier.width(axisWidth)) {
-                        for (h in 0 until 24) {
+                    Box(modifier = Modifier.width(axisWidth)) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            for (h in 0 until 24) {
+                                Box(
+                                    modifier = Modifier.height(hourHeight).fillMaxWidth().padding(end = 4.dp),
+                                    contentAlignment = Alignment.TopEnd
+                                ) {
+                                    Text(
+                                        text = "%02d:00".format(h),
+                                        fontSize = 9.5.sp,
+                                        color = WalletMuted,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+                        }
+                        if (days.any { it.dateLocal == todayStr }) {
+                            val nowAxisY = (nowMinute / 60f) * hourHeight.value
                             Box(
-                                modifier = Modifier.height(hourHeight).fillMaxWidth().padding(end = 4.dp),
-                                contentAlignment = Alignment.TopEnd
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .offset(y = (nowAxisY - 8f).dp)
+                                    .padding(end = 2.dp)
+                                    .zIndex(21f)
+                                    .clip(RoundedCornerShape(5.dp))
+                                    .background(NowIndicatorCoral)
+                                    .padding(horizontal = 3.5.dp, vertical = 1.dp)
                             ) {
                                 Text(
-                                    text = "%02d:00".format(h),
-                                    fontSize = 9.5.sp,
-                                    color = WalletMuted,
+                                    text = TimeRange.formatHm(nowMinute),
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White,
                                     maxLines = 1,
                                     softWrap = false
                                 )
@@ -3208,6 +3257,7 @@ private fun MultiDayTimelineGrid(
                                                 .height(hDp.dp)
                                                 .zIndex(if (isSelThis) 10f else 1f)
                                                 .clip(RoundedCornerShape(6.dp))
+                                                .background(WalletCardBg)
                                                 .background(
                                                     when (block.visualState) {
                                                         ScheduleBlockVisualState.PLANNED -> WalletInfoBg
@@ -3424,8 +3474,9 @@ private fun MultiDayTimelineGrid(
                                             modifier = Modifier
                                                 .offset(y = nowY.dp)
                                                 .fillMaxWidth()
-                                                .height(2.dp)
-                                                .background(NowIndicatorCoral)
+                                                .height(1.5.dp)
+                                                .zIndex(0.5f)
+                                                .background(NowIndicatorCoral.copy(alpha = 0.8f))
                                         )
                                     }
                                 }

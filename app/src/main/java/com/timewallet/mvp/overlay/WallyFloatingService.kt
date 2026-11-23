@@ -28,6 +28,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -71,10 +72,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
@@ -115,6 +118,7 @@ import com.timewallet.mvp.ui.screens.walletClickable
 import com.timewallet.mvp.ui.theme.TimeWalletTheme
 import com.timewallet.mvp.ui.theme.WalletBg
 import com.timewallet.mvp.ui.theme.WalletCardBg
+import com.timewallet.mvp.ui.theme.WalletDangerBg
 import com.timewallet.mvp.ui.theme.WalletDangerText
 import com.timewallet.mvp.ui.theme.WalletDivider
 import com.timewallet.mvp.ui.theme.WalletInk
@@ -965,7 +969,10 @@ private fun FloatingQuickPanelCard(
                                                 busy = false
                                             }
                                         }
-                                        Column(modifier = Modifier.weight(1f)) {
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
                                             Text(
                                                 text = item.title,
                                                 fontSize = 12.sp,
@@ -978,17 +985,39 @@ private fun FloatingQuickPanelCard(
                                                 add(item.priority.badgeText)
                                                 item.dueLabel?.let { add(it) }
                                                 item.estimatedMinutes?.let { add("${it}p") }
-                                                if (item.hasRiskWarning && !item.riskLabel.isNullOrBlank()) {
-                                                    add("⚠ ${item.riskLabel}")
-                                                }
                                             }.joinToString(" · ")
-                                            Text(
-                                                text = meta,
-                                                fontSize = 10.sp,
-                                                color = if (item.hasRiskWarning) WalletWarningText else WalletMuted,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
+                                            FlowRow(
+                                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                                            ) {
+                                                if (meta.isNotBlank()) {
+                                                    Text(
+                                                        text = meta,
+                                                        fontSize = 10.sp,
+                                                        color = WalletMuted,
+                                                        maxLines = 1,
+                                                        softWrap = false
+                                                    )
+                                                }
+                                                if (item.hasRiskWarning && !item.riskLabel.isNullOrBlank()) {
+                                                    val isOverdue = item.riskLabel.contains("Quá hạn", ignoreCase = true)
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(5.dp))
+                                                            .background(if (isOverdue) WalletDangerBg else WalletWarningBg)
+                                                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = "⚠ ${item.riskLabel}",
+                                                            fontSize = 9.5.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = if (isOverdue) WalletDangerText else WalletWarningText,
+                                                            maxLines = 1,
+                                                            softWrap = false
+                                                        )
+                                                    }
+                                                }
+                                            }
                                         }
                                         FloatingPillButton(label = "▶", accent = true) {
                                             if (busy) return@FloatingPillButton
@@ -1284,7 +1313,11 @@ private fun FloatingChatCard(
 
     val cfg = LocalConfiguration.current
     val chatMaxWidthDp = (cfg.screenWidthDp - 20).coerceIn(288, 342).dp
-    val chatMaxHeightDp = (cfg.screenHeightDp * 0.50f).coerceIn(300f, 390f).dp
+    val chatMaxHeightDp = (cfg.screenHeightDp * 0.56f).coerceIn(330f, 430f).dp
+    val chatListScroll = rememberScrollState()
+    LaunchedEffect(messages.size, pendingProposals.size) {
+        chatListScroll.animateScrollTo(chatListScroll.maxValue)
+    }
 
     Surface(
         shape = RoundedCornerShape(22.dp),
@@ -1342,9 +1375,12 @@ private fun FloatingChatCard(
                 }
             }
 
-            FlowRow(
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 listOf("Hôm nay làm gì trước?", "Hôm nay đã ghi gì?", "Vừa học 30p").forEach { chip ->
                     FloatingPillButton(label = chip) {
@@ -1356,8 +1392,8 @@ private fun FloatingChatCard(
             Column(
                 modifier = Modifier
                     .weight(1f, fill = false)
-                    .heightIn(min = 52.dp, max = 140.dp)
-                    .verticalScroll(rememberScrollState()),
+                    .heightIn(min = 96.dp, max = 180.dp)
+                    .verticalScroll(chatListScroll),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 messages.forEach { m ->
@@ -1450,6 +1486,7 @@ private fun FloatingChatCard(
                 }
             }
 
+            val chatKeyboardController = LocalSoftwareKeyboardController.current
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1468,7 +1505,9 @@ private fun FloatingChatCard(
                         focusedBorderColor = WalletMint,
                         unfocusedBorderColor = WalletStroke
                     ),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .onFocusChanged { if (it.isFocused) chatKeyboardController?.show() }
                 )
                 Button(
                     onClick = { sendQuery(inputText) },

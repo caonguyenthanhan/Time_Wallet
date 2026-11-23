@@ -1,6 +1,7 @@
 package com.timewallet.mvp
 
 import com.timewallet.mvp.data.ai.WallyTodoAiPlanner
+import com.timewallet.mvp.domain.model.ConfirmationState
 import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.model.TaskItem
 import com.timewallet.mvp.domain.model.TaskPriority
@@ -23,6 +24,9 @@ import java.time.ZonedDateTime
 class V221UiUxSpecTest {
 
     private val zone = ZoneId.of("Asia/Ho_Chi_Minh")
+
+    private fun ts(date: LocalDate, h: Int, m: Int): Long =
+        date.atTime(h, m).atZone(zone).toInstant().toEpochMilli()
 
     @Test
     fun `natural task parser cleans Soan bao cao truoc 15h mai can 45 phut P1 cleanly`() {
@@ -508,5 +512,130 @@ class V221UiUxSpecTest {
         assertEquals("09:00–11:00", peak!!.windowLabel)
         assertEquals(120L, peak.goalMinutes)
         assertEquals(27, peak.sharePercent)
+    }
+
+    @Test
+    fun `r5 regression dragging or resizing planned task block preserves taskId and habitId`() {
+        val monday = LocalDate.of(2026, 11, 23)
+        val nowMs = ts(monday, 2, 0)
+        val linkedPlan = LedgerRecord(
+            id = "plan_soan_bc",
+            source = "todo_ai_plan",
+            layer = TimeLayer.PLANNED,
+            createdAt = nowMs,
+            userConfirmedAt = nowMs,
+            category = TimeCategory.WORK,
+            title = "Soạn báo cáo",
+            date = monday.toString(),
+            durationSeconds = 45 * 60L,
+            startedAt = ts(monday, 3, 35),
+            endedAt = ts(monday, 4, 20),
+            timezone = zone.id,
+            status = "PLANNED",
+            idempotencyKey = "k_plan_bc",
+            confirmationStateRaw = ConfirmationState.PLANNED.name,
+            plannedStartedAt = ts(monday, 3, 35),
+            plannedEndedAt = ts(monday, 4, 20),
+            plannedDurationSeconds = 45 * 60L,
+            taskId = "task_soan_bc",
+            habitId = "hab_1"
+        )
+
+        val dragged = com.timewallet.mvp.domain.usecase.ConfirmationEngine.moveOrResizeScheduleBlock(
+            existing = linkedPlan,
+            newDateLocal = monday.toString(),
+            newStartHm = "03:35",
+            newEndHm = "05:00",
+            existingRecords = listOf(linkedPlan),
+            nowEpochMs = nowMs,
+            zoneId = zone
+        ) as com.timewallet.mvp.domain.usecase.ConfirmationActionResult.Applied
+        val draggedRec = dragged.updatedRecords.single()
+        assertEquals("task_soan_bc", draggedRec.taskId)
+        assertEquals("hab_1", draggedRec.habitId)
+        assertEquals(TimeLayer.PLANNED, draggedRec.resolveLayerAt(nowMs, monday.toString()))
+        assertEquals(ts(monday, 5, 0), draggedRec.endedAt)
+
+        val nudged = com.timewallet.mvp.domain.usecase.ConfirmationEngine.resizePlannedRecord(
+            existing = draggedRec,
+            deltaMinutes = -15,
+            nowEpochMs = nowMs,
+            zoneId = zone
+        ) as com.timewallet.mvp.domain.usecase.ConfirmationActionResult.Applied
+        assertEquals("task_soan_bc", nudged.updatedRecords.single().taskId)
+        assertEquals("hab_1", nudged.updatedRecords.single().habitId)
+
+        val edited = com.timewallet.mvp.domain.usecase.ConfirmationEngine.adjustRecord(
+            existing = draggedRec,
+            newTitle = "Soạn báo cáo",
+            newCategoryKey = TimeCategory.WORK.key,
+            newDateLocal = monday.toString(),
+            newDurationMinutes = null,
+            newStartHm = "03:40",
+            newEndHm = "05:10",
+            allowFutureAsPlanned = true,
+            existingRecords = listOf(draggedRec),
+            nowEpochMs = nowMs,
+            zoneId = zone
+        ) as com.timewallet.mvp.domain.usecase.ConfirmationActionResult.Applied
+        assertEquals("task_soan_bc", edited.updatedRecords.single().taskId)
+        assertEquals("hab_1", edited.updatedRecords.single().habitId)
+    }
+
+    @Test
+    fun `r5 regression consecutive 1m measured segments match timeline clock format and use parallel lanes`() {
+        val day = LocalDate.of(2026, 11, 24)
+        val seg1Start = day.atTime(2, 35, 40).atZone(zone).toInstant().toEpochMilli()
+        val seg1End = day.atTime(2, 36, 40).atZone(zone).toInstant().toEpochMilli()
+        val seg2Start = day.atTime(2, 36, 45).atZone(zone).toInstant().toEpochMilli()
+        val seg2End = day.atTime(2, 37, 45).atZone(zone).toInstant().toEpochMilli()
+        val nowMs = day.atTime(2, 38, 0).atZone(zone).toInstant().toEpochMilli()
+
+        val r1 = LedgerRecord(
+            id = "t_seg1", source = "timer", layer = TimeLayer.MEASURED,
+            createdAt = seg1End, userConfirmedAt = seg1End,
+            category = TimeCategory.LEARN, title = "Ôn thi hệ thống", date = day.toString(),
+            durationSeconds = 60L, startedAt = seg1Start, endedAt = seg1End,
+            timezone = zone.id, status = "CONFIRMED", idempotencyKey = "ks1",
+            confirmationStateRaw = ConfirmationState.COMPLETED.name
+        )
+        val r2 = LedgerRecord(
+            id = "t_seg2", source = "timer", layer = TimeLayer.MEASURED,
+            createdAt = seg2End, userConfirmedAt = seg2End,
+            category = TimeCategory.LEARN, title = "Ôn thi hệ thống", date = day.toString(),
+            durationSeconds = 60L, startedAt = seg2Start, endedAt = seg2End,
+            timezone = zone.id, status = "CONFIRMED", idempotencyKey = "ks2",
+            confirmationStateRaw = ConfirmationState.COMPLETED.name
+        )
+
+        val model = com.timewallet.mvp.domain.usecase.ScheduleGridEngine.buildDayScheduleModel(
+            date = day,
+            records = listOf(r1, r2),
+            nowEpochMs = nowMs,
+            zone = zone
+        )
+        assertEquals(2, model.timedBlocks.size)
+        val b1 = model.timedBlocks.first { it.recordId == "t_seg1" }
+        val b2 = model.timedBlocks.first { it.recordId == "t_seg2" }
+        assertEquals("02:35", b1.displayStartHm)
+        assertEquals("02:36", b1.displayEndHm)
+        assertEquals("02:36", b2.displayStartHm)
+        assertEquals("02:37", b2.displayEndHm)
+        assertEquals(2, b1.laneCount)
+        assertEquals(2, b2.laneCount)
+        assertTrue(b1.laneIndex != b2.laneIndex)
+    }
+
+    @Test
+    fun `r5 regression empty week with zero records and zero goals hides wally story`() {
+        val today = LocalDate.of(2026, 11, 24)
+        val eff = com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator.computeWeeklyEfficiency(
+            endDateLocal = today.toString(),
+            records = emptyList(),
+            goals = emptyList(),
+            zoneId = zone,
+            nowEpochMs = ts(today, 9, 0)
+        )
+        assertEquals(null, eff.wallyStory)
     }
 }

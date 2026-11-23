@@ -224,7 +224,9 @@ object ConfirmationEngine {
             plannedStartedAt = origPlanStart,
             plannedEndedAt = origPlanEnd,
             plannedDurationSeconds = origPlanDur,
-            isMarkedWaste = newMarkedWaste
+            isMarkedWaste = newMarkedWaste,
+            taskId = existing.taskId,
+            habitId = existing.habitId
         )
         val built = when (validatedNoOverlap) {
             is ValidationResult.Invalid -> return ConfirmationActionResult.Invalid(validatedNoOverlap.message)
@@ -409,7 +411,9 @@ object ConfirmationEngine {
             tagId = existing.tagId,
             plannedStartedAt = newStart,
             plannedEndedAt = newEnd,
-            plannedDurationSeconds = newMinutes * 60L
+            plannedDurationSeconds = newMinutes * 60L,
+            taskId = existing.taskId,
+            habitId = existing.habitId
         )
         return when (built) {
             is ValidationResult.Invalid -> ConfirmationActionResult.Invalid(built.message)
@@ -419,7 +423,9 @@ object ConfirmationEngine {
                     confirmationStateRaw = ConfirmationState.PLANNED.name,
                     plannedStartedAt = newStart,
                     plannedEndedAt = newEnd,
-                    plannedDurationSeconds = newMinutes * 60L
+                    plannedDurationSeconds = newMinutes * 60L,
+                    taskId = existing.taskId,
+                    habitId = existing.habitId
                 )
                 ConfirmationActionResult.Applied(
                     updatedRecords = listOf(updated),
@@ -500,7 +506,9 @@ object ConfirmationEngine {
                 tagId = existing.tagId,
                 plannedStartedAt = parsed.first,
                 plannedEndedAt = parsed.second,
-                plannedDurationSeconds = durSecs
+                plannedDurationSeconds = durSecs,
+                taskId = existing.taskId,
+                habitId = existing.habitId
             )
             return when (built) {
                 is ValidationResult.Invalid -> ConfirmationActionResult.Invalid(built.message)
@@ -512,7 +520,9 @@ object ConfirmationEngine {
                         confirmationStateRaw = ConfirmationState.PLANNED.name,
                         plannedStartedAt = parsed.first,
                         plannedEndedAt = parsed.second,
-                        plannedDurationSeconds = durSecs
+                        plannedDurationSeconds = durSecs,
+                        taskId = existing.taskId,
+                        habitId = existing.habitId
                     )
                     ConfirmationActionResult.Applied(
                         updatedRecords = listOf(updated),

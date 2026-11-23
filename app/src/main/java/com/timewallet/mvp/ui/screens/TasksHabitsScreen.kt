@@ -1256,7 +1256,7 @@ private fun TaskCard(
                             modifier = Modifier.weight(1f)
                         )
                     }
-                    val meta = buildList {
+                    val metaParts = buildList {
                         add(task.category.displayName)
                         task.estimatedMinutes?.let { add("~${it}p") }
                         if (loggedSeconds > 0L) {
@@ -1269,8 +1269,26 @@ private fun TaskCard(
                             add(if (task.dueTimeLocal != null) "Hạn ${d.substring(5)} ${task.dueTimeLocal}" else "Hạn ${d.substring(5)}")
                         }
                         if (task.postponedCount > 0) add("Hoãn ${task.postponedCount}x")
-                    }.joinToString(" · ")
-                    Text(meta, fontSize = 11.sp, color = WalletMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    // Dùng FlowRow để các cụm như "Hạn 11-25 15:00" hoặc "Thực tế 2p" xuống dòng trọn vẹn ở 320dp thay vì cắt "Hạn 11-2…".
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(1.dp)
+                    ) {
+                        metaParts.forEachIndexed { idx, part ->
+                            val label = if (idx < metaParts.lastIndex) "$part ·" else part
+                            val isDeadlinePart = part.startsWith("Hạn ")
+                            Text(
+                                text = label,
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp,
+                                fontWeight = if (isDeadlinePart) FontWeight.SemiBold else FontWeight.Normal,
+                                color = WalletMuted,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
                 }
 
                 CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 36.dp) {

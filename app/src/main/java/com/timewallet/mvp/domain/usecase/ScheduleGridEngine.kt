@@ -9,6 +9,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlin.math.max
 import kotlin.math.min
 
@@ -50,7 +51,9 @@ data class ScheduleGridBlock(
     val crossesMidnightFromPrev: Boolean = false,
     val crossesMidnightToNext: Boolean = false,
     val tagId: String? = null,
-    val canDragMoveOrResize: Boolean = false
+    val canDragMoveOrResize: Boolean = false,
+    val displayStartHm: String = TimeRange.formatHm(startMinute.coerceIn(0, 1439)),
+    val displayEndHm: String = ScheduleGridEngine.formatHmEnd(endMinute)
 )
 
 data class ScheduleFreeGap(
@@ -199,11 +202,20 @@ object ScheduleGridEngine {
                 if (start < dayEndMs && end > dayStartMs) {
                     val clipStart = max(start, dayStartMs)
                     val clipEnd = min(end, dayEndMs)
+                    // Dùng cùng quy tắc cắt phút lịch (HH:mm) với Dòng thời gian để 2 màn không bao giờ lệch 1–2 phút.
                     val startMin = ((clipStart - dayStartMs) / 60_000L).toInt().coerceIn(0, 1439)
-                    val rawEndMin = ((clipEnd - dayStartMs + 30_000L) / 60_000L).toInt()
-                    val endMin = max(startMin + 1, rawEndMin).coerceIn(startMin + 1, 1440)
+                    val flooredEndMin = ((clipEnd - dayStartMs) / 60_000L).toInt()
+                    val endMin = max(startMin + 1, flooredEndMin).coerceIn(startMin + 1, 1440)
                     val crossPrev = start < dayStartMs
                     val crossNext = end > dayEndMs
+
+                    val recordZone = runCatching { ZoneId.of(record.timezone) }.getOrDefault(zone)
+                    val hmFmt = DateTimeFormatter.ofPattern("HH:mm")
+                    val exactStartHm = if (crossPrev) "00:00" else Instant.ofEpochMilli(start).atZone(recordZone).format(hmFmt)
+                    val exactEndHm = when {
+                        crossNext || clipEnd >= dayEndMs -> "24:00"
+                        else -> Instant.ofEpochMilli(end).atZone(recordZone).format(hmFmt)
+                    }
 
                     val comparison = buildPlanComparisonText(record, visualState)
                     val totalMins = ((end - start + 30_000L) / 60_000L).toInt().coerceAtLeast(1)
@@ -223,7 +235,9 @@ object ScheduleGridEngine {
                         crossesMidnightFromPrev = crossPrev,
                         crossesMidnightToNext = crossNext,
                         tagId = record.tagId,
-                        canDragMoveOrResize = true
+                        canDragMoveOrResize = true,
+                        displayStartHm = exactStartHm,
+                        displayEndHm = exactEndHm
                     )
 
                     val sliceSecs = ((clipEnd - clipStart) / 1000L).coerceAtLeast(0L)
@@ -268,7 +282,7 @@ object ScheduleGridEngine {
                 val clipStart = max(tStart, dayStartMs)
                 val clipEnd = min(tEnd, dayEndMs)
                 val startMin = ((clipStart - dayStartMs) / 60_000L).toInt().coerceIn(0, 1439)
-                val endMin = max(startMin + 1, ((clipEnd - dayStartMs + 30_000L) / 60_000L).toInt()).coerceIn(startMin + 1, 1440)
+                val endMin = max(startMin + 1, ((clipEnd - dayStartMs) / 60_000L).toInt()).coerceIn(startMin + 1, 1440)
                 val totalMins = ((tEnd - tStart) / 60_000L).toInt().coerceAtLeast(1)
                 hasActive = true
                 actualSecondsSum += max(0L, (min(clipEnd, nowEpochMs) - clipStart) / 1000L)
@@ -292,7 +306,7 @@ object ScheduleGridEngine {
             }
         }
 
-        val layoutBlocks = assignParallelLanes(rawBlocks)
+        val layoutBlocks = assignParallelLanes(rawBlocks, minVisualSpanMinutes = 14)
         val gaps = computeFreeGaps(dateStr, layoutBlocks)
 
         return DayScheduleModel(
@@ -378,25 +392,32 @@ object ScheduleGridEngine {
      * Hai khối trùng giờ (ví dụ Kế hoạch 14:00–15:00 và Thực tế 14:00–15:12) được đặt cạnh nhau
      * trong cùng nhóm để người dùng nhìn thấy cả hai cùng lúc.
      */
-    internal fun assignParallelLanes(raw: List<ScheduleGridBlock>): List<ScheduleGridBlock> {
+    internal fun assignParallelLanes(
+        raw: List<ScheduleGridBlock>,
+        minVisualSpanMinutes: Int = 0
+    ): List<ScheduleGridBlock> {
         if (raw.isEmpty()) return emptyList()
         val sorted = raw.sortedWith(
             compareBy<ScheduleGridBlock> { it.startMinute }
                 .thenBy { stateOrder(it.visualState) }
                 .thenByDescending { it.endMinute }
         )
+        fun visualEnd(b: ScheduleGridBlock): Int =
+            if (minVisualSpanMinutes > 0) max(b.endMinute, (b.startMinute + minVisualSpanMinutes).coerceAtMost(1440))
+            else b.endMinute
 
         val clusters = mutableListOf<MutableList<ScheduleGridBlock>>()
         var currentCluster = mutableListOf<ScheduleGridBlock>()
         var clusterMaxEnd = -1
         for (block in sorted) {
+            val vEnd = visualEnd(block)
             if (currentCluster.isEmpty() || block.startMinute < clusterMaxEnd) {
                 currentCluster += block
-                clusterMaxEnd = max(clusterMaxEnd, block.endMinute)
+                clusterMaxEnd = max(clusterMaxEnd, vEnd)
             } else {
                 clusters += currentCluster
                 currentCluster = mutableListOf(block)
-                clusterMaxEnd = block.endMinute
+                clusterMaxEnd = vEnd
             }
         }
         if (currentCluster.isNotEmpty()) clusters += currentCluster
@@ -407,17 +428,18 @@ object ScheduleGridEngine {
             val assignedIndices = IntArray(cluster.size)
             for (i in cluster.indices) {
                 val b = cluster[i]
+                val vEnd = visualEnd(b)
                 var chosen = -1
                 for (laneIdx in laneEndMinutes.indices) {
                     if (laneEndMinutes[laneIdx] <= b.startMinute) {
                         chosen = laneIdx
-                        laneEndMinutes[laneIdx] = b.endMinute
+                        laneEndMinutes[laneIdx] = vEnd
                         break
                     }
                 }
                 if (chosen < 0) {
                     chosen = laneEndMinutes.size
-                    laneEndMinutes += b.endMinute
+                    laneEndMinutes += vEnd
                 }
                 assignedIndices[i] = chosen
             }

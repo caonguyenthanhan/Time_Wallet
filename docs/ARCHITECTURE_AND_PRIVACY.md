@@ -62,13 +62,13 @@ app/src/main/java/com/timewallet/mvp/
 
 | Hạng mục | Kết quả | Chi tiết đo trực tiếp |
 |---|---|---|
-| Unit & Contract Tests (`:app:testDebugUnitTest`) | **PASS (683 / 683 chạy offline)** | `687` test cases (`683 passed, 0 failures, 0 errors, 4 skipped` — 4 test Live AI / live-eval bỏ qua khi không có API key live). |
-| Compose Screenshot Validation (`:app:validateDebugScreenshotTest`) | **PASS (15 / 15)** | `15 passed, 0 failures, 0 errors, 0 skipped` (gồm các preview `Thống kê` / `Wally kể từ dữ liệu` Light & Dark). |
+| Unit & Contract Tests (`:app:testDebugUnitTest`) | **PASS (686 / 686 chạy offline)** | `690` test cases (`686 passed, 0 failures, 0 errors, 4 skipped` — 4 test Live AI / live-eval bỏ qua khi không có API key live). |
+| Compose Screenshot Validation (`:app:validateDebugScreenshotTest`) | **PASS (15 / 15)** | `15 passed, 0 failures, 0 errors, 0 skipped` (gồm các preview `Thống kê` / `Wally kể từ dữ liệu` / thẻ `Tasks 320dp` Light & Dark). |
 | Android Lint (`:app:lintDebug` & `:app:lintRelease`) | **PASS (0 errors)** | `lintDebug`: `0 errors, 117 warnings` · `lintRelease`: `0 errors, 105 warnings`. |
-| Release APK & chữ ký (`apksigner`) | **PASS** | `TimeWallet-MVP-v2.2.1-release.apk`: **`9,457,633` bytes** · `SHA-256`: `D02C4A077AA0750AA8EB72F5BD0539B6ECA68110B8EFC68E4F2CB71ACE1A19C4` · ký bằng chứng thư `39f5712d…`. |
-| Debug APK | **PASS** | `TimeWallet-MVP-v2.2.1-debug.apk`: **`15,723,946` bytes** · `SHA-256`: `42C71CECBA77F1B0C72A06E1EB94B2B89C8751971A402DE51BC3F9D47FB815F7`. |
-| QA giao diện trên `WallyQA` (`index 1`, Android 9) | **PASS (`NO_FATAL_EXCEPTION`)** | Cài đè `v2.2.0 → v2.2.1` giữ nguyên task & `v2.2.1`; xác minh 4 bộ dữ liệu của **Wally kể từ dữ liệu**, **Phân tích AI** (căn cứ ngày/phiên & kỳ so sánh), **Nhịp tập trung & Độ sát kế hoạch** (`22h 30p`, loại phiên `Ngủ`), Focus `320dp` & Trợ lý nổi (`▶` → `Mở app`). |
-| Phạm vi chưa chạy trên phần cứng thật (`NOT_TESTED`) | — | Xem trước ghim Home Widget trực tiếp trên launcher chuẩn Google/Samsung (`isRequestPinAppWidgetSupported == false` trên launcher LDPlayer), gọi Cloud AI live trên bản `v2.2.1`, AVD Android 16 (tạm dừng theo quy tắc ổn định phần cứng) và thiết bị thật. |
+| Release APK & chữ ký (`apksigner`) | **PASS** | `TimeWallet-MVP-v2.2.1-release.apk`: **`9,457,632` bytes** · `SHA-256`: `329E9A75CF02358933590C72A623066AC0DFF215A8F92D579CCDFBB9F61F4AF1` · ký bằng chứng thư `39f5712d…`. |
+| Debug APK | **PASS** | `TimeWallet-MVP-v2.2.1-debug.apk`: **`15,728,565` bytes** · `SHA-256`: `C078352B29DD1310976445A1BD09E47E5FD12C953C6E2C96452C9F94936D00D1`. |
+| QA giao diện trên `WallyQA` (`index 1`, Android 9) | **PASS (`NO_FATAL_EXCEPTION`)** | Cài đè `v2.2.0 → v2.2.1` giữ nguyên task & `v2.2.1`; xác minh 4 bộ dữ liệu + tuần rỗng 0 bản ghi của **Wally kể từ dữ liệu**, **Phân tích AI**, **Nhịp tập trung** (`22h 30p`, loại phiên `Ngủ`), đồng bộ mốc giờ giữa Dòng thời gian & Lịch ngày (làn song song, đường giờ hiện tại phía sau nền thẻ đục), giữ `taskId` khi kéo sửa lịch & nhãn `Hạn` trọn vẹn ở `320dp`, kéo vùng trống lịch, Bảng nổi `⚠ Quá hạn` `320dp`, Chat nổi tự cuộn + Focus `320dp`. |
+| Phạm vi chưa chạy trên phần cứng thật (`NOT_TESTED`) | — | Xem trước ghim Home Widget trực tiếp trên launcher chuẩn Google/Samsung (`isRequestPinAppWidgetSupported == false` trên launcher LDPlayer), bàn phím ảo vẽ đầy đủ bởi IME ngoài (giả lập LDPlayer dùng `ldinputmethod` dù `InputMethodManager` báo `mInputShown=true`), gọi Cloud AI live trên bản `v2.2.1`, AVD Android 16 (tạm dừng theo quy tắc ổn định phần cứng) và thiết bị thật. |
 
 ---
 
