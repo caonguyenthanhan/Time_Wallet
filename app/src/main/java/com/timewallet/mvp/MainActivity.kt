@@ -110,6 +110,7 @@ import com.timewallet.mvp.ui.screens.ProfileSettingsScreen
 import com.timewallet.mvp.ui.screens.ScheduleCalendarView
 import com.timewallet.mvp.ui.screens.TagManagerDialog
 import com.timewallet.mvp.domain.usecase.GoalRules
+import com.timewallet.mvp.domain.usecase.ScheduleViewMode
 import com.timewallet.mvp.domain.usecase.TagRules
 import java.time.Instant
 import java.time.LocalDate
@@ -580,7 +581,15 @@ fun TimeWalletAppRoot(
                     }
                 }
                 if (!lockOuterScroll) {
-                    val bottomSpacer = if (state.customization.enableAiAssistant && !state.showScheduleWorkspace) 76.dp else 14.dp
+                    val inTimelineGridMode = state.currentTab == AppTab.SCHEDULE &&
+                        journalCalendarMode &&
+                        !state.isShowingDailyReview &&
+                        state.scheduleViewMode != ScheduleViewMode.MONTH
+                    val bottomSpacer = when {
+                        inTimelineGridMode -> 2.dp
+                        state.customization.enableAiAssistant && !state.showScheduleWorkspace -> 76.dp
+                        else -> 14.dp
+                    }
                     Spacer(modifier = Modifier.height(bottomSpacer))
                 }
             }

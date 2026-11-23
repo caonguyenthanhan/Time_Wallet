@@ -6,13 +6,11 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
-import androidx.compose.foundation.gestures.awaitVerticalTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.scrollBy
-import androidx.compose.foundation.gestures.verticalDrag
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -71,6 +69,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -78,6 +77,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -1478,6 +1478,7 @@ private fun DayTimelineGrid(
 ) {
     val hourHeight = 72.dp
     val density = LocalDensity.current
+    val haptic = LocalHapticFeedback.current
     val hourHeightPx = with(density) { hourHeight.toPx() }
     val minuteHeightPx = hourHeightPx / 60f
     val scrollState = rememberScrollState()
@@ -1616,6 +1617,7 @@ private fun DayTimelineGrid(
                         .pointerInput(dayModel.dateLocal) {
                             detectDragGesturesAfterLongPress(
                                 onDragStart = { startOffset ->
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     val startMin = ((startOffset.y / minuteHeightPx).roundToInt()).coerceIn(0, 1425)
                                     emptyDragAnchorMin = startMin
                                     val vc = vpCoords
@@ -2000,11 +2002,9 @@ private fun DayTimelineGrid(
                                     Modifier.pointerInput(block.recordId, block.startMinute, block.endMinute) {
                                         awaitEachGesture {
                                             val down = awaitFirstDown(requireUnconsumed = false)
-                                            val dragTrigger = if (latestIsSelected) {
-                                                awaitVerticalTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
-                                            } else {
-                                                awaitLongPressOrCancellation(down.id)
-                                            } ?: return@awaitEachGesture
+                                            // Luôn cần nhấn giữ mới nhấc thẻ để cuộn dọc trên thẻ (kể cả thẻ đang chọn như Ngủ) không bị cướp thao tác
+                                            val dragTrigger = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
 
                                             val vc = vpCoords
                                             val cc = cardCoords
@@ -2029,22 +2029,12 @@ private fun DayTimelineGrid(
                                             }
                                             activeDragKind = "block_body_${latestBlock.recordId}"
 
-                                            val completed = if (latestIsSelected) {
-                                                verticalDrag(dragTrigger.id) { change ->
-                                                    change.consume()
-                                                    if (vc != null && cc != null && vc.isAttached && cc.isAttached) {
-                                                        localDragViewportY = vc.localPositionOf(cc, change.position).y
-                                                    }
-                                                    activeAutoScrollTick?.invoke()
+                                            val completed = drag(dragTrigger.id) { change ->
+                                                change.consume()
+                                                if (vc != null && cc != null && vc.isAttached && cc.isAttached) {
+                                                    localDragViewportY = vc.localPositionOf(cc, change.position).y
                                                 }
-                                            } else {
-                                                drag(dragTrigger.id) { change ->
-                                                    change.consume()
-                                                    if (vc != null && cc != null && vc.isAttached && cc.isAttached) {
-                                                        localDragViewportY = vc.localPositionOf(cc, change.position).y
-                                                    }
-                                                    activeAutoScrollTick?.invoke()
-                                                }
+                                                activeAutoScrollTick?.invoke()
                                             }
                                             val s = dragPreviewStartMin
                                             val e = dragPreviewEndMin
@@ -2196,12 +2186,14 @@ private fun ResizeEdgeHandle(
     tint: Color,
     dragKey: Any = Unit,
     viewportCoords: LayoutCoordinates? = null,
+    handleWidth: Dp = 68.dp,
     modifier: Modifier = Modifier,
     onDragStartAtViewportY: (Float) -> Unit = {},
     onDragAtViewportY: (Float) -> Unit = {},
     onDragEnd: () -> Unit,
     onDragCancel: () -> Unit
 ) {
+    val haptic = LocalHapticFeedback.current
     var handleCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val latestVpCoords by rememberUpdatedState(viewportCoords)
     val latestOnDragStartAtVpY by rememberUpdatedState(onDragStartAtViewportY)
@@ -2209,15 +2201,17 @@ private fun ResizeEdgeHandle(
     val latestOnDragEnd by rememberUpdatedState(onDragEnd)
     val latestOnDragCancel by rememberUpdatedState(onDragCancel)
 
+    // Chỉ vùng tay nắm giữa mới bắt kéo co dãn cạnh; hai bên mép vẫn cuộn lịch bình thường
     Box(
         modifier = modifier
-            .fillMaxWidth()
-            .height(15.dp)
+            .width(handleWidth)
+            .height(16.dp)
             .zIndex(2f)
             .onGloballyPositioned { handleCoords = it }
             .pointerInput(dragKey) {
                 detectVerticalDragGestures(
                     onDragStart = { offset ->
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         val vc = latestVpCoords
                         val hc = handleCoords
                         val vpY = if (vc != null && hc != null && vc.isAttached && hc.isAttached) {
@@ -2242,10 +2236,11 @@ private fun ResizeEdgeHandle(
         Box(
             modifier = Modifier
                 .padding(vertical = 2.dp)
-                .width(36.dp)
-                .height(3.8.dp)
+                .width(38.dp)
+                .height(4.5.dp)
                 .clip(RoundedCornerShape(3.dp))
                 .background(tint)
+                .border(0.75.dp, Color.White.copy(alpha = 0.85f), RoundedCornerShape(3.dp))
         )
     }
 }
@@ -2293,7 +2288,7 @@ private fun ScheduleEventCard(
     val compact = blockHeightDp < 44.dp
     val showQuickAction = blockHeightDp >= 82.dp && block.laneCount == 1
     val canResizeThis = block.canDragMoveOrResize && !block.crossesMidnightFromPrev && !block.crossesMidnightToNext &&
-        (isSelected || isDraggingOrDraft || blockHeightDp >= 44.dp)
+        (isSelected || isDraggingOrDraft)
 
     Box(
         modifier = modifier
@@ -2492,6 +2487,7 @@ private fun MultiDayTimelineGrid(
     val vScrollState = rememberScrollState()
     val hScrollState = rememberScrollState()
     val density = LocalDensity.current
+    val haptic = LocalHapticFeedback.current
     val hourPx = with(density) { hourHeight.toPx() }
     val minutePx = hourPx / 60f
 
@@ -2726,6 +2722,7 @@ private fun MultiDayTimelineGrid(
                                         .pointerInput(day.dateLocal) {
                                             detectDragGesturesAfterLongPress(
                                                 onDragStart = { pos ->
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                     val s = ((pos.y / minutePx).roundToInt()).coerceIn(0, 1425)
                                                     draggingEmptyDate = day.dateLocal
                                                     emptyDragAnchorMin = s
@@ -2903,11 +2900,9 @@ private fun MultiDayTimelineGrid(
                                                         Modifier.pointerInput(block.recordId, block.startMinute, block.endMinute) {
                                                             awaitEachGesture {
                                                                 val down = awaitFirstDown(requireUnconsumed = false)
-                                                                val trigger = if (latestIsSelected) {
-                                                                    awaitVerticalTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
-                                                                } else {
-                                                                    awaitLongPressOrCancellation(down.id)
-                                                                } ?: return@awaitEachGesture
+                                                                // Luôn nhấn giữ mới kéo đổi giờ trên thẻ đa ngày để vuốt cuộn không bị nhạy
+                                                                val trigger = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
+                                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
 
                                                                 val vc = vpCoords
                                                                 val cc = mCardCoords
@@ -2932,22 +2927,12 @@ private fun MultiDayTimelineGrid(
                                                                 }
                                                                 activeDragKind = "m_block_${latestBlock.recordId}"
 
-                                                                val completed = if (latestIsSelected) {
-                                                                    verticalDrag(trigger.id) { change ->
-                                                                        change.consume()
-                                                                        if (vc != null && cc != null && vc.isAttached && cc.isAttached) {
-                                                                            localDragViewportY = vc.localPositionOf(cc, change.position).y
-                                                                        }
-                                                                        activeAutoScrollTick?.invoke()
+                                                                val completed = drag(trigger.id) { change ->
+                                                                    change.consume()
+                                                                    if (vc != null && cc != null && vc.isAttached && cc.isAttached) {
+                                                                        localDragViewportY = vc.localPositionOf(cc, change.position).y
                                                                     }
-                                                                } else {
-                                                                    drag(trigger.id) { change ->
-                                                                        change.consume()
-                                                                        if (vc != null && cc != null && vc.isAttached && cc.isAttached) {
-                                                                            localDragViewportY = vc.localPositionOf(cc, change.position).y
-                                                                        }
-                                                                        activeAutoScrollTick?.invoke()
-                                                                    }
+                                                                    activeAutoScrollTick?.invoke()
                                                                 }
                                                                 val s = dragPreviewStartMin
                                                                 val e = dragPreviewEndMin
@@ -2981,6 +2966,7 @@ private fun MultiDayTimelineGrid(
                                                     tint = WalletMintAccent.copy(alpha = 0.85f),
                                                     dragKey = "m_top_${block.recordId}_${day.dateLocal}",
                                                     viewportCoords = vpCoords,
+                                                    handleWidth = 48.dp,
                                                     modifier = Modifier.align(Alignment.TopCenter),
                                                     onDragStartAtViewportY = { vpY ->
                                                         val (baseS, baseE) = latestEffRange
@@ -3030,6 +3016,7 @@ private fun MultiDayTimelineGrid(
                                                     tint = WalletMintAccent.copy(alpha = 0.85f),
                                                     dragKey = "m_bot_${block.recordId}_${day.dateLocal}",
                                                     viewportCoords = vpCoords,
+                                                    handleWidth = 48.dp,
                                                     modifier = Modifier.align(Alignment.BottomCenter),
                                                     onDragStartAtViewportY = { vpY ->
                                                         val (baseS, baseE) = latestEffRange

@@ -1,10 +1,10 @@
-# Wally — Time Wallet (`v2.1.1`)
+# Wally — Time Wallet (`v2.1.2`)
 
 **Trung tâm Quản lý Thời gian & Năng suất Cá nhân · Riêng tư tại máy · AI đề xuất có kiểm soát**  
 *Your time. Your choices. Your life.*
 
 <p align="left">
-  <img src="https://img.shields.io/badge/Version-v2.1.1%20(code%2020)-1F8066?style=flat-square" alt="Version v2.1.1" />
+  <img src="https://img.shields.io/badge/Version-v2.1.2%20(code%2021)-1F8066?style=flat-square" alt="Version v2.1.2" />
   <img src="https://img.shields.io/badge/Kotlin-2.0.21-7F52FF?style=flat-square&logo=kotlin&logoColor=white" alt="Kotlin 2.0.21" />
   <img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white" alt="Jetpack Compose" />
   <img src="https://img.shields.io/badge/Android-API%2026%E2%80%9335-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android API 26-35" />
@@ -40,7 +40,7 @@
 
 ## Why Time Wallet? · Vì sao chọn Time Wallet?
 
-| Vấn đề thường gặp ở app truyền thống | Cách Wally `v2.1.1` giải quyết |
+| Vấn đề thường gặp ở app truyền thống | Cách Wally `v2.1.2` giải quyết |
 |---|---|
 | Bắt ghi quá nhiều nơi: app lịch riêng, to-do riêng, bấm giờ riêng → ngại mở hoặc nhập trùng | **Một vòng khép kín tự nhiên:** từ *Inbox / Việc cần làm* đẩy lên *Lịch*, bấm `▶` đo ngay kèm checklist *Subtasks*, và tự khớp hoàn thành *Thói quen* nếu đúng Tag & đủ phút. |
 | Gộp chung dự kiến với thực tế, hoặc tự đoán khung giờ cho ghi nhận rời rạc | **Trung thực tuyệt đối với dữ liệu 24h:** tách rõ *Đã đo (`MEASURED`)*, *Có mốc giờ (`REPORTED_TIMED`)*, *Chỉ thời lượng (`Chưa gắn giờ`)* và *Kế hoạch (`PLANNED`)*. |
@@ -49,9 +49,9 @@
 
 ---
 
-## Key Capabilities in `v2.1.1`
+## Key Capabilities in `v2.1.2`
 
-- **Lịch trình là trung tâm (`Lịch trình · Ngày / 3 ngày / Tuần / Tháng`):** Thiết kế *Timeline-first* gom thống kê 24h (`1h 30 / 24h ▾`) vào hộp thoại bật nhanh, giữ thanh **`Chưa giờ (N)` & `+` ghim cố định ở hàng điều khiển**, thanh công cụ ngữ cảnh neo nổi đối diện khối/vùng đang chọn & chừa vùng trống cho bóng Wally (không đẩy/co lưới), chạm thẻ kéo dời trực tiếp hoặc kéo mép trên/dưới qua bản nháp **`✓ Lưu / Hủy`** kèm cảnh báo trùng giờ và chuẩn `21:00–24:00`; giữ đối chiếu **Kế hoạch vs Thực tế**, xử lý vắt nửa đêm (`UC-15`) và bộ lọc/chú giải trong menu `⋮`.
+- **Lịch trình là trung tâm (`Lịch trình · Ngày / 3 ngày / Tuần / Tháng`):** Thiết kế *Timeline-first* gom thống kê 24h (`1h 30 / 24h ▾`) vào hộp thoại bật nhanh, giữ thanh **`Chưa giờ (N)` & `+` ghim cố định ở hàng điều khiển**, thanh công cụ ngữ cảnh neo nổi đối diện khối/vùng đang chọn & chừa vùng trống vừa khít bên trái bóng Wally (không đẩy/co lưới hay làm trôi header ngoài); cuộn dọc luôn ưu tiên mượt bất kể qua thẻ chưa chọn hay đang chọn, chỉ kích hoạt dời khối khi **nhấn giữ có phản hồi xúc giác** và chỉ hiện tay nắm co dãn ở tâm cạnh trên/dưới (`68.dp`/`48.dp`) khi thẻ được chọn; kiểm tra trùng giờ trực tiếp + chuẩn `21:00–24:00` và bộ lọc/chú giải trong menu `⋮`.
 - **Việc cần làm, Subtasks, Thói quen & Mục tiêu hợp nhất:** Chụp nhanh ý tưởng vào *Inbox*, quản lý *Priority (`P1–P3`)*, mở rộng *Subtasks* ngay trên thẻ, theo dõi chuỗi *Thói quen* 7 ngày (`T2–CN`) tự khớp từ sổ cái (`⚡`), và gộp *Mục tiêu tối thiểu (`MIN`)* cùng *Ngân sách giới hạn (`MAX`)* theo chu kỳ. Bật thêm *Kanban* hoặc *Ma trận Eisenhower* trong Cài đặt nếu cần.
 - **Tập trung thực chiến & Ghim thông báo (`Focus Pin`):** Chuyển đổi nhanh giữa *Đếm xuôi*, *Pomodoro 25p* và *Sâu 45p*; đo từ một *Task* sẽ mang theo mục tiêu phút và checklist *Subtasks* xuống ngay dưới đồng hồ. Bật **Ghim thông báo tập trung (`id = 910301`)** để giữ phiên đang đo, kế hoạch hiện tại hoặc gợi ý theo lịch sử (`tuần trước / hôm qua / 3 ngày gần đây`) ngay trên thanh thông báo kèm nút `Bỏ ghim`.
 - **Trợ lý `✦ Wally` (`Wally Pro / Wally Flash`), Pop-on & Ngữ cảnh thích ứng (Method A):** Mở nhanh từ mọi tab qua **bóng chat Pop-on thu gọn (`48.dp`) kéo thả tự hít mép** hoặc nút `✦ Wally` trên thanh trên cùng (`WallyAiOverlay`). Chọn trực tiếp giữa **`Wally Pro`** (`Claude Sonnet 4.6`, mặc định ưu tiên chất lượng `95.8%`) và **`Wally Flash`** (`Claude Haiku 4.5`, tùy chọn phản hồi nhanh `~2.35s`) với tên model thực tế hiển thị rõ bên dưới (`Auto` tạm khóa chờ đạt ngưỡng router). `AdaptiveContextRouter` & `WallyContextEngine` chỉ đính kèm mục tiêu thiếu hụt, lịch trống và hội thoại nối tiếp trên các câu hỏi tư vấn kế hoạch (tuân thủ nghiêm `AiReadPermissions` và luôn chờ xác nhận trước khi lưu).
@@ -95,19 +95,19 @@ See capture details in [docs/screenshots/ui-preview/README.md](docs/screenshots/
 
 ---
 
-## Verification & Quality Status (`v2.1.1` · `9D61CE31…`)
+## Verification & Quality Status (`v2.1.2` · `57450152…`)
 
 - **JVM & Contract Tests:** **`665/669` PASS** (`0` failures, `0` errors across `75` files; 4 Live AI suites `V110CoachLiveEvalTest`, `V120LiveAiEvalTest`, `V210HaikuVsSonnetLiveEvalTest`, `V210HybridRoutingEvalTest` skipped offline), including `V210ScheduleInteractionTest` (`5/5`), `V210AutoUpdateTest` (`5/5`), `V210WallyModelModeTest` (`3/3`), `WallyContextEngineTest` (`6/6`), `WallyOriginBindingTest` (`11/11`), `WallySecurityStaticTest` (`5/5`), and `V106UiContractTest`.
-- **Static Analysis & Packaging:** `lintRelease` reports **0 errors** (`64` warnings) and `lintDebug` reports **0 errors** (`74` warnings); Release APK (`9,190,548` bytes, SHA-256 `9D61CE313DAF755AF175B005C267DA871CA01DE317477370A897656896C769DA`) and Debug APK (`15,154,928` bytes, SHA-256 `575A538291FE08C1D0CB94FC817575C9F1AEE611D5C85DA0811F9848A4590F17`) verified with `apksigner` (`39f5712d…`).
+- **Static Analysis & Packaging:** `lintRelease` reports **0 errors** (`64` warnings) and `lintDebug` reports **0 errors** (`74` warnings); Release APK (`9,206,940` bytes, SHA-256 `574501528F513F7AF6EB5210792EA570A614C179954606605391D15D360593E7`) and Debug APK (`13,817,902` bytes, SHA-256 `4604595ACFB49DB5483257C5903FA1DDA4CC3DBBE9B1789C0A9C93DED45754EE`) verified with `apksigner` (`39f5712d…`).
 - **Controlled AI Benchmark (`24×2 = 48` Live Foza Calls):** `Wally Pro` (`cinb/claude-sonnet-4-6`) reached **`23/24` (`95.8%`, `6.78s` avg, `0` safety violations)** vs `Wally Flash` (`hoang/claude-haiku-4.5`) **`19/24` (`79.2%`, `2.35s` avg, `0` safety violations)** vs `Hybrid` **`20/24` (`83.3%`, `p95 = 10.67s`)** — establishing `Pro` as default, `Flash` as user-selectable speed mode, and `Auto` locked pending router quality.
-- **QA Emulator Validation (`WallyQA`):** Prior `v2.0.0` baseline (`9CEA64A0…` / `BEDEE190…`) captured all `36` Light/Dark gallery screens cleanly. On final `v2.1.1` Release APK `9D61CE31…` installed over `v2.1.0`, synthetic QA verified all Timeline-first views: Day view open & `0px` jump selection, direct drag draft, compact 2-line `Tuần` (`T6 · 20/11 | T7 · 21/11 | CN · 22/11`) at `40.dp/hr` (`10+` hours visible without edge clipping or bottom-bar truncation), crisp 3-column `3 ngày` view (`T7 · 21/11 | CN · 22/11 | T2 · 23/11`) with top-docked overlay below header strip, and bottom floating bars clear of `BottomBar` & Wally bubble (`WallyQA` cleanly shut down afterward). `Tháng` & prolonged touch-edge drag/auto-scroll captures on `9D61CE31…`, full E2E in-app download/install from GitHub Releases `v2.1.1`, cold-boot `BOOT_COMPLETED`, Android 13–16 AEHD per Rule 14, and Owner physical device remain `NOT_TESTED`.
+- **QA Emulator Validation (`WallyQA`):** Prior `v2.0.0` baseline captured `36` Light/Dark gallery screens, and `v2.1.1` verified `Tuần` & `3 ngày` density. On final `v2.1.2` Release APK `57450152…` (`versionCode 21`) installed over `v2.1.1`, synthetic QA confirmed smooth vertical scrolling directly over selected `"Code Lich"` (header `"Lịch trình"` stays pinned cleanly without outer blank bottom gap) and centered pill edge-resize draft (`WallyQA` shut down cleanly afterward). Long-press drag on physical touchscreen, full E2E in-app download/install via GitHub Releases, cold-boot, Android 13–16 AEHD per Rule 14, and Owner physical device remain `NOT_TESTED`.
 
 ---
 
 ## Technical Architecture & Repository Structure
 
 - **Platform:** Android Native · Kotlin (`2.0.21`) · Jetpack Compose M3 · Room SQLite (`v7`, `MIGRATION_1_7`)
-- **Current Release (`Latest`):** Wally `v2.1.1` (`versionCode 20`, multi-day timeline polish) · baseline feature handoff [WALLY_V210_CANDIDATE.md](WALLY_V210_CANDIDATE.md) (`v2.1.0`, `versionCode 19`)
+- **Current Release (`Latest`):** Wally `v2.1.2` (`versionCode 21`, scroll-safe timeline & edge-pill polish) · baseline feature handoff [WALLY_V210_CANDIDATE.md](WALLY_V210_CANDIDATE.md) (`v2.1.0`, `versionCode 19`)
 - **Previous Baselines:** [WALLY_V200_CANDIDATE.md](WALLY_V200_CANDIDATE.md) · [WALLY_V120_PRODUCTION_CANDIDATE.md](WALLY_V120_PRODUCTION_CANDIDATE.md)
 
 <details>
