@@ -38,6 +38,8 @@ gradlew.bat
 local.properties
 *.apk
 *.tar
+*.zip
+WALLY_R5_NGHIEM_THU.md
 *.jks
 *.keystore
 *.p12

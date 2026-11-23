@@ -73,7 +73,7 @@ class V110UiContractTest {
     @Test
     fun `the coach prompt is separate and the version is bumped`() {
         val gradle = File("build.gradle.kts").readText()
-        assertTrue(gradle.contains("versionName = \"2.2.0\"") && gradle.contains("versionCode = 23"))
+        assertTrue(gradle.contains("versionName = \"2.2.1\"") && gradle.contains("versionCode = 24"))
         assertTrue(gradle.contains("room.schemaLocation"))
         assertTrue(File("schemas/com.timewallet.mvp.data.local.TimeWalletDatabase/4.json").exists())
         assertTrue(File("schemas/com.timewallet.mvp.data.local.TimeWalletDatabase/5.json").exists())

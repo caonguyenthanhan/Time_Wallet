@@ -467,8 +467,8 @@ class V120ProductionReadinessTest {
         assertTrue(importBody.indexOf("verticalScroll") < importBody.indexOf("confirmButton"))
 
         val gradle = File("build.gradle.kts").readText()
-        assertTrue(gradle.contains("versionCode = 23"))
-        assertTrue(gradle.contains("versionName = \"2.2.0\""))
+        assertTrue(gradle.contains("versionCode = 24"))
+        assertTrue(gradle.contains("versionName = \"2.2.1\""))
         assertTrue(gradle.contains("isMinifyEnabled = false"))
         assertTrue(gradle.contains("signingConfigs"))
         assertNotNull(gradle.indexOf("assembleRelease").takeIf { it >= 0 })

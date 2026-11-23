@@ -404,7 +404,8 @@ class V130UxOptimizationTest {
 
         val profile = File("src/main/java/com/timewallet/mvp/ui/screens/ProfileSettingsScreen.kt").readText()
         assertTrue(profile.contains("fun ProfileSettingsScreen(") && profile.contains("fun AppIntroDialog("))
-        assertTrue(profile.contains("Bỏ qua") && profile.contains("AASM"))
+        assertTrue(profile.contains("Bỏ qua") && profile.contains("Bắt đầu ngay"))
+        assertFalse(profile.contains("AASM"))
 
         val schedule = File("src/main/java/com/timewallet/mvp/ui/screens/ScheduleCalendarView.kt").readText()
         assertTrue(schedule.contains("SelectedSlotsActionBar") && schedule.contains("ModalBottomSheet"))

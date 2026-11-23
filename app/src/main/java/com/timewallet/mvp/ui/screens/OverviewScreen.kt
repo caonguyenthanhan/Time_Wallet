@@ -64,6 +64,7 @@ import com.timewallet.mvp.ui.theme.WalletMintMid
 import com.timewallet.mvp.ui.theme.WalletMintSoft
 import com.timewallet.mvp.ui.theme.WalletMintTint
 import com.timewallet.mvp.ui.theme.WalletMuted
+import com.timewallet.mvp.ui.theme.WalletSoftNeutral
 import com.timewallet.mvp.ui.theme.WalletStroke
 import com.timewallet.mvp.ui.theme.WalletUntrackedBar
 import com.timewallet.mvp.ui.theme.WalletWarningText
@@ -132,7 +133,7 @@ fun Compact24hWalletCard(
                     .weight(1f)
                     .height(7.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(WalletUntrackedBar.copy(alpha = 0.55f))
+                    .background(WalletUntrackedBar)
                     .describe("Ví 24h hôm nay ($todayDateLocal): đã ghi nhận $recordedFormatted"),
                 horizontalArrangement = Arrangement.spacedBy(1.dp)
             ) {
@@ -149,7 +150,7 @@ fun Compact24hWalletCard(
                         modifier = Modifier
                             .weight((todayStats.untrackedPastSeconds.toFloat() / totalDaySecs).coerceIn(0.02f, 1f))
                             .fillMaxHeight()
-                            .background(WalletMuted.copy(alpha = 0.45f))
+                            .background(WalletMuted.copy(alpha = 0.38f))
                     )
                 }
                 if (todayStats.remainingDaySeconds > 0L) {
@@ -157,7 +158,7 @@ fun Compact24hWalletCard(
                         modifier = Modifier
                             .weight((todayStats.remainingDaySeconds.toFloat() / totalDaySecs).coerceIn(0.02f, 1f))
                             .fillMaxHeight()
-                            .background(Color.Transparent)
+                            .background(WalletSoftNeutral)
                     )
                 }
             }

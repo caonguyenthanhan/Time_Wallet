@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.screenshot)
 }
 
 val releaseSigningProps = Properties().apply {
@@ -46,8 +47,8 @@ android {
         applicationId = "com.timewallet.mvp"
         minSdk = 26
         targetSdk = 35
-        versionCode = 23
-        versionName = "2.2.0"
+        versionCode = 24
+        versionName = "2.2.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -87,6 +88,7 @@ android {
     buildFeatures {
         compose = true
     }
+    experimentalProperties["android.experimental.enableScreenshotTest"] = true
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
@@ -134,5 +136,8 @@ dependencies {
     testImplementation("org.xerial:sqlite-jdbc:3.41.2.2")
     testImplementation("org.json:json:20231013")
     debugImplementation(libs.androidx.ui.tooling)
+    screenshotTestImplementation(platform(libs.androidx.compose.bom))
+    screenshotTestImplementation(libs.screenshot.validation.api)
+    screenshotTestImplementation(libs.androidx.ui.tooling)
 }
 

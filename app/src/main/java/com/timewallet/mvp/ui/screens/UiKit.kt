@@ -34,6 +34,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.SwitchColors
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
@@ -78,11 +80,15 @@ import com.timewallet.mvp.domain.usecase.DonutSlice
 import com.timewallet.mvp.ui.AppTab
 import com.timewallet.mvp.ui.theme.WalletCardBg
 import com.timewallet.mvp.ui.theme.WalletInk
+import com.timewallet.mvp.ui.theme.WalletIsDark
 import com.timewallet.mvp.ui.theme.WalletMint
 import com.timewallet.mvp.ui.theme.WalletMintAccent
+import com.timewallet.mvp.ui.theme.WalletMintSoft
 import com.timewallet.mvp.ui.theme.WalletMintTint
 import com.timewallet.mvp.ui.theme.WalletMuted
 import com.timewallet.mvp.ui.theme.WalletRing
+import com.timewallet.mvp.ui.theme.WalletSoftNeutral
+import com.timewallet.mvp.ui.theme.WalletStroke
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -288,7 +294,7 @@ fun GlyphIcon(
     }
 }
 
-/** Thẻ nội dung chính: nền trắng, không viền, bóng nhẹ (thay cho thẻ viền xám lặp lại ở mọi khối). */
+/** Thẻ nội dung chính: bề mặt nổi phân tầng theo sáng/tối, không viền trang trí dư thừa. */
 @Composable
 fun SoftCard(
     modifier: Modifier = Modifier,
@@ -300,24 +306,26 @@ fun SoftCard(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = tint),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = if (WalletIsDark) 0.dp else 1.5.dp)
     ) {
         Column(modifier = Modifier.padding(padding)) { content() }
     }
 }
 
-/** Tiêu đề màn hình gọn (thay cho khối eyebrow + tiêu đề + đoạn mô tả). */
+/** Tiêu đề màn hình rõ, có điểm nhấn thị giác lớn hơn. */
 @Composable
 fun ScreenTitle(title: String, modifier: Modifier = Modifier, trailing: (@Composable () -> Unit)? = null) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 6.dp),
+            .padding(top = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = title,
-            fontSize = 26.sp,
+            fontSize = 28.sp,
+            lineHeight = 34.sp,
+            letterSpacing = (-0.4).sp,
             fontWeight = FontWeight.ExtraBold,
             color = WalletInk,
             modifier = Modifier.weight(1f)
@@ -401,12 +409,20 @@ fun EmptyState(
     ) {
         Box(
             modifier = Modifier
-                .size(64.dp)
+                .size(72.dp)
                 .clip(CircleShape)
-                .background(WalletMintTint),
+                .background(WalletSoftNeutral),
             contentAlignment = Alignment.Center
         ) {
-            GlyphIcon(glyph = glyph, color = WalletMintAccent, size = 30.dp)
+            Box(
+                modifier = Modifier
+                    .size(54.dp)
+                    .clip(CircleShape)
+                    .background(WalletMintSoft),
+                contentAlignment = Alignment.Center
+            ) {
+                GlyphIcon(glyph = glyph, color = WalletMintAccent, size = 26.dp)
+            }
         }
         Spacer(modifier = Modifier.height(4.dp))
         Text(text = title, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk, textAlign = TextAlign.Center)
@@ -534,14 +550,19 @@ fun DonutChart(
             Modifier.fillMaxSize()
         }
 
+        val reduceMotion = com.timewallet.mvp.ui.theme.WalletReduceMotion
         val animatedPopFractions = displaySlices.indices.map { idx ->
             val target = if (activeSelection == idx) 1f else 0f
-            val anim by animateFloatAsState(
-                targetValue = target,
-                animationSpec = tween(durationMillis = 180),
-                label = "donutPop_$idx"
-            )
-            anim
+            if (reduceMotion) {
+                target
+            } else {
+                val anim by animateFloatAsState(
+                    targetValue = target,
+                    animationSpec = tween(durationMillis = 180),
+                    label = "donutPop_$idx"
+                )
+                anim
+            }
         }
 
         val ringColor = WalletRing
@@ -804,7 +825,8 @@ fun Modifier.timelineRail(
     isPlanned: Boolean = false,
     railCenterX: Dp = 11.dp
 ): Modifier {
-    val spinDeg = if (isInProgress) {
+    val reduceMotion = com.timewallet.mvp.ui.theme.WalletReduceMotion
+    val spinDeg = if (isInProgress && !reduceMotion) {
         val transition = rememberInfiniteTransition(label = "timelineSpinner")
         val angle by transition.animateFloat(
             initialValue = 0f,
@@ -881,6 +903,16 @@ fun Modifier.describe(text: String): Modifier = this.semantics { contentDescript
  * - >= 80dp (empty/onboarding >= 96dp): dùng mascot toàn thân WebP chi tiết cao xuất từ Wally_Vector_Detailed ([R.drawable.ic_wally]).
  * - 32–79dp (Tổng quan, AI Coach, Chat bubble): dùng avatar mặt robot 2D ([R.drawable.ic_wally_avatar_2d]).
  */
+@Composable
+fun walletSwitchColors(checkedTrackColor: Color = WalletMint): SwitchColors = SwitchDefaults.colors(
+    checkedThumbColor = Color.White,
+    checkedTrackColor = checkedTrackColor,
+    checkedBorderColor = Color.Transparent,
+    uncheckedThumbColor = if (WalletIsDark) Color(0xFFB8C0C8) else Color(0xFF5D6B65),
+    uncheckedTrackColor = if (WalletIsDark) Color(0xFF282D32) else Color(0xFFE0E5DF),
+    uncheckedBorderColor = WalletStroke
+)
+
 @Composable
 fun WallyMascotAvatar(
     size: Dp,

@@ -31,6 +31,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -42,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -69,6 +71,7 @@ import com.timewallet.mvp.ui.theme.WalletCardBg
 import com.timewallet.mvp.ui.theme.WalletDangerText
 import com.timewallet.mvp.ui.theme.WalletDivider
 import com.timewallet.mvp.ui.theme.WalletInk
+import com.timewallet.mvp.ui.theme.WalletIsDark
 import com.timewallet.mvp.ui.theme.WalletMint
 import com.timewallet.mvp.ui.theme.WalletMintAccent
 import com.timewallet.mvp.ui.theme.WalletMintDark
@@ -170,40 +173,49 @@ fun ProfileSettingsScreen(
                 )
             }
 
+            val settingsScrollState = rememberScrollState()
+            val focusManager = LocalFocusManager.current
+            LaunchedEffect(Unit) {
+                focusManager.clearFocus(force = true)
+                settingsScrollState.scrollTo(0)
+            }
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                    .verticalScroll(settingsScrollState)
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Phần đỉnh với linh vật Wally + triết lý sản phẩm.
+                // Thẻ nhận diện Wally gọn theo phong cách card nổi không viền.
                 Surface(
-                    shape = RoundedCornerShape(22.dp),
+                    shape = RoundedCornerShape(20.dp),
                     color = WalletCardBg,
-                    border = BorderStroke(1.dp, WalletStroke),
+                    shadowElevation = if (WalletIsDark) 0.dp else 1.5.dp,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(
-                        modifier = Modifier.padding(18.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        WallyMascotAvatar(size = 86.dp, contentDescription = "Linh vật Wally")
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Time Wallet v$versionLabel",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = WalletInk
-                        )
-                        Text(
-                            text = "Hiểu cách bạn dùng 24 giờ — trung thực, không phán xét.",
-                            fontSize = 12.5.sp,
-                            color = WalletMuted,
-                            textAlign = TextAlign.Center
-                        )
+                        WallyMascotAvatar(size = 52.dp, contentDescription = "Linh vật Wally")
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = "Time Wallet v$versionLabel",
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = WalletInk
+                            )
+                            Text(
+                                text = "Hiểu cách bạn dùng 24 giờ — trung thực, không phán xét.",
+                                fontSize = 12.sp,
+                                color = WalletMuted
+                            )
+                        }
                     }
                 }
 
@@ -281,9 +293,10 @@ fun ProfileSettingsScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "Ẩn các công cụ chưa cần để giữ app gọn; dữ liệu Room luôn được bảo toàn.",
-                            fontSize = 11.5.sp,
-                            color = WalletMuted
+                            text = "Công cụ trên tab Công việc & Tập trung",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = WalletMintAccent
                         )
                         SettingsSwitchRow(
                             title = "Bảng Kanban",
@@ -314,6 +327,13 @@ fun ProfileSettingsScreen(
                             subtitle = "Gợi ý phiên ngẫu nhiên theo mức năng lượng",
                             checked = customization.enableDice,
                             onCheckedChange = { v -> onUpdateCustomization { it.copy(enableDice = v) } }
+                        )
+                        HorizontalDivider(color = WalletDivider, modifier = Modifier.padding(vertical = 2.dp))
+                        Text(
+                            text = "Đồng hành Wally & màn hình chính",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = WalletMintAccent
                         )
                         SettingsSwitchRow(
                             title = "Trợ lý Wally AI",
@@ -388,7 +408,7 @@ fun ProfileSettingsScreen(
                             currentModelName = aiPreferences.modelName,
                             onSelectPreset = onSelectWallyPreset,
                             compact = false,
-                            showAutoFutureHint = true
+                            showAutoFutureHint = false
                         )
                     }
                     HorizontalDivider(color = WalletDivider)
@@ -462,10 +482,7 @@ fun ProfileSettingsScreen(
                         Switch(
                             checked = focusPinEnabled,
                             onCheckedChange = onToggleFocusPin,
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = WalletMint
-                            )
+                            colors = walletSwitchColors(WalletMint)
                         )
                     }
                 }
@@ -631,10 +648,7 @@ private fun SettingsSwitchRow(
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = WalletMintDark
-            )
+            colors = walletSwitchColors(WalletMintDark)
         )
     }
 }
@@ -644,18 +658,18 @@ private fun SettingsGroupSection(
     title: String,
     content: @Composable () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Text(
             text = title,
-            fontSize = 12.sp,
+            fontSize = 12.5.sp,
             fontWeight = FontWeight.Bold,
             color = WalletMuted,
-            modifier = Modifier.padding(start = 4.dp)
+            modifier = Modifier.padding(start = 6.dp)
         )
         Surface(
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(20.dp),
             color = WalletCardBg,
-            border = BorderStroke(1.dp, WalletStroke),
+            shadowElevation = if (WalletIsDark) 0.dp else 1.5.dp,
             modifier = Modifier.fillMaxWidth()
         ) {
             Column { content() }
@@ -675,34 +689,42 @@ private fun SettingsRowItem(
         modifier = Modifier
             .fillMaxWidth()
             .walletClickable(onClickLabel = title, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 14.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
+                .size(42.dp)
+                .clip(RoundedCornerShape(13.dp))
                 .background(WalletMintTint),
             contentAlignment = Alignment.Center
         ) {
-            GlyphIcon(glyph = glyph, color = WalletMintAccent, size = 18.dp)
+            GlyphIcon(glyph = glyph, color = WalletMintAccent, size = 20.dp)
         }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = WalletInk)
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(text = title, fontSize = 14.5.sp, fontWeight = FontWeight.Bold, color = WalletInk)
             Text(text = subtitle, fontSize = 12.sp, color = WalletMuted, lineHeight = 16.sp)
         }
         if (badgeText != null) {
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(100.dp))
-                    .background(WalletMintTint)
-                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                    .background(WalletMintSoft)
+                    .padding(horizontal = 9.dp, vertical = 4.dp)
             ) {
                 Text(badgeText, fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = WalletMintAccent)
             }
         }
-        GlyphIcon(glyph = WalletGlyph.CHEVRON, color = WalletMuted, size = 16.dp)
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(RoundedCornerShape(9.dp))
+                .background(WalletSoftNeutral),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("›", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = WalletMuted)
+        }
     }
 }
 
@@ -725,26 +747,26 @@ fun AppIntroDialog(
             IntroSlide(
                 stepTitle = "1 / 4 · Triết lý 24 giờ",
                 headline = "Hiểu 24 giờ của bạn, không phán xét nghỉ ngơi",
-                body = "Mọi người đều có 24 giờ mỗi ngày. Time Wallet tách rõ thời gian cho Mục tiêu, Phi mục tiêu (ngủ ≥7h theo AASM/SRS, nghỉ phục hồi theo Albulescu 2022, giải trí vừa đủ theo Sonnentag) và chỉ tính Lãng phí khi bạn tự đánh dấu.",
+                body = "Mỗi ngày đều có 24 giờ. Time Wallet tách rõ thời gian cho Mục tiêu, sinh hoạt phục hồi (ngủ, nghỉ ngơi, giải trí vừa đủ) và chỉ tính Lãng phí khi bạn tự đánh dấu.",
                 highlight = "Cân bằng giữa mục tiêu và phục hồi bền vững"
             ),
             IntroSlide(
-                stepTitle = "2 / 4 · Sổ cái 5 lớp trung thực",
+                stepTitle = "2 / 4 · Sổ cái trung thực",
                 headline = "Không bao giờ tự bịa giờ bắt đầu hay kết thúc",
-                body = "Hoạt động có mốc giờ hiển thị thẳng trên trục giờ Lịch trình. Hoạt động chỉ biết thời lượng như \"Đọc sách 30 phút\" nằm gọn trong khay riêng, tuyệt đối không bị gán giờ giả.",
-                highlight = "5 lớp tách bạch: Đã đo · Có giờ · Chưa gắn giờ · Đang diễn ra · Dự kiến"
+                body = "Hoạt động có mốc giờ hiển thị thẳng trên Lịch trình. Việc chỉ có thời lượng (như \"Đọc sách 30p\") nằm ở khay riêng để bạn tự đặt giờ sau.",
+                highlight = "Tách bạch rõ ràng: Đã đo · Có giờ · Chưa gắn giờ · Dự kiến"
             ),
             IntroSlide(
-                stepTitle = "3 / 4 · Lịch trình Kế hoạch vs Thực tế",
-                headline = "Soi chiếu điều bạn dự định với điều đã diễn ra",
-                body = "Chế độ Ngày / 3 ngày / Tuần / Tháng chuẩn Google Calendar. Chạm chọn 1 hoặc nhiều khối giờ trống để tạo sự kiện nhanh, kéo đổi giờ và đối chiếu Kế hoạch vs Thực tế song song.",
-                highlight = "Kế hoạch 60p vs Thực tế 72p hiển thị song song, không tự ghi đè"
+                stepTitle = "3 / 4 · Dự kiến vs Thực tế",
+                headline = "Soi chiếu kế hoạch với điều đã diễn ra",
+                body = "Xem Ngày, 3 ngày, Tuần hoặc Tháng. Chạm giữ để kéo ô giờ trống, đổi giờ trực tiếp và đối chiếu Kế hoạch vs Thực tế song song.",
+                highlight = "Giờ dự kiến không bao giờ tự ghi đè giờ thực tế"
             ),
             IntroSlide(
                 stepTitle = "4 / 4 · Wally đồng hành mọi lúc",
-                headline = "Trợ lý thời gian cá nhân giúp bạn học & làm có chủ đích hơn",
-                body = "Đồng hành qua Widget màn hình chính, Trợ lý nổi Wally và AI To-do — hỗ trợ sinh viên & người đi làm sắp xếp ưu tiên, phát hiện trễ hạn nhưng mọi thay đổi luôn chờ bạn xác nhận.",
-                highlight = "Wally gợi ý thông minh · Bạn luôn giữ quyền xác nhận cuối cùng"
+                headline = "Tập trung có chủ đích cùng trợ lý AI",
+                body = "Wally hỗ trợ qua Widget, Bảng nổi và AI To-do — gợi ý việc cần ưu tiên, mọi thay đổi luôn chờ bạn bấm xác nhận.",
+                highlight = "Wally chỉ đề xuất · Bạn giữ toàn quyền quyết định"
             )
         )
     }
@@ -759,19 +781,19 @@ fun AppIntroDialog(
             modifier = Modifier
                 .fillMaxSize()
                 .background(WalletBg)
-                .padding(18.dp),
+                .padding(12.dp),
             contentAlignment = Alignment.Center
         ) {
             Surface(
-                shape = RoundedCornerShape(26.dp),
+                shape = RoundedCornerShape(24.dp),
                 color = WalletCardBg,
                 border = BorderStroke(1.dp, WalletStroke),
                 modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth()
             ) {
                 Column(
-                    modifier = Modifier.padding(20.dp),
+                    modifier = Modifier.padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                    verticalArrangement = Arrangement.spacedBy(11.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -796,7 +818,7 @@ fun AppIntroDialog(
                         )
                     }
 
-                    WallyMascotAvatar(size = 92.dp, contentDescription = "Wally")
+                    WallyMascotAvatar(size = 76.dp, contentDescription = "Wally")
 
                     Text(
                         text = current.headline,
@@ -867,8 +889,8 @@ fun AppIntroDialog(
                             modifier = Modifier.weight(1.4f).heightIn(min = 48.dp)
                         ) {
                             Text(
-                                text = if (page < slides.lastIndex) "Tiếp theo ›" else "Bắt đầu dùng Time Wallet",
-                                fontWeight = FontWeight.ExtraBold
+                                text = if (page < slides.lastIndex) "Tiếp theo ›" else "Bắt đầu ngay",
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     }

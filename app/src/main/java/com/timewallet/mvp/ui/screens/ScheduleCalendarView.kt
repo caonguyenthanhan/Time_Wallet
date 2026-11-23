@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -196,12 +197,16 @@ fun ScheduleCalendarView(
         }
     },
     onDeleteRecord: (String) -> Unit = {},
-    onPlaceUntimedOnSlot: (recordId: String, dateLocal: String, startHm: String, endHm: String) -> Unit = onMoveOrResizeBlock
+    onPlaceUntimedOnSlot: (recordId: String, dateLocal: String, startHm: String, endHm: String) -> Unit = onMoveOrResizeBlock,
+    recordedSummaryBadge: String? = null,
+    onRecordedSummaryClick: (() -> Unit)? = null,
+    onSwitchToTimelineMode: (() -> Unit)? = null,
+    nowEpochMs: Long = System.currentTimeMillis()
 ) {
     val zone = remember { ZoneId.systemDefault() }
     val today = remember(todayDateLocal) { runCatching { LocalDate.parse(todayDateLocal) }.getOrDefault(LocalDate.now(zone)) }
     val selectedDate = remember(selectedDateLocal, today) { runCatching { LocalDate.parse(selectedDateLocal) }.getOrDefault(today) }
-    val nowMs = System.currentTimeMillis()
+    val nowMs = nowEpochMs
     val nowLocalTime = remember(nowMs, zone) { Instant.ofEpochMilli(nowMs).atZone(zone).toLocalTime() }
     val nowMinute = nowLocalTime.hour * 60 + nowLocalTime.minute
 
@@ -214,6 +219,9 @@ fun ScheduleCalendarView(
     var timelineScrollPx by remember(viewMode, selectedDateLocal) { mutableFloatStateOf(0f) }
     var timelineViewportHeightPx by remember { mutableFloatStateOf(0f) }
     var activeDragViewportY by remember { mutableFloatStateOf(-1f) }
+    var quickJumpNonce by remember { mutableIntStateOf(0) }
+    var quickJumpMinute by remember { mutableIntStateOf(nowMinute) }
+    val quickScrollRequest: Pair<Int, Int>? = if (quickJumpNonce > 0) quickJumpMinute to quickJumpNonce else null
 
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var categoryFilter by rememberSaveable { mutableStateOf<String?>(null) }
@@ -440,260 +448,350 @@ fun ScheduleCalendarView(
         },
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        // 1. Header xanh 2 dòng siêu gọn: dòng 1 điều hướng ngày đủ rộng không cắt chữ, dòng 2 chế độ + Chưa giờ + Ghi mới
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(Brush.linearGradient(listOf(WalletMintDark, WalletMintMid, WalletMintBright)))
-                .padding(horizontal = 8.dp, vertical = 2.dp),
-            verticalArrangement = Arrangement.spacedBy(0.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp)
+        // 1. Panel điều khiển hợp nhất tối giản trên surface sạch (xanh chỉ dùng cho trạng thái chọn & nút chính "+"):
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 28.dp) {
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = WalletCardBg,
+                shadowElevation = 1.5.dp,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                if (showBackButton) {
-                    Box(
-                        modifier = Modifier
-                            .semantics { contentDescription = "Đóng lịch trình" }
-                            .walletClickable(onClickLabel = "Đóng lịch trình", onClick = onBackClick),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.16f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            GlyphIcon(WalletGlyph.BACK, color = Color.White, size = 14.dp)
-                        }
-                    }
-                }
-                Box(
+                Column(
                     modifier = Modifier
-                        .semantics { contentDescription = "Lùi thời gian" }
-                        .walletClickable(onClickLabel = "Lùi thời gian") {
-                            onSelectDate(stepScheduleDate(selectedDate, viewMode, -1).toString())
-                        },
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.16f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("‹", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                    }
-                }
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(
-                        text = formatScheduleRangeHeading(selectedDate, today, viewMode),
-                        fontSize = if (viewMode == ScheduleViewMode.WEEK) 12.sp else 12.5.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                    if (selectedDate != today) {
-                        Box(
-                            modifier = Modifier.walletClickable(onClickLabel = "Về hôm nay") {
-                                onSelectDate(today.toString())
-                            },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(100.dp))
-                                    .background(Color.White.copy(alpha = 0.22f))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp),
-                                contentAlignment = Alignment.Center
+                    val showTopIdentityRow = showBackButton || recordedSummaryBadge != null || onSwitchToTimelineMode != null
+                    if (showTopIdentityRow) {
+                        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                            val stackModeSwitcher = maxWidth < 330.dp &&
+                                onSwitchToTimelineMode != null &&
+                                (showBackButton || recordedSummaryBadge != null)
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(5.dp)
                             ) {
-                                Text(
-                                    text = "Hôm nay",
-                                    fontSize = 9.5.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = Color.White,
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.weight(1f),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = if (stackModeSwitcher) Arrangement.SpaceBetween else Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            if (showBackButton) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .semantics { contentDescription = "Đóng lịch trình" }
+                                                        .walletClickable(onClickLabel = "Đóng lịch trình", onClick = onBackClick),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(28.dp)
+                                                            .clip(CircleShape)
+                                                            .background(WalletSoftNeutral),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        GlyphIcon(WalletGlyph.BACK, color = WalletInk, size = 14.dp)
+                                                    }
+                                                }
+                                            }
+                                            Text(
+                                                text = "Lịch trình",
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = WalletInk,
+                                                maxLines = 1,
+                                                softWrap = false
+                                            )
+                                        }
+                                        if (recordedSummaryBadge != null) {
+                                            val badgeModifier = if (onRecordedSummaryClick != null) {
+                                                Modifier.walletClickable(onClickLabel = "Xem nhanh thống kê ví 24 giờ hôm nay") {
+                                                    onRecordedSummaryClick()
+                                                }
+                                            } else {
+                                                Modifier
+                                            }
+                                            Box(
+                                                modifier = badgeModifier,
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(100.dp))
+                                                        .background(WalletSoftNeutral)
+                                                        .padding(horizontal = 7.dp, vertical = 3.dp)
+                                                ) {
+                                                    Text(
+                                                        text = recordedSummaryBadge,
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = WalletMintAccent,
+                                                        maxLines = 1,
+                                                        softWrap = false,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if (onSwitchToTimelineMode != null && !stackModeSwitcher) {
+                                        ScheduleSurfaceModeSwitcher(
+                                            fillWidth = false,
+                                            onSwitchToTimelineMode = onSwitchToTimelineMode
+                                        )
+                                    }
+                                }
+
+                                if (onSwitchToTimelineMode != null && stackModeSwitcher) {
+                                    ScheduleSurfaceModeSwitcher(
+                                        fillWidth = true,
+                                        onSwitchToTimelineMode = onSwitchToTimelineMode
+                                    )
+                                }
                             }
                         }
                     }
-                }
-                Box(
-                    modifier = Modifier
-                        .semantics { contentDescription = "Tiến thời gian" }
-                        .walletClickable(onClickLabel = "Tiến thời gian") {
-                            onSelectDate(stepScheduleDate(selectedDate, viewMode, +1).toString())
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.16f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("›", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                    }
-                }
 
-                Box {
-                    val hasActiveFilter = showSearchAndFilter || !categoryFilter.isNullOrBlank() || searchQuery.isNotBlank() || showLegend
-                    Box(
-                        modifier = Modifier
-                            .semantics { contentDescription = "Tùy chọn lịch trình" }
-                            .walletClickable(onClickLabel = "Tùy chọn lịch trình") {
-                                showCalendarMenu = true
-                            },
-                        contentAlignment = Alignment.Center
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .background(if (hasActiveFilter) Color.White else Color.White.copy(alpha = 0.16f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = if (!categoryFilter.isNullOrBlank() || searchQuery.isNotBlank()) "⋮●" else "⋮",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = if (hasActiveFilter) WalletMintDark else Color.White,
-                                maxLines = 1,
-                                softWrap = false
-                            )
-                        }
-                    }
-                    DropdownMenu(
-                        expanded = showCalendarMenu,
-                        onDismissRequest = { showCalendarMenu = false },
-                        containerColor = WalletCardBg,
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    text = "TT ${TimeRange.formatDuration(headerActualMinutes)} · KH ${TimeRange.formatDuration(headerPlannedMinutes)}" +
-                                        if (headerUnconfirmed > 0) " · Chờ $headerUnconfirmed" else "",
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = WalletMuted
-                                )
-                            },
-                            enabled = false,
-                            onClick = {}
-                        )
-                        HorizontalDivider(color = WalletDivider)
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    text = "＋ Ghi mới hoạt động",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = WalletMintAccent
-                                )
-                            },
-                            onClick = {
-                                showCalendarMenu = false
-                                onAddForSlot(selectedDate.toString(), null, null, selectedDate.isAfter(today))
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    text = if (showSearchAndFilter) "✓ Ẩn tìm & lọc" else "Tìm & lọc danh mục",
-                                    fontSize = 13.sp,
-                                    color = WalletInk
-                                )
-                            },
-                            onClick = {
-                                showSearchAndFilter = !showSearchAndFilter
-                                showCalendarMenu = false
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    text = if (showLegend) "✓ Ẩn chú giải màu" else "Hiện chú giải 4 trạng thái",
-                                    fontSize = 13.sp,
-                                    color = WalletInk
-                                )
-                            },
-                            onClick = {
-                                showLegend = !showLegend
-                                showCalendarMenu = false
-                            }
-                        )
-                    }
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(9.dp))
-                        .background(Color.White.copy(alpha = 0.15f))
-                        .padding(horizontal = 2.dp, vertical = 1.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    ScheduleViewMode.entries.forEach { mode ->
-                        val isSelected = mode == viewMode
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .semantics { this.selected = isSelected }
-                                .walletClickable(onClickLabel = "Chế độ ${mode.label}", role = Role.Tab) {
-                                    onSelectViewMode(mode)
+                                .semantics { contentDescription = "Lùi thời gian" }
+                                .walletClickable(onClickLabel = "Lùi thời gian") {
+                                    onSelectDate(stepScheduleDate(selectedDate, viewMode, -1).toString())
                                 },
                             contentAlignment = Alignment.Center
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(7.dp))
-                                    .background(if (isSelected) Color.White else Color.Transparent)
-                                    .padding(vertical = 3.dp),
+                                    .size(26.dp)
+                                    .clip(CircleShape)
+                                    .background(WalletSoftNeutral),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    text = mode.label,
-                                    fontSize = 10.5.sp,
-                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
-                                    color = if (isSelected) WalletMintDark else Color.White,
-                                    maxLines = 1,
-                                    softWrap = false
+                                Text("‹", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = WalletInk)
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = formatScheduleRangeHeading(selectedDate, today, viewMode),
+                                fontSize = if (viewMode == ScheduleViewMode.WEEK) 12.5.sp else 13.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = WalletInk,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            if (selectedDate != today) {
+                                Box(
+                                    modifier = Modifier.walletClickable(onClickLabel = "Về hôm nay") {
+                                        onSelectDate(today.toString())
+                                    },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(100.dp))
+                                            .background(WalletMintSoft)
+                                            .padding(horizontal = 7.dp, vertical = 2.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "Hôm nay",
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = WalletMintAccent,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .semantics { contentDescription = "Tiến thời gian" }
+                                .walletClickable(onClickLabel = "Tiến thời gian") {
+                                    onSelectDate(stepScheduleDate(selectedDate, viewMode, +1).toString())
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .clip(CircleShape)
+                                    .background(WalletSoftNeutral),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("›", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = WalletInk)
+                            }
+                        }
+
+                        Box {
+                            val hasActiveFilter = showSearchAndFilter || !categoryFilter.isNullOrBlank() || searchQuery.isNotBlank() || showLegend
+                            Box(
+                                modifier = Modifier
+                                    .semantics { contentDescription = "Tùy chọn lịch trình" }
+                                    .walletClickable(onClickLabel = "Tùy chọn lịch trình") {
+                                        showCalendarMenu = true
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(26.dp)
+                                        .clip(CircleShape)
+                                        .background(if (hasActiveFilter) WalletMintSoft else WalletSoftNeutral),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = if (!categoryFilter.isNullOrBlank() || searchQuery.isNotBlank()) "⋮●" else "⋮",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = if (hasActiveFilter) WalletMintAccent else WalletInk,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+                            DropdownMenu(
+                                expanded = showCalendarMenu,
+                                onDismissRequest = { showCalendarMenu = false },
+                                containerColor = WalletCardBg,
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "TT ${TimeRange.formatDuration(headerActualMinutes)} · KH ${TimeRange.formatDuration(headerPlannedMinutes)}" +
+                                                if (headerUnconfirmed > 0) " · Chờ $headerUnconfirmed" else "",
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = WalletMuted
+                                        )
+                                    },
+                                    enabled = false,
+                                    onClick = {}
+                                )
+                                HorizontalDivider(color = WalletDivider)
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "＋ Ghi mới hoạt động",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = WalletMintAccent
+                                        )
+                                    },
+                                    onClick = {
+                                        showCalendarMenu = false
+                                        onAddForSlot(selectedDate.toString(), null, null, selectedDate.isAfter(today))
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = if (showSearchAndFilter) "✓ Ẩn tìm & lọc" else "Tìm & lọc danh mục",
+                                            fontSize = 13.sp,
+                                            color = WalletInk
+                                        )
+                                    },
+                                    onClick = {
+                                        showSearchAndFilter = !showSearchAndFilter
+                                        showCalendarMenu = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = if (showLegend) "✓ Ẩn chú giải màu" else "Hiện chú giải 4 trạng thái",
+                                            fontSize = 13.sp,
+                                            color = WalletInk
+                                        )
+                                    },
+                                    onClick = {
+                                        showLegend = !showLegend
+                                        showCalendarMenu = false
+                                    }
                                 )
                             }
                         }
                     }
-                }
-                // Khay "Chưa gắn giờ" + "+" ghim cố định ngay hàng 2 thanh đầu, luôn mở được bất kể vị trí cuộn
-                PinnedScheduleUtilityStrip(
-                    untimedCount = untimedItems.size,
-                    isPlacingUntimed = interactionState is ScheduleInteractionState.UntimedPlacement,
-                    onOpenUntimedTray = { showUntimedSheet = true },
-                    onQuickCreateNew = {
-                        onAddForSlot(selectedDate.toString(), null, null, selectedDate.isAfter(today))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(WalletSoftNeutral)
+                                .padding(horizontal = 2.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            ScheduleViewMode.entries.forEach { mode ->
+                                val isSelected = mode == viewMode
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .semantics { this.selected = isSelected }
+                                        .walletClickable(onClickLabel = "Chế độ ${mode.label}", role = Role.Tab) {
+                                            onSelectViewMode(mode)
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (isSelected) WalletCardBg else Color.Transparent)
+                                            .padding(vertical = 4.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = mode.label,
+                                            fontSize = 10.5.sp,
+                                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium,
+                                            color = if (isSelected) WalletInk else WalletMuted,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        // Khay "Chưa gắn giờ" + "+" điểm nhấn chính duy nhất màu xanh thương hiệu
+                        PinnedScheduleUtilityStrip(
+                            untimedCount = untimedItems.size,
+                            isPlacingUntimed = interactionState is ScheduleInteractionState.UntimedPlacement,
+                            onOpenUntimedTray = { showUntimedSheet = true },
+                            onQuickCreateNew = {
+                                onAddForSlot(selectedDate.toString(), null, null, selectedDate.isAfter(today))
+                            }
+                        )
                     }
-                )
+                }
             }
         }
 
@@ -759,9 +857,9 @@ fun ScheduleCalendarView(
             }
         }
 
-        // 2. Timeline là trung tâm — chiếm toàn bộ không gian còn lại vừa khít màn hình, KHÔNG BAO GIỜ co lại hay nhảy vị trí khi chọn/sửa
+        // 2. Timeline là trung tâm — thích ứng theo chiều cao màn hình để không tạo dải trống đáy ở 390dp hay tràn lồng cuộn ở 320dp
         val screenHeightDp = LocalConfiguration.current.screenHeightDp
-        val embeddedGridHeight = (screenHeightDp - 304).coerceIn(390, 560).dp
+        val embeddedGridHeight = (screenHeightDp - 246).coerceIn(320, 620).dp
         val gridModifier = if (embeddedInScrollContainer) {
             Modifier.fillMaxWidth().height(embeddedGridHeight)
         } else {
@@ -804,6 +902,16 @@ fun ScheduleCalendarView(
             timelineViewportHeightPx > 80f &&
             activeTargetViewportY > timelineViewportHeightPx * 0.48f
 
+        val nextJumpBlock = remember(multiDayModels, selectedDayModel, selectedDate, today, nowMinute) {
+            if (selectedDate == today) {
+                val todayModel = multiDayModels.firstOrNull { it.dateLocal == today.toString() } ?: selectedDayModel
+                todayModel.timedBlocks.firstOrNull { it.startMinute > nowMinute }
+                    ?: todayModel.timedBlocks.firstOrNull { it.endMinute > nowMinute }
+            } else {
+                selectedDayModel.timedBlocks.firstOrNull()
+            }
+        }
+
         Box(modifier = boxContainerModifier) {
             when (viewMode) {
                 ScheduleViewMode.DAY -> {
@@ -812,6 +920,7 @@ fun ScheduleCalendarView(
                         dayModel = dayModel,
                         isToday = selectedDate == today,
                         nowMinute = nowMinute,
+                        quickScrollRequest = quickScrollRequest,
                         interactionState = interactionState,
                         modifier = Modifier.fillMaxSize(),
                         onViewportMetricsChanged = { scrollPx, vpH ->
@@ -852,6 +961,7 @@ fun ScheduleCalendarView(
                         todayStr = today.toString(),
                         nowMinute = nowMinute,
                         hourHeight = 56.dp,
+                        quickScrollRequest = quickScrollRequest,
                         interactionState = interactionState,
                         modifier = Modifier.fillMaxSize(),
                         onViewportMetricsChanged = { scrollPx, vpH ->
@@ -891,6 +1001,7 @@ fun ScheduleCalendarView(
                         nowMinute = nowMinute,
                         hourHeight = 40.dp,
                         compactColumns = true,
+                        quickScrollRequest = quickScrollRequest,
                         interactionState = interactionState,
                         modifier = Modifier.fillMaxSize(),
                         onViewportMetricsChanged = { scrollPx, vpH ->
@@ -946,6 +1057,75 @@ fun ScheduleCalendarView(
                 }
             }
 
+            // Nút nhảy nhanh "Giờ hiện tại" & "Hoạt động kế tiếp": chỉ hiện "● HH:mm" khi khác hôm nay hoặc đường giờ hiện tại đã cuộn ra ngoài khung nhìn
+            val nowY = (nowMinute / 60f) * activeHourHeightPx
+            val isNowVisibleInViewport = selectedDate == today &&
+                timelineViewportHeightPx > 40f &&
+                nowY >= (timelineScrollPx + 14f) &&
+                nowY <= (timelineScrollPx + timelineViewportHeightPx - 14f)
+            val showNowJumpChip = !isNowVisibleInViewport
+            if (viewMode != ScheduleViewMode.MONTH && !(dockToolbarAtTop && interactionState != ScheduleInteractionState.Idle) && (showNowJumpChip || nextJumpBlock != null)) {
+                val quickTopPad = if (viewMode == ScheduleViewMode.DAY) 6.dp else 46.dp
+                CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 28.dp) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = quickTopPad, end = 8.dp)
+                            .zIndex(24f),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (showNowJumpChip) {
+                            Surface(
+                                shape = RoundedCornerShape(100.dp),
+                                color = WalletCardBg.copy(alpha = 0.94f),
+                                shadowElevation = 2.dp,
+                                border = BorderStroke(1.dp, WalletStroke)
+                            ) {
+                                Text(
+                                    text = "● ${TimeRange.formatHm(nowMinute)}",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NowIndicatorCoral,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier
+                                        .walletClickable(onClickLabel = "Về giờ hiện tại") {
+                                            if (selectedDate != today) onSelectDate(today.toString())
+                                            quickJumpMinute = nowMinute
+                                            quickJumpNonce++
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                        nextJumpBlock?.let { blk ->
+                            Surface(
+                                shape = RoundedCornerShape(100.dp),
+                                color = WalletCardBg.copy(alpha = 0.94f),
+                                shadowElevation = 2.dp,
+                                border = BorderStroke(1.dp, WalletMintAccent.copy(alpha = 0.45f))
+                            ) {
+                                Text(
+                                    text = "⏭ Kế ${TimeRange.formatHm(blk.startMinute)}",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = WalletMintAccent,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier
+                                        .walletClickable(onClickLabel = "Tới hoạt động kế tiếp ${blk.title}") {
+                                            quickJumpMinute = blk.startMinute
+                                            quickJumpNonce++
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // 3. Thanh công cụ nổi nhỏ gọn neo đối diện khối đang chọn/kéo (không đẩy hay che timeline!)
             val overlayTopPad = if (viewMode == ScheduleViewMode.THREE_DAYS || viewMode == ScheduleViewMode.WEEK) 56.dp else 6.dp
             val overlayPad = if (dockToolbarAtTop) {
@@ -953,7 +1133,7 @@ fun ScheduleCalendarView(
             } else {
                 Modifier.align(Alignment.BottomCenter).padding(
                     start = 8.dp,
-                    end = 50.dp,
+                    end = 56.dp,
                     bottom = 6.dp
                 )
             }
@@ -1121,6 +1301,56 @@ fun ScheduleCalendarView(
 }
 
 @Composable
+private fun ScheduleSurfaceModeSwitcher(
+    fillWidth: Boolean,
+    onSwitchToTimelineMode: () -> Unit
+) {
+    Row(
+        modifier = (if (fillWidth) Modifier.fillMaxWidth() else Modifier)
+            .clip(RoundedCornerShape(100.dp))
+            .background(WalletSoftNeutral)
+            .padding(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        listOf(true to "Lịch trình", false to "Dòng thời gian").forEach { (isCal, label) ->
+            val selected = isCal
+            Box(
+                modifier = (if (fillWidth) Modifier.weight(1f) else Modifier)
+                    .semantics {
+                        this.selected = selected
+                        this.contentDescription = "Chế độ $label"
+                    }
+                    .walletClickable(
+                        onClickLabel = "Chế độ $label",
+                        role = Role.Tab
+                    ) {
+                        if (!isCal) onSwitchToTimelineMode()
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = (if (fillWidth) Modifier.fillMaxWidth() else Modifier)
+                        .clip(RoundedCornerShape(100.dp))
+                        .background(if (selected) WalletMint else Color.Transparent)
+                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = label,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (selected) Color.White else WalletMuted,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun PinnedScheduleUtilityStrip(
     untimedCount: Int,
     isPlacingUntimed: Boolean,
@@ -1138,8 +1368,8 @@ private fun PinnedScheduleUtilityStrip(
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(100.dp))
-                    .background(if (isPlacingUntimed) Color.White else Color.White.copy(alpha = 0.18f))
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                    .background(if (isPlacingUntimed) WalletMintSoft else WalletSoftNeutral)
+                    .padding(horizontal = 7.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
@@ -1147,13 +1377,13 @@ private fun PinnedScheduleUtilityStrip(
                     modifier = Modifier
                         .size(6.dp)
                         .clip(CircleShape)
-                        .background(if (untimedCount > 0) Color(0xFF6EE7B7) else Color.White.copy(alpha = 0.5f))
+                        .background(if (untimedCount > 0) WalletMint else WalletMuted.copy(alpha = 0.45f))
                 )
                 Text(
                     text = "Chưa giờ ($untimedCount)",
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
-                    color = if (isPlacingUntimed) WalletMintDark else Color.White,
+                    color = if (isPlacingUntimed) WalletMintAccent else WalletInk,
                     maxLines = 1,
                     softWrap = false
                 )
@@ -1169,14 +1399,14 @@ private fun PinnedScheduleUtilityStrip(
                 modifier = Modifier
                     .size(28.dp)
                     .clip(CircleShape)
-                    .background(Color.White),
+                    .background(WalletMint),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "+",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = WalletMintDark,
+                    color = Color.White,
                     maxLines = 1,
                     softWrap = false
                 )
@@ -1222,7 +1452,7 @@ private fun SelectedSlotsActionBar(
                         .size(30.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(WalletSoftNeutral)
-                        .border(1.dp, WalletStroke.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                        .border(1.dp, WalletStroke, RoundedCornerShape(8.dp))
                         .semantics { contentDescription = "Bỏ chọn khung giờ" }
                         .walletClickable(onClickLabel = "Bỏ chọn khung giờ", onClick = onClear),
                     contentAlignment = Alignment.Center
@@ -1464,7 +1694,7 @@ private fun ActionChipButton(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
             .background(bg)
-            .border(1.dp, WalletStroke.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+            .border(1.dp, WalletStroke, RoundedCornerShape(8.dp))
             .walletClickable(onClickLabel = label, onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 4.dp),
         contentAlignment = Alignment.Center
@@ -1485,6 +1715,7 @@ private fun DayTimelineGrid(
     dayModel: DayScheduleModel,
     isToday: Boolean,
     nowMinute: Int,
+    quickScrollRequest: Pair<Int, Int>? = null,
     interactionState: ScheduleInteractionState,
     modifier: Modifier = Modifier,
     onViewportMetricsChanged: (Float, Float) -> Unit = { _, _ -> },
@@ -1560,6 +1791,11 @@ private fun DayTimelineGrid(
         }
         scrollState.scrollTo((initialHour * hourHeightPx).roundToInt())
     }
+    LaunchedEffect(quickScrollRequest) {
+        val (targetMin, _) = quickScrollRequest ?: return@LaunchedEffect
+        val targetPx = (((targetMin / 60f) - 1.2f).coerceIn(0f, 18f) * hourHeightPx).roundToInt()
+        scrollState.animateScrollTo(targetPx)
+    }
 
     // Trạng thái kéo live trên lưới
     var liveEmptyDragRange by remember(dayModel.dateLocal) { mutableStateOf<Pair<Int, Int>?>(null) }
@@ -1586,9 +1822,9 @@ private fun DayTimelineGrid(
     }
 
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(18.dp),
         color = WalletCardBg,
-        border = BorderStroke(1.dp, WalletStroke),
+        shadowElevation = 1.dp,
         modifier = modifier
     ) {
         Box(
@@ -1652,7 +1888,12 @@ private fun DayTimelineGrid(
                                     val (s, e) = ScheduleGridEngine.snapEmptyDragRange(startMin, startMin + 30)
                                     liveEmptyDragRange = s to e
                                     activeAutoScrollTick = {
-                                        val docY = localDragViewportY + scrollState.value
+                                        val gcTopInVp = if (vc != null && gc != null && vc.isAttached && gc.isAttached) {
+                                            vc.localPositionOf(gc, androidx.compose.ui.geometry.Offset.Zero).y
+                                        } else {
+                                            -scrollState.value.toFloat()
+                                        }
+                                        val docY = localDragViewportY - gcTopInVp
                                         val curMin = (docY / minuteHeightPx).roundToInt().coerceIn(0, 1440)
                                         liveEmptyDragRange = ScheduleGridEngine.snapEmptyDragRange(emptyDragAnchorMin, curMin)
                                     }
@@ -1730,7 +1971,7 @@ private fun DayTimelineGrid(
                                         Text(
                                             text = "Trống ${TimeRange.formatHm(visStart)}–${TimeRange.formatHm(visEnd)}",
                                             fontSize = 10.5.sp,
-                                            color = WalletMuted.copy(alpha = 0.72f),
+                                            color = WalletMuted,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
@@ -1798,28 +2039,42 @@ private fun DayTimelineGrid(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-                        // Tay nắm mép trên/dưới cho vùng chọn khoảng trống (tự cuộn khi kéo sát mép)
+                        // Tay nắm mép trên/dưới cho vùng chọn khoảng trống (tự cuộn khi kéo sát mép, giữ nguyên 1 khối liền)
+                        val emptyCompactHandles = hDp < 48f
                         ResizeEdgeHandle(
                             isTopEdge = true,
                             tint = WalletMint,
                             dragKey = "empty_top_${dayModel.dateLocal}_$idx",
                             viewportCoords = vpCoords,
+                            staticGridCoords = gridCoords,
+                            compactHandle = emptyCompactHandles,
                             modifier = Modifier.align(Alignment.TopCenter),
-                            onDragStartAtViewportY = { vpY ->
+                            onDragStartAtViewportY = { vpY, gridY ->
                                 slotOrigStart = latestGroup.startMinute
                                 slotOrigEnd = latestGroup.endMinute
-                                slotTopStartDocY = if (vpY >= 0f) vpY + scrollState.value else (slotOrigStart / 60f) * hourHeightPx
+                                slotTopStartDocY = if (gridY >= 0f) gridY else (slotOrigStart / 60f) * hourHeightPx
                                 localDragViewportY = if (vpY >= 0f) vpY else -1f
                                 activeAutoScrollTick = {
-                                    val curDocY = localDragViewportY + scrollState.value
+                                    val vc = vpCoords
+                                    val gc = gridCoords
+                                    val gcTopInVp = if (vc != null && gc != null && vc.isAttached && gc.isAttached) {
+                                        vc.localPositionOf(gc, androidx.compose.ui.geometry.Offset.Zero).y
+                                    } else {
+                                        -scrollState.value.toFloat()
+                                    }
+                                    val curDocY = localDragViewportY - gcTopInVp
                                     val dMin = ((curDocY - slotTopStartDocY) / minuteHeightPx).roundToInt()
                                     val (s, e) = ScheduleGridEngine.snapResizeStartRange(slotOrigStart, slotOrigEnd, dMin)
                                     latestOnResizeSelectedEmptySlot(s, e)
                                 }
                                 activeDragKind = "empty_top_${dayModel.dateLocal}_$idx"
                             },
-                            onDragAtViewportY = { vpY ->
-                                localDragViewportY = vpY
+                            onDragAtViewportY = { vpY, gridY ->
+                                val vc = vpCoords
+                                val gc = gridCoords
+                                localDragViewportY = if (gridY >= 0f && vc != null && gc != null && vc.isAttached && gc.isAttached) {
+                                    gridY + vc.localPositionOf(gc, androidx.compose.ui.geometry.Offset.Zero).y
+                                } else vpY
                                 activeAutoScrollTick?.invoke()
                             },
                             onDragEnd = {
@@ -1838,22 +2093,35 @@ private fun DayTimelineGrid(
                             tint = WalletMint,
                             dragKey = "empty_bot_${dayModel.dateLocal}_$idx",
                             viewportCoords = vpCoords,
+                            staticGridCoords = gridCoords,
+                            compactHandle = emptyCompactHandles,
                             modifier = Modifier.align(Alignment.BottomCenter),
-                            onDragStartAtViewportY = { vpY ->
+                            onDragStartAtViewportY = { vpY, gridY ->
                                 slotOrigStart = latestGroup.startMinute
                                 slotOrigEnd = latestGroup.endMinute
-                                slotBotStartDocY = if (vpY >= 0f) vpY + scrollState.value else (slotOrigEnd / 60f) * hourHeightPx
+                                slotBotStartDocY = if (gridY >= 0f) gridY else (slotOrigEnd / 60f) * hourHeightPx
                                 localDragViewportY = if (vpY >= 0f) vpY else -1f
                                 activeAutoScrollTick = {
-                                    val curDocY = localDragViewportY + scrollState.value
+                                    val vc = vpCoords
+                                    val gc = gridCoords
+                                    val gcTopInVp = if (vc != null && gc != null && vc.isAttached && gc.isAttached) {
+                                        vc.localPositionOf(gc, androidx.compose.ui.geometry.Offset.Zero).y
+                                    } else {
+                                        -scrollState.value.toFloat()
+                                    }
+                                    val curDocY = localDragViewportY - gcTopInVp
                                     val dMin = ((curDocY - slotBotStartDocY) / minuteHeightPx).roundToInt()
                                     val (s, e) = ScheduleGridEngine.snapResizeRange(slotOrigStart, slotOrigEnd, dMin)
                                     latestOnResizeSelectedEmptySlot(s, e)
                                 }
                                 activeDragKind = "empty_bot_${dayModel.dateLocal}_$idx"
                             },
-                            onDragAtViewportY = { vpY ->
-                                localDragViewportY = vpY
+                            onDragAtViewportY = { vpY, gridY ->
+                                val vc = vpCoords
+                                val gc = gridCoords
+                                localDragViewportY = if (gridY >= 0f && vc != null && gc != null && vc.isAttached && gc.isAttached) {
+                                    gridY + vc.localPositionOf(gc, androidx.compose.ui.geometry.Offset.Zero).y
+                                } else vpY
                                 activeAutoScrollTick?.invoke()
                             },
                             onDragEnd = {
@@ -1958,7 +2226,7 @@ private fun DayTimelineGrid(
                                 .height(origHeightDp.dp)
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(WalletSoftNeutral.copy(alpha = 0.45f))
-                                .border(1.dp, WalletMuted.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                                .border(1.dp, WalletStroke, RoundedCornerShape(10.dp))
                         )
                     }
 
@@ -1985,6 +2253,7 @@ private fun DayTimelineGrid(
                         } else null,
                         blockHeightDp = blockHeightDp.dp,
                         viewportCoords = vpCoords,
+                        staticGridCoords = gridCoords,
                         modifier = Modifier
                             .offset(x = if (isDraggingThis || isDraftedThis) 2.dp else laneOffsetDp + 2.dp, y = topDp.dp)
                             .width(
@@ -2004,12 +2273,16 @@ private fun DayTimelineGrid(
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
 
                                             val vc = vpCoords
+                                            val gc = gridCoords
                                             val cc = cardCoords
+                                            val startGridY = if (gc != null && cc != null && gc.isAttached && cc.isAttached) {
+                                                gc.localPositionOf(cc, dragTrigger.position).y
+                                            } else -1f
                                             val startVpY = if (vc != null && cc != null && vc.isAttached && cc.isAttached) {
                                                 vc.localPositionOf(cc, dragTrigger.position).y
                                             } else -1f
                                             val (baseS, baseE) = latestEffRange
-                                            val baseDocY = if (startVpY >= 0f) startVpY + scrollState.value else (baseS / 60f) * hourHeightPx
+                                            val baseDocY = if (startGridY >= 0f) startGridY else (baseS / 60f) * hourHeightPx
                                             dragOrigStartMin = baseS
                                             dragOrigEndMin = baseE
                                             dragStartDocY = baseDocY
@@ -2018,7 +2291,12 @@ private fun DayTimelineGrid(
                                             dragPreviewEndMin = baseE
                                             localDragViewportY = startVpY
                                             activeAutoScrollTick = {
-                                                val curDocY = localDragViewportY + scrollState.value
+                                                val gcTopInVp = if (vc != null && gc != null && vc.isAttached && gc.isAttached) {
+                                                    vc.localPositionOf(gc, androidx.compose.ui.geometry.Offset.Zero).y
+                                                } else {
+                                                    -scrollState.value.toFloat()
+                                                }
+                                                val curDocY = localDragViewportY - gcTopInVp
                                                 val deltaMin = ((curDocY - dragStartDocY) / minuteHeightPx).roundToInt()
                                                 val (s, e) = ScheduleGridEngine.snapMoveRange(dragOrigStartMin, dragOrigEndMin, deltaMin)
                                                 dragPreviewStartMin = s
@@ -2028,7 +2306,10 @@ private fun DayTimelineGrid(
 
                                             val completed = drag(dragTrigger.id) { change ->
                                                 change.consume()
-                                                if (vc != null && cc != null && vc.isAttached && cc.isAttached) {
+                                                if (vc != null && gc != null && cc != null && vc.isAttached && gc.isAttached && cc.isAttached) {
+                                                    val curG = gc.localPositionOf(cc, change.position).y
+                                                    localDragViewportY = curG + vc.localPositionOf(gc, androidx.compose.ui.geometry.Offset.Zero).y
+                                                } else if (vc != null && cc != null && vc.isAttached && cc.isAttached) {
                                                     localDragViewportY = vc.localPositionOf(cc, change.position).y
                                                 }
                                                 activeAutoScrollTick?.invoke()
@@ -2052,17 +2333,24 @@ private fun DayTimelineGrid(
                                 { onConfirmUnconfirmed(rec) }
                             } else null
                         },
-                        onTopEdgeDragStartAtVpY = { vpY ->
+                        onTopEdgeDragStartAtVpY = { vpY, gridY ->
                             val (baseS, baseE) = latestEffRange
                             dragOrigStartMin = baseS
                             dragOrigEndMin = baseE
                             draggingBlockId = latestBlock.recordId
                             dragPreviewStartMin = baseS
                             dragPreviewEndMin = baseE
-                            dragStartDocY = if (vpY >= 0f) vpY + scrollState.value else (baseS / 60f) * hourHeightPx
+                            dragStartDocY = if (gridY >= 0f) gridY else (baseS / 60f) * hourHeightPx
                             localDragViewportY = vpY
                             activeAutoScrollTick = {
-                                val curDocY = localDragViewportY + scrollState.value
+                                val vc = vpCoords
+                                val gc = gridCoords
+                                val gcTopInVp = if (vc != null && gc != null && vc.isAttached && gc.isAttached) {
+                                    vc.localPositionOf(gc, androidx.compose.ui.geometry.Offset.Zero).y
+                                } else {
+                                    -scrollState.value.toFloat()
+                                }
+                                val curDocY = localDragViewportY - gcTopInVp
                                 val dMin = ((curDocY - dragStartDocY) / minuteHeightPx).roundToInt()
                                 val (s, e) = ScheduleGridEngine.snapResizeStartRange(dragOrigStartMin, dragOrigEndMin, dMin)
                                 dragPreviewStartMin = s
@@ -2070,8 +2358,12 @@ private fun DayTimelineGrid(
                             }
                             activeDragKind = "block_top_${latestBlock.recordId}"
                         },
-                        onTopEdgeDragAtVpY = { vpY ->
-                            localDragViewportY = vpY
+                        onTopEdgeDragAtVpY = { vpY, gridY ->
+                            val vc = vpCoords
+                            val gc = gridCoords
+                            localDragViewportY = if (gridY >= 0f && vc != null && gc != null && vc.isAttached && gc.isAttached) {
+                                gridY + vc.localPositionOf(gc, androidx.compose.ui.geometry.Offset.Zero).y
+                            } else vpY
                             activeAutoScrollTick?.invoke()
                         },
                         onTopEdgeDragEnd = {
@@ -2091,17 +2383,24 @@ private fun DayTimelineGrid(
                             localDragViewportY = -1f
                             activeAutoScrollTick = null
                         },
-                        onBottomEdgeDragStartAtVpY = { vpY ->
+                        onBottomEdgeDragStartAtVpY = { vpY, gridY ->
                             val (baseS, baseE) = latestEffRange
                             dragOrigStartMin = baseS
                             dragOrigEndMin = baseE
                             draggingBlockId = latestBlock.recordId
                             dragPreviewStartMin = baseS
                             dragPreviewEndMin = baseE
-                            dragStartDocY = if (vpY >= 0f) vpY + scrollState.value else (baseE / 60f) * hourHeightPx
+                            dragStartDocY = if (gridY >= 0f) gridY else (baseE / 60f) * hourHeightPx
                             localDragViewportY = vpY
                             activeAutoScrollTick = {
-                                val curDocY = localDragViewportY + scrollState.value
+                                val vc = vpCoords
+                                val gc = gridCoords
+                                val gcTopInVp = if (vc != null && gc != null && vc.isAttached && gc.isAttached) {
+                                    vc.localPositionOf(gc, androidx.compose.ui.geometry.Offset.Zero).y
+                                } else {
+                                    -scrollState.value.toFloat()
+                                }
+                                val curDocY = localDragViewportY - gcTopInVp
                                 val deltaEndMin = ((curDocY - dragStartDocY) / minuteHeightPx).roundToInt()
                                 val (s, e) = ScheduleGridEngine.snapResizeRange(dragOrigStartMin, dragOrigEndMin, deltaEndMin)
                                 dragPreviewStartMin = s
@@ -2109,8 +2408,12 @@ private fun DayTimelineGrid(
                             }
                             activeDragKind = "block_bot_${latestBlock.recordId}"
                         },
-                        onBottomEdgeDragAtVpY = { vpY ->
-                            localDragViewportY = vpY
+                        onBottomEdgeDragAtVpY = { vpY, gridY ->
+                            val vc = vpCoords
+                            val gc = gridCoords
+                            localDragViewportY = if (gridY >= 0f && vc != null && gc != null && vc.isAttached && gc.isAttached) {
+                                gridY + vc.localPositionOf(gc, androidx.compose.ui.geometry.Offset.Zero).y
+                            } else vpY
                             activeAutoScrollTick?.invoke()
                         },
                         onBottomEdgeDragEnd = {
@@ -2183,26 +2486,30 @@ private fun ResizeEdgeHandle(
     tint: Color,
     dragKey: Any = Unit,
     viewportCoords: LayoutCoordinates? = null,
-    handleWidth: Dp = 68.dp,
+    staticGridCoords: LayoutCoordinates? = null,
+    compactHandle: Boolean = false,
+    handleWidth: Dp = 112.dp,
     modifier: Modifier = Modifier,
-    onDragStartAtViewportY: (Float) -> Unit = {},
-    onDragAtViewportY: (Float) -> Unit = {},
+    onDragStartAtViewportY: (Float, Float) -> Unit = { _, _ -> },
+    onDragAtViewportY: (Float, Float) -> Unit = { _, _ -> },
     onDragEnd: () -> Unit,
     onDragCancel: () -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
     var handleCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val latestVpCoords by rememberUpdatedState(viewportCoords)
+    val latestGridCoords by rememberUpdatedState(staticGridCoords)
     val latestOnDragStartAtVpY by rememberUpdatedState(onDragStartAtViewportY)
     val latestOnDragAtVpY by rememberUpdatedState(onDragAtViewportY)
     val latestOnDragEnd by rememberUpdatedState(onDragEnd)
     val latestOnDragCancel by rememberUpdatedState(onDragCancel)
 
-    // Chỉ vùng tay nắm giữa mới bắt kéo co dãn cạnh; hai bên mép vẫn cuộn lịch bình thường
+    // Tay nắm rộng theo mép thẻ (tránh hụt khi chạm lệch tâm), chiều cao co gọn khi thẻ thấp để 2 cạnh không đè nhau
     Box(
         modifier = modifier
-            .width(handleWidth)
-            .height(16.dp)
+            .fillMaxWidth(0.86f)
+            .widthIn(min = 48.dp, max = handleWidth)
+            .height(if (compactHandle) 13.dp else 22.dp)
             .zIndex(2f)
             .onGloballyPositioned { handleCoords = it }
             .pointerInput(dragKey) {
@@ -2210,18 +2517,29 @@ private fun ResizeEdgeHandle(
                     onDragStart = { offset ->
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         val vc = latestVpCoords
+                        val sgc = latestGridCoords
                         val hc = handleCoords
+                        val gridY = if (sgc != null && hc != null && sgc.isAttached && hc.isAttached) {
+                            sgc.localPositionOf(hc, offset).y
+                        } else -1f
                         val vpY = if (vc != null && hc != null && vc.isAttached && hc.isAttached) {
                             vc.localPositionOf(hc, offset).y
                         } else -1f
-                        latestOnDragStartAtVpY(vpY)
+                        latestOnDragStartAtVpY(vpY, gridY)
                     },
                     onVerticalDrag = { change, _ ->
                         change.consume()
                         val vc = latestVpCoords
+                        val sgc = latestGridCoords
                         val hc = handleCoords
-                        if (vc != null && hc != null && vc.isAttached && hc.isAttached) {
-                            latestOnDragAtVpY(vc.localPositionOf(hc, change.position).y)
+                        val gridY = if (sgc != null && hc != null && sgc.isAttached && hc.isAttached) {
+                            sgc.localPositionOf(hc, change.position).y
+                        } else -1f
+                        val vpY = if (vc != null && hc != null && vc.isAttached && hc.isAttached) {
+                            vc.localPositionOf(hc, change.position).y
+                        } else -1f
+                        if (vpY >= -2000f || gridY >= -2000f) {
+                            latestOnDragAtVpY(vpY, gridY)
                         }
                     },
                     onDragEnd = { latestOnDragEnd() },
@@ -2253,22 +2571,23 @@ private fun ScheduleEventCard(
     draggingLabel: String?,
     blockHeightDp: Dp,
     viewportCoords: LayoutCoordinates? = null,
+    staticGridCoords: LayoutCoordinates? = null,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onQuickConfirm: (() -> Unit)? = null,
-    onTopEdgeDragStartAtVpY: (Float) -> Unit = {},
-    onTopEdgeDragAtVpY: (Float) -> Unit = {},
+    onTopEdgeDragStartAtVpY: (Float, Float) -> Unit = { _, _ -> },
+    onTopEdgeDragAtVpY: (Float, Float) -> Unit = { _, _ -> },
     onTopEdgeDragEnd: () -> Unit = {},
     onTopEdgeDragCancel: () -> Unit = {},
-    onBottomEdgeDragStartAtVpY: (Float) -> Unit = {},
-    onBottomEdgeDragAtVpY: (Float) -> Unit = {},
+    onBottomEdgeDragStartAtVpY: (Float, Float) -> Unit = { _, _ -> },
+    onBottomEdgeDragAtVpY: (Float, Float) -> Unit = { _, _ -> },
     onBottomEdgeDragEnd: () -> Unit = {},
     onBottomEdgeDragCancel: () -> Unit = {}
 ) {
     val catColor = Color(block.category.colorHex)
     val (bgColor, accentColor, isDashed) = when (block.visualState) {
-        ScheduleBlockVisualState.COMPLETED -> Triple(catColor.copy(alpha = 0.14f), catColor, false)
-        ScheduleBlockVisualState.PLANNED -> Triple(WalletInfoBg, WalletInfoText, true)
+        ScheduleBlockVisualState.COMPLETED -> Triple(catColor.copy(alpha = 0.18f), catColor, false)
+        ScheduleBlockVisualState.PLANNED -> Triple(WalletInfoBg, PlannedAccentBlue, true)
         ScheduleBlockVisualState.ACTIVE -> Triple(WalletMintSoft, ActiveAccentCyan, false)
         ScheduleBlockVisualState.UNCONFIRMED -> Triple(WalletWarningBg, WalletWarningText, true)
     }
@@ -2276,7 +2595,7 @@ private fun ScheduleEventCard(
     val effectiveStrokeColor = when {
         hasConflictWarning -> NowIndicatorCoral
         isDraggingOrDraft || isSelected -> WalletMintAccent
-        else -> accentColor.copy(alpha = 0.72f)
+        else -> accentColor.copy(alpha = 0.55f)
     }
     val borderStrokePx = with(LocalDensity.current) {
         (if (isDraggingOrDraft || isSelected || hasConflictWarning) 2.2.dp else 1.3.dp).toPx()
@@ -2438,11 +2757,14 @@ private fun ScheduleEventCard(
 
         // Tay nắm cạnh trên (chỉnh giờ bắt đầu) & cạnh dưới (chỉnh giờ kết thúc)
         if (canResizeThis) {
+            val compactResizeHandle = blockHeightDp < 48.dp
             ResizeEdgeHandle(
                 isTopEdge = true,
                 tint = (if (isSelected || isDraggingOrDraft) WalletMintAccent else accentColor).copy(alpha = 0.78f),
                 dragKey = "block_top_${block.recordId}",
                 viewportCoords = viewportCoords,
+                staticGridCoords = staticGridCoords,
+                compactHandle = compactResizeHandle,
                 modifier = Modifier.align(Alignment.TopCenter),
                 onDragStartAtViewportY = onTopEdgeDragStartAtVpY,
                 onDragAtViewportY = onTopEdgeDragAtVpY,
@@ -2454,6 +2776,8 @@ private fun ScheduleEventCard(
                 tint = (if (isSelected || isDraggingOrDraft) WalletMintAccent else accentColor).copy(alpha = 0.78f),
                 dragKey = "block_bot_${block.recordId}",
                 viewportCoords = viewportCoords,
+                staticGridCoords = staticGridCoords,
+                compactHandle = compactResizeHandle,
                 modifier = Modifier.align(Alignment.BottomCenter),
                 onDragStartAtViewportY = onBottomEdgeDragStartAtVpY,
                 onDragAtViewportY = onBottomEdgeDragAtVpY,
@@ -2471,6 +2795,7 @@ private fun MultiDayTimelineGrid(
     nowMinute: Int,
     hourHeight: Dp,
     compactColumns: Boolean = false,
+    quickScrollRequest: Pair<Int, Int>? = null,
     interactionState: ScheduleInteractionState,
     modifier: Modifier = Modifier,
     onViewportMetricsChanged: (Float, Float) -> Unit = { _, _ -> },
@@ -2544,6 +2869,11 @@ private fun MultiDayTimelineGrid(
             minOf((nowMinute / 60 - 4).coerceIn(6, 15), (earliestDayHour - 1).coerceIn(6, 15))
         }
         vScrollState.scrollTo((targetHour * hourPx).roundToInt())
+    }
+    LaunchedEffect(quickScrollRequest) {
+        val (targetMin, _) = quickScrollRequest ?: return@LaunchedEffect
+        val targetPx = (((targetMin / 60f) - 1.2f).coerceIn(0f, 18f) * hourPx).roundToInt()
+        vScrollState.animateScrollTo(targetPx)
     }
 
     var draggingEmptyDate by remember { mutableStateOf<String?>(null) }
@@ -2636,8 +2966,8 @@ private fun MultiDayTimelineGrid(
                             ) {
                                 Text(
                                     text = "${shortWeekdayVi(d.dayOfWeek)} · ${d.format(DateTimeFormatter.ofPattern("dd/MM"))}",
-                                    fontSize = if (compactColumns) 11.sp else 12.sp,
-                                    lineHeight = 14.sp,
+                                    fontSize = if (compactColumns || colWidth < 96.dp) 10.sp else 12.sp,
+                                    lineHeight = 13.5.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = if (isToday) Color.White else WalletInk,
                                     maxLines = 1,
@@ -2646,8 +2976,8 @@ private fun MultiDayTimelineGrid(
                                 if (colSummary.isNotEmpty()) {
                                     Text(
                                         text = colSummary,
-                                        fontSize = 9.5.sp,
-                                        lineHeight = 12.sp,
+                                        fontSize = if (compactColumns || colWidth < 96.dp) 8.sp else 9.5.sp,
+                                        lineHeight = 11.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = if (isToday) Color(0xFFD6EFE3) else WalletMintAccent,
                                         maxLines = 1,
@@ -2958,25 +3288,35 @@ private fun MultiDayTimelineGrid(
                                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                                             )
                                             if (isSelThis && block.canDragMoveOrResize && block.record != null && !block.crossesMidnightFromPrev && !block.crossesMidnightToNext) {
+                                                val mCompactHandle = hDp < 48f
                                                 ResizeEdgeHandle(
                                                     isTopEdge = true,
                                                     tint = WalletMintAccent.copy(alpha = 0.85f),
                                                     dragKey = "m_top_${block.recordId}_${day.dateLocal}",
                                                     viewportCoords = vpCoords,
-                                                    handleWidth = 48.dp,
+                                                    staticGridCoords = colCoords,
+                                                    compactHandle = mCompactHandle,
+                                                    handleWidth = 56.dp,
                                                     modifier = Modifier.align(Alignment.TopCenter),
-                                                    onDragStartAtViewportY = { vpY ->
+                                                    onDragStartAtViewportY = { vpY, gridY ->
                                                         val (baseS, baseE) = latestEffRange
                                                         colDragOrigStart = baseS
                                                         colDragOrigEnd = baseE
-                                                        colStartDocY = if (vpY >= 0f) vpY + vScrollState.value else (baseS / 60f) * hourPx
+                                                        colStartDocY = if (gridY >= 0f) gridY else (baseS / 60f) * hourPx
                                                         draggingBlockId = latestBlock.recordId
                                                         draggingBlockDate = day.dateLocal
                                                         dragPreviewStartMin = baseS
                                                         dragPreviewEndMin = baseE
                                                         localDragViewportY = vpY
                                                         activeAutoScrollTick = {
-                                                            val curDocY = localDragViewportY + vScrollState.value
+                                                            val vc = vpCoords
+                                                            val cc = colCoords
+                                                            val colTopInVp = if (vc != null && cc != null && vc.isAttached && cc.isAttached) {
+                                                                vc.localPositionOf(cc, androidx.compose.ui.geometry.Offset.Zero).y
+                                                            } else {
+                                                                -vScrollState.value.toFloat()
+                                                            }
+                                                            val curDocY = localDragViewportY - colTopInVp
                                                             val dMin = ((curDocY - colStartDocY) / minutePx).roundToInt()
                                                             val (s, e) = ScheduleGridEngine.snapResizeStartRange(colDragOrigStart, colDragOrigEnd, dMin)
                                                             dragPreviewStartMin = s
@@ -2984,8 +3324,12 @@ private fun MultiDayTimelineGrid(
                                                         }
                                                         activeDragKind = "m_top_${latestBlock.recordId}"
                                                     },
-                                                    onDragAtViewportY = { vpY ->
-                                                        localDragViewportY = vpY
+                                                    onDragAtViewportY = { vpY, gridY ->
+                                                        val vc = vpCoords
+                                                        val cc = colCoords
+                                                        localDragViewportY = if (gridY >= 0f && vc != null && cc != null && vc.isAttached && cc.isAttached) {
+                                                            gridY + vc.localPositionOf(cc, androidx.compose.ui.geometry.Offset.Zero).y
+                                                        } else vpY
                                                         activeAutoScrollTick?.invoke()
                                                     },
                                                     onDragEnd = {
@@ -3013,20 +3357,29 @@ private fun MultiDayTimelineGrid(
                                                     tint = WalletMintAccent.copy(alpha = 0.85f),
                                                     dragKey = "m_bot_${block.recordId}_${day.dateLocal}",
                                                     viewportCoords = vpCoords,
-                                                    handleWidth = 48.dp,
+                                                    staticGridCoords = colCoords,
+                                                    compactHandle = mCompactHandle,
+                                                    handleWidth = 56.dp,
                                                     modifier = Modifier.align(Alignment.BottomCenter),
-                                                    onDragStartAtViewportY = { vpY ->
+                                                    onDragStartAtViewportY = { vpY, gridY ->
                                                         val (baseS, baseE) = latestEffRange
                                                         colDragOrigStart = baseS
                                                         colDragOrigEnd = baseE
-                                                        colStartDocY = if (vpY >= 0f) vpY + vScrollState.value else (baseE / 60f) * hourPx
+                                                        colStartDocY = if (gridY >= 0f) gridY else (baseE / 60f) * hourPx
                                                         draggingBlockId = latestBlock.recordId
                                                         draggingBlockDate = day.dateLocal
                                                         dragPreviewStartMin = baseS
                                                         dragPreviewEndMin = baseE
                                                         localDragViewportY = vpY
                                                         activeAutoScrollTick = {
-                                                            val curDocY = localDragViewportY + vScrollState.value
+                                                            val vc = vpCoords
+                                                            val cc = colCoords
+                                                            val colTopInVp = if (vc != null && cc != null && vc.isAttached && cc.isAttached) {
+                                                                vc.localPositionOf(cc, androidx.compose.ui.geometry.Offset.Zero).y
+                                                            } else {
+                                                                -vScrollState.value.toFloat()
+                                                            }
+                                                            val curDocY = localDragViewportY - colTopInVp
                                                             val dMin = ((curDocY - colStartDocY) / minutePx).roundToInt()
                                                             val (s, e) = ScheduleGridEngine.snapResizeRange(colDragOrigStart, colDragOrigEnd, dMin)
                                                             dragPreviewStartMin = s
@@ -3034,8 +3387,12 @@ private fun MultiDayTimelineGrid(
                                                         }
                                                         activeDragKind = "m_bot_${latestBlock.recordId}"
                                                     },
-                                                    onDragAtViewportY = { vpY ->
-                                                        localDragViewportY = vpY
+                                                    onDragAtViewportY = { vpY, gridY ->
+                                                        val vc = vpCoords
+                                                        val cc = colCoords
+                                                        localDragViewportY = if (gridY >= 0f && vc != null && cc != null && vc.isAttached && cc.isAttached) {
+                                                            gridY + vc.localPositionOf(cc, androidx.compose.ui.geometry.Offset.Zero).y
+                                                        } else vpY
                                                         activeAutoScrollTick?.invoke()
                                                     },
                                                     onDragEnd = {
@@ -3193,14 +3550,7 @@ private fun MonthOverviewGrid(
                                             softWrap = false
                                         )
                                     }
-                                    cell.inCurrentMonth -> {
-                                        Text(
-                                            text = "Trống",
-                                            fontSize = 8.5.sp,
-                                            color = WalletMuted.copy(alpha = 0.55f),
-                                            maxLines = 1
-                                        )
-                                    }
+                                    // Ngày không có dữ liệu giữ khoảng trắng sạch thay vì lặp chữ "Trống" mọi ô.
                                 }
                                 if (cell.topCategories.isNotEmpty()) {
                                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {

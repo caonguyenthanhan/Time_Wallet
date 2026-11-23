@@ -38,8 +38,11 @@ object WallyActionController {
     const val EXTRA_OPEN_CHAT = "wally_open_chat"
 
     private val mutex = Mutex()
+    private val _hubStateVersion = kotlinx.coroutines.flow.MutableStateFlow(0L)
+    val hubStateVersion: kotlinx.coroutines.flow.StateFlow<Long> = _hubStateVersion
 
     fun notifyAllWidgets(context: Context) {
+        _hubStateVersion.value += 1L
         val appContext = context.applicationContext
         val intent = Intent(ACTION_WIDGET_REFRESH).apply {
             component = ComponentName(appContext, WIDGET_PROVIDER_CLASS)

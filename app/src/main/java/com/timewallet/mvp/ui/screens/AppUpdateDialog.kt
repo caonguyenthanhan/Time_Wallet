@@ -262,10 +262,7 @@ fun AppUpdateDialog(
                         Switch(
                             checked = state.preferences.autoCheckEnabled,
                             onCheckedChange = onToggleAutoCheck,
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = WalletMintDark
-                            )
+                            colors = walletSwitchColors(WalletMintDark)
                         )
                     }
                     if (state.preferences.autoCheckEnabled) {

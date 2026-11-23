@@ -389,5 +389,19 @@ class V220FloatingWidgetAndAiTodoTest {
         assertTrue(projectFile("app/src/main/res/layout/wally_widget_medium.xml").exists())
         assertTrue(projectFile("app/src/main/res/layout/wally_widget_large.xml").exists())
         assertTrue(projectFile("app/src/main/res/xml/wally_home_widget_info.xml").exists())
+
+        // UX P1 hierarchy: QuickPanel ưu tiên Đang làm -> Sắp làm -> Việc cần xử lý; AI To-do phân tách Đề xuất -> Duyệt -> Dự kiến vs Thực tế
+        val floatingSrc = projectFile("app/src/main/java/com/timewallet/mvp/overlay/WallyFloatingService.kt").readText()
+        assertTrue(floatingSrc.contains("QuickPanelDrawer"))
+        assertTrue(floatingSrc.contains("Việc cần xử lý"))
+        assertTrue(floatingSrc.contains("LocalConfiguration.current"))
+        val tasksSrc = projectFile("app/src/main/java/com/timewallet/mvp/ui/screens/TasksHabitsScreen.kt").readText()
+        assertTrue(tasksSrc.contains("var aiPanelExpanded by rememberSaveable"))
+        assertTrue(tasksSrc.contains("horizontalScroll(rememberScrollState())"))
+        assertTrue(tasksSrc.contains("Chờ bạn duyệt"))
+        assertTrue(tasksSrc.contains("Đã duyệt AI → Lịch dự kiến"))
+        val schedSrc = projectFile("app/src/main/java/com/timewallet/mvp/ui/screens/ScheduleCalendarView.kt").readText()
+        assertTrue(schedSrc.contains("Về giờ hiện tại"))
+        assertTrue(schedSrc.contains("Tới hoạt động kế tiếp"))
     }
 }

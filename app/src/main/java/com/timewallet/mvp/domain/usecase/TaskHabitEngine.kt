@@ -43,11 +43,28 @@ data class PeakFocusWindow(
     val sharePercent: Int
 )
 
+data class PlanAccuracySessionEvidence(
+    val recordId: String,
+    val dateLocal: String,
+    val title: String,
+    val category: TimeCategory,
+    val plannedMinutes: Long,
+    val actualMinutes: Long,
+    val deltaMinutes: Long,
+    val deltaPercent: Int?
+)
+
 data class PlanAccuracySummary(
     val sampleCount: Int,
     val avgDeltaPercent: Int,
     val topDriftCategory: TimeCategory?,
-    val summaryText: String
+    val summaryText: String,
+    val usedMinutesDisplayOnly: Boolean = false,
+    val plannedMinutesTotal: Long = 0L,
+    val actualMinutesTotal: Long = 0L,
+    val deltaMinutesTotal: Long = 0L,
+    val sessionEvidence: List<PlanAccuracySessionEvidence> = emptyList(),
+    val excludedNote: String? = null
 )
 
 enum class TaskSmartFilter(val labelVi: String) {
@@ -236,10 +253,21 @@ object TaskHabitEngine {
             val e = r.endedAt ?: continue
             if (e <= s) continue
 
-            val startHour = Instant.ofEpochMilli(s).atZone(zoneId).hour.coerceIn(0, 23)
-            val mins = ((e - s) / 1000L).coerceAtMost(8 * 3600L)
-            hourBuckets[startHour] += mins
-            totalFocusSec += mins
+            var cursorMs = s
+            val cappedEndMs = minOf(e, s + 8 * 3600_000L)
+            while (cursorMs < cappedEndMs) {
+                val curZoned = Instant.ofEpochMilli(cursorMs).atZone(zoneId)
+                val nextHourZoned = curZoned.truncatedTo(java.time.temporal.ChronoUnit.HOURS).plusHours(1)
+                val segEndMs = minOf(cappedEndMs, nextHourZoned.toInstant().toEpochMilli())
+                val segSecs = ((segEndMs - cursorMs) / 1000L).coerceAtLeast(0L)
+                if (segSecs > 0L) {
+                    val h = curZoned.hour.coerceIn(0, 23)
+                    hourBuckets[h] += segSecs
+                    totalFocusSec += segSecs
+                }
+                if (segEndMs <= cursorMs) break
+                cursorMs = segEndMs
+            }
         }
         if (totalFocusSec <= 0L) return null
 
@@ -261,50 +289,163 @@ object TaskHabitEngine {
     }
 
     /**
-     * Tính độ chênh lệch trung bình giữa Kế hoạch (`plannedDurationSeconds`) và Thực tế (`durationSeconds`).
+     * Tính độ sát kế hoạch giữa Kế hoạch (`plannedDurationSeconds`) và Thực tế (`durationSeconds`).
+     * - Loại hoàn toàn `SLEEP` / `REST` khỏi chỉ số tập trung.
+     * - Chỉ tính phần trăm khi `plannedDurationSeconds >= 15 phút` và |độ lệch| <= 300%;
+     *   khi vượt 300% hoặc toàn bộ kế hoạch < 15p thì hiển thị trực tiếp thời lượng kế hoạch, thực tế và phút chênh.
+     * - Khi thiếu cặp đối chiếu tập trung, trả về `sampleCount = 0` để UI ẩn chỉ số.
      */
     fun computePlanVsActualDelta(records: List<LedgerRecord>): PlanAccuracySummary {
-        val compared = records.filter { r ->
+        val nowMs = System.currentTimeMillis()
+        val eligibleStates = setOf(
+            ConfirmationState.COMPLETED,
+            ConfirmationState.ADJUSTED,
+            ConfirmationState.INTERRUPTED
+        )
+        val rawPaired = records.filter { r ->
             !r.isCancelled &&
                 !r.isNeedsReconciliation &&
                 r.layer != TimeLayer.PLANNED &&
+                !r.status.equals("PLANNED", ignoreCase = true) &&
                 (r.plannedDurationSeconds ?: 0L) > 0L &&
                 r.durationSeconds > 0L &&
-                r.resolveConfirmationStateAt(System.currentTimeMillis()) in setOf(
-                    ConfirmationState.COMPLETED,
-                    ConfirmationState.ADJUSTED,
-                    ConfirmationState.INTERRUPTED
-                )
+                r.resolveConfirmationStateAt(nowMs) in eligibleStates
         }
+        val excludedSleepRest = rawPaired.count { it.category in setOf(TimeCategory.SLEEP, TimeCategory.REST) }
+        val compared = rawPaired.filter { it.category !in setOf(TimeCategory.SLEEP, TimeCategory.REST) }
+
+        val sleepNote = if (excludedSleepRest > 0) {
+            "Đã loại $excludedSleepRest phiên Ngủ/nghỉ khỏi chỉ số tập trung."
+        } else {
+            null
+        }
+
         if (compared.isEmpty()) {
             return PlanAccuracySummary(
                 sampleCount = 0,
                 avgDeltaPercent = 0,
                 topDriftCategory = null,
-                summaryText = "Chưa có cặp Kế hoạch vs Thực tế hoàn tất để đối chiếu."
+                summaryText = "",
+                excludedNote = sleepNote
             )
         }
-        val pctDeltas = compared.map { r ->
-            val p = r.plannedDurationSeconds!!.toDouble()
-            ((r.durationSeconds - p) / p * 100.0)
+
+        val evidenceList = compared.sortedByDescending { it.startedAt ?: it.createdAt }.map { r ->
+            val pSec = r.plannedDurationSeconds!!
+            val pMin = ((pSec + 30L) / 60L).coerceAtLeast(1L)
+            val aMin = ((r.durationSeconds + 30L) / 60L).coerceAtLeast(1L)
+            val pct = if (pSec >= 900L) {
+                (((r.durationSeconds - pSec).toDouble() / pSec.toDouble()) * 100.0).roundToInt()
+            } else {
+                null
+            }
+            PlanAccuracySessionEvidence(
+                recordId = r.id,
+                dateLocal = r.date,
+                title = r.title,
+                category = r.category,
+                plannedMinutes = pMin,
+                actualMinutes = aMin,
+                deltaMinutes = aMin - pMin,
+                deltaPercent = pct
+            )
         }
-        val avgDelta = pctDeltas.average().roundToInt()
+
+        val pctEligible = compared.filter { (it.plannedDurationSeconds ?: 0L) >= 900L }
+        val shortPlansCount = compared.size - pctEligible.size
+
+        fun fmtMins(mins: Long): String {
+            val h = mins / 60L
+            val m = mins % 60L
+            return when {
+                h > 0L && m > 0L -> "${h}h ${m}p"
+                h > 0L -> "${h}h"
+                else -> "${mins}p"
+            }
+        }
+
+        fun signedDiffText(diffMins: Long): String = when {
+            diffMins > 0L -> "chênh +${fmtMins(diffMins)}"
+            diffMins < 0L -> "chênh -${fmtMins(-diffMins)}"
+            else -> "khớp đúng"
+        }
+
         val topCat = compared.groupBy { it.category }
             .maxByOrNull { (_, list) ->
                 list.map { kotlin.math.abs(it.durationSeconds - it.plannedDurationSeconds!!) }.average()
             }?.key
+
+        val shortNote = if (shortPlansCount > 0 && pctEligible.isNotEmpty()) {
+            "Không tính % cho $shortPlansCount phiên có kế hoạch dưới 15p."
+        } else {
+            null
+        }
+        val combinedExcludedNote = listOfNotNull(sleepNote, shortNote).joinToString(" ").ifBlank { null }
+
+        if (pctEligible.isEmpty()) {
+            val plannedTotal = evidenceList.sumOf { it.plannedMinutes }
+            val actualTotal = evidenceList.sumOf { it.actualMinutes }
+            val diffTotal = actualTotal - plannedTotal
+            val msg = "Độ sát (${compared.size} phiên kế hoạch < 15p): kế hoạch ${fmtMins(plannedTotal)}, " +
+                "thực tế ${fmtMins(actualTotal)} (${signedDiffText(diffTotal)})."
+            return PlanAccuracySummary(
+                sampleCount = compared.size,
+                avgDeltaPercent = 0,
+                topDriftCategory = topCat,
+                summaryText = msg,
+                usedMinutesDisplayOnly = true,
+                plannedMinutesTotal = plannedTotal,
+                actualMinutesTotal = actualTotal,
+                deltaMinutesTotal = diffTotal,
+                sessionEvidence = evidenceList,
+                excludedNote = combinedExcludedNote
+            )
+        }
+
+        val pctDeltas = pctEligible.map { r ->
+            val p = r.plannedDurationSeconds!!.toDouble()
+            ((r.durationSeconds - p) / p * 100.0)
+        }
+        val avgDelta = pctDeltas.average().roundToInt()
+        val eligiblePlannedTotal = pctEligible.sumOf { ((it.plannedDurationSeconds!! + 30L) / 60L).coerceAtLeast(1L) }
+        val eligibleActualTotal = pctEligible.sumOf { ((it.durationSeconds + 30L) / 60L).coerceAtLeast(1L) }
+        val eligibleDiffTotal = eligibleActualTotal - eligiblePlannedTotal
+
+        if (kotlin.math.abs(avgDelta) > 300) {
+            val msg = "Độ lệch vượt 300%: kế hoạch ${fmtMins(eligiblePlannedTotal)}, " +
+                "thực tế ${fmtMins(eligibleActualTotal)} (${signedDiffText(eligibleDiffTotal)} · ${pctEligible.size} phiên)."
+            return PlanAccuracySummary(
+                sampleCount = compared.size,
+                avgDeltaPercent = avgDelta,
+                topDriftCategory = topCat,
+                summaryText = msg,
+                usedMinutesDisplayOnly = true,
+                plannedMinutesTotal = eligiblePlannedTotal,
+                actualMinutesTotal = eligibleActualTotal,
+                deltaMinutesTotal = eligibleDiffTotal,
+                sessionEvidence = evidenceList,
+                excludedNote = combinedExcludedNote
+            )
+        }
+
         val sign = if (avgDelta > 0) "+" else ""
         val catLabel = topCat?.displayName ?: "chung"
         val msg = when {
-            avgDelta > 10 -> "Thực tế trung bình dài hơn kế hoạch $sign$avgDelta% (lệch nhiều ở $catLabel)."
-            avgDelta < -10 -> "Thực tế trung bình ngắn hơn kế hoạch $avgDelta% (ở $catLabel)."
-            else -> "Ước lượng bám sát kế hoạch ($sign$avgDelta% qua ${compared.size} phiên)."
+            avgDelta > 10 -> "Thực tế trung bình dài hơn kế hoạch $sign$avgDelta% (lệch nhiều ở $catLabel · ${pctEligible.size} phiên)."
+            avgDelta < -10 -> "Thực tế trung bình ngắn hơn kế hoạch $avgDelta% (ở $catLabel · ${pctEligible.size} phiên)."
+            else -> "Ước lượng bám sát kế hoạch ($sign$avgDelta% qua ${pctEligible.size} phiên)."
         }
         return PlanAccuracySummary(
             sampleCount = compared.size,
             avgDeltaPercent = avgDelta,
             topDriftCategory = topCat,
-            summaryText = msg
+            summaryText = msg,
+            usedMinutesDisplayOnly = false,
+            plannedMinutesTotal = eligiblePlannedTotal,
+            actualMinutesTotal = eligibleActualTotal,
+            deltaMinutesTotal = eligibleDiffTotal,
+            sessionEvidence = evidenceList,
+            excludedNote = combinedExcludedNote
         )
     }
 

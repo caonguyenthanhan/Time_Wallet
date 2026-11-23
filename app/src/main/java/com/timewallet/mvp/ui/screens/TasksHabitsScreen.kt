@@ -22,16 +22,24 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,9 +48,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -67,6 +79,7 @@ import com.timewallet.mvp.domain.model.TaskItem
 import com.timewallet.mvp.domain.model.TaskPriority
 import com.timewallet.mvp.domain.model.TaskStatus
 import com.timewallet.mvp.domain.model.TimeCategory
+import com.timewallet.mvp.domain.model.TimeLayer
 import com.timewallet.mvp.domain.usecase.AiTodoAnalysisReport
 import com.timewallet.mvp.domain.usecase.AiTodoProposal
 import com.timewallet.mvp.domain.usecase.GoalRules
@@ -79,6 +92,8 @@ import com.timewallet.mvp.ui.theme.WalletCardBg
 import com.timewallet.mvp.ui.theme.WalletDangerBg
 import com.timewallet.mvp.ui.theme.WalletDangerText
 import com.timewallet.mvp.ui.theme.WalletDivider
+import com.timewallet.mvp.ui.theme.WalletInfoBg
+import com.timewallet.mvp.ui.theme.WalletInfoText
 import com.timewallet.mvp.ui.theme.WalletInk
 import com.timewallet.mvp.ui.theme.WalletMint
 import com.timewallet.mvp.ui.theme.WalletMintAccent
@@ -90,9 +105,13 @@ import com.timewallet.mvp.ui.theme.WalletSoftNeutral
 import com.timewallet.mvp.ui.theme.WalletStroke
 import com.timewallet.mvp.ui.theme.WalletUntrackedBar
 import com.timewallet.mvp.ui.theme.WalletWarningBg
+import com.timewallet.mvp.ui.theme.WalletWarningBorder
 import com.timewallet.mvp.ui.theme.WalletWarningText
 import java.time.DayOfWeek
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 private enum class TasksHubSection(val label: String) {
     TASKS("Công việc"),
@@ -136,13 +155,15 @@ fun TasksHabitsScreen(
     todoRiskAlerts: List<TodoRiskAlert> = emptyList(),
     todoAiReport: AiTodoAnalysisReport? = null,
     todoAiAnalyzing: Boolean = false,
+    lastTodoApprovalReceipt: String? = null,
     onQuickAddNaturalTask: (String) -> Unit = {},
     onEditTask: (TaskItem, String, String, TaskPriority, Int?, String?, String?, String?) -> Unit = { _, _, _, _, _, _, _, _ -> },
     onPostponeTask: (TaskItem, Long) -> Unit = { _, _ -> },
     onAnalyzeTodoPlanWithWally: () -> Unit = {},
     onApplyTodoProposal: (AiTodoProposal) -> Unit = {},
     onApplyAllTodoProposals: () -> Unit = {},
-    onDismissTodoProposal: (String) -> Unit = {}
+    onDismissTodoProposal: (String) -> Unit = {},
+    onDismissTodoApprovalReceipt: () -> Unit = {}
 ) {
     val visibleSections = remember(customization.enableHabits, customization.enableKanban, customization.enableEisenhower) {
         buildList {
@@ -163,65 +184,68 @@ fun TasksHabitsScreen(
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        ScreenTitle(
-            title = "Việc & Thói quen",
-            trailing = {
-                WalletPill(
-                    onClickLabel = "Thêm mới",
-                    containerColor = WalletMintDark,
-                    contentPadding = PaddingValues(horizontal = 13.dp, vertical = 7.dp),
-                    onClick = {
-                        when (activeSection) {
-                            TasksHubSection.GOALS -> onOpenGoalEditor(null)
-                            TasksHubSection.HABITS -> showCreateHabitDialog = true
-                            else -> showCreateTaskDialog = true
-                        }
+        // Thanh chuyển phân hệ + nút "+ Việc/Thói quen/Mục tiêu" vừa 1 hàng gọn kể cả 320dp (không đẩy Mục tiêu xuống hàng cô lập)
+        val narrowScreen = LocalConfiguration.current.screenWidthDp <= 360
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(if (narrowScreen) 4.dp else 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                visibleSections.forEach { sec ->
+                    val isSel = activeSection == sec
+                    WalletPill(
+                        onClickLabel = sec.label,
+                        containerColor = if (isSel) WalletMintDark else WalletCardBg,
+                        borderColor = if (isSel) WalletMintDark else WalletStroke,
+                        selected = isSel,
+                        role = Role.Tab,
+                        contentPadding = PaddingValues(horizontal = if (narrowScreen) 8.dp else 11.dp, vertical = 6.dp),
+                        onClick = { selectedSection = sec }
+                    ) {
+                        Text(
+                            text = sec.label,
+                            fontSize = if (narrowScreen) 10.5.sp else 11.5.sp,
+                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.SemiBold,
+                            color = if (isSel) Color.White else WalletMuted,
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
-                ) {
-                    Text(
-                        text = when (activeSection) {
-                            TasksHubSection.GOALS -> "+ Mục tiêu"
-                            TasksHubSection.HABITS -> "+ Thói quen"
-                            else -> "+ Việc"
-                        },
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
-                        maxLines = 1,
-                        softWrap = false
-                    )
                 }
             }
-        )
-
-        // Thanh chuyển phân hệ tự xuống dòng gọn để Kanban & Ma trận luôn hiện rõ không bị cắt mép.
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            visibleSections.forEach { sec ->
-                val isSel = activeSection == sec
-                WalletPill(
-                    onClickLabel = sec.label,
-                    containerColor = if (isSel) WalletMintDark else WalletCardBg,
-                    borderColor = if (isSel) WalletMintDark else WalletStroke,
-                    selected = isSel,
-                    role = Role.Tab,
-                    contentPadding = PaddingValues(horizontal = 11.dp, vertical = 6.dp),
-                    onClick = { selectedSection = sec }
-                ) {
-                    Text(
-                        text = sec.label,
-                        fontSize = 11.5.sp,
-                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.SemiBold,
-                        color = if (isSel) Color.White else WalletMuted,
-                        maxLines = 1,
-                        softWrap = false
-                    )
+            WalletPill(
+                onClickLabel = "Thêm mới",
+                containerColor = WalletMintDark,
+                contentPadding = PaddingValues(horizontal = if (narrowScreen) 8.dp else 11.dp, vertical = 6.dp),
+                onClick = {
+                    when (activeSection) {
+                        TasksHubSection.GOALS -> onOpenGoalEditor(null)
+                        TasksHubSection.HABITS -> showCreateHabitDialog = true
+                        else -> showCreateTaskDialog = true
+                    }
                 }
+            ) {
+                Text(
+                    text = when (activeSection) {
+                        TasksHubSection.GOALS -> if (narrowScreen) "+ Mục tiêu" else "+ Mục tiêu"
+                        TasksHubSection.HABITS -> if (narrowScreen) "+ Thói quen" else "+ Thói quen"
+                        else -> "+ Việc"
+                    },
+                    fontSize = if (narrowScreen) 10.5.sp else 11.5.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White,
+                    maxLines = 1,
+                    softWrap = false
+                )
             }
         }
 
@@ -232,90 +256,187 @@ fun TasksHabitsScreen(
                 }
                 val inboxCount = remember(tasks) { tasks.count { it.status == TaskStatus.INBOX && !it.isDone } }
                 val risksByTaskId = remember(todoRiskAlerts) { todoRiskAlerts.groupBy { it.taskId } }
+                val hasActiveProposals = todoAiReport != null && todoAiReport.proposals.isNotEmpty()
+                val hasAiSummary = todoAiReport != null && (todoAiReport.summaryVi.isNotBlank() || todoAiReport.proposals.isNotEmpty())
+                var aiPanelExpanded by rememberSaveable { mutableStateOf(false) }
 
-                // Nhập nhanh bằng ngôn ngữ tự nhiên + nút gọi Wally AI To-do
-                SoftCard(padding = 10.dp) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = naturalTodoText,
-                                onValueChange = { naturalTodoText = it },
-                                placeholder = { Text("Thêm nhanh (vd: Nộp báo cáo mai 15h 45p P1)", fontSize = 12.sp) },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f)
-                            )
-                            Button(
-                                onClick = {
-                                    val clean = naturalTodoText.trim()
-                                    if (clean.isNotEmpty()) {
-                                        onQuickAddNaturalTask(clean)
-                                        naturalTodoText = ""
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.heightIn(min = 48.dp)
-                            ) {
-                                Text("+", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
-                            }
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Tự tách hạn, thời lượng, P1–P3",
-                                fontSize = 11.sp,
-                                color = WalletMuted
-                            )
-                            WalletPill(
-                                onClickLabel = "Wally phân tích To-do & xếp lịch",
-                                containerColor = WalletMintSoft,
-                                borderColor = WalletMintAccent,
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
-                                onClick = { if (!todoAiAnalyzing) onAnalyzeTodoPlanWithWally() }
-                            ) {
-                                Text(
-                                    text = if (todoAiAnalyzing) "Đang phân tích..." else "✦ Wally lập kế hoạch",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = WalletMintAccent
-                                )
-                            }
-                        }
-                    }
+                // Chỉ tự bung bảng AI To-do khi vừa tạo gợi ý mới có đề xuất; xử lý xong tự thu gọn để ưu tiên danh sách việc
+                LaunchedEffect(todoAiReport?.generatedAtEpochMs, todoAiReport?.proposals?.size) {
+                    aiPanelExpanded = hasActiveProposals
                 }
 
-                // Cảnh báo rủi ro tất định (Quá hạn, trùng lịch, hoãn nhiều, quá tải)
-                if (todoRiskAlerts.isNotEmpty()) {
-                    SoftCard(padding = 10.dp) {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                // 1. Ô nhập nhanh 1 hàng gọn nổi trên nền trung tính (không viền lồng viền) + nút Wally nổi bật
+                val quickTaskFocusRequester = remember { FocusRequester() }
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = WalletCardBg,
+                    shadowElevation = 2.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = naturalTodoText,
+                            onValueChange = { naturalTodoText = it },
+                            placeholder = { Text("Thêm nhanh (vd 15h mai 45p P1)", fontSize = 11.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(13.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = WalletCardBg,
+                                unfocusedContainerColor = WalletSoftNeutral,
+                                focusedBorderColor = WalletMint,
+                                unfocusedBorderColor = Color.Transparent
+                            ),
+                            trailingIcon = {
+                                val hasInput = naturalTodoText.isNotBlank()
+                                Box(
+                                    modifier = Modifier
+                                        .padding(end = 4.dp)
+                                        .size(30.dp)
+                                        .clip(RoundedCornerShape(9.dp))
+                                        .background(if (hasInput) WalletMint else WalletMintSoft)
+                                        .walletClickable(
+                                            onClickLabel = if (hasInput) "Thêm công việc nhanh" else "Bắt đầu nhập công việc"
+                                        ) {
+                                            val clean = naturalTodoText.trim()
+                                            if (clean.isNotEmpty()) {
+                                                onQuickAddNaturalTask(clean)
+                                                naturalTodoText = ""
+                                            } else {
+                                                runCatching { quickTaskFocusRequester.requestFocus() }
+                                            }
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "+",
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = if (hasInput) Color.White else WalletMintAccent
+                                    )
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .focusRequester(quickTaskFocusRequester)
+                        )
+                        WalletPill(
+                            onClickLabel = "Wally phân tích To-do & xếp lịch",
+                            containerColor = WalletMintSoft,
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                            onClick = { if (!todoAiAnalyzing) onAnalyzeTodoPlanWithWally() }
+                        ) {
                             Text(
-                                text = "⚠ Lưu ý khối lượng & hạn (${todoRiskAlerts.size})",
-                                fontSize = 12.sp,
+                                text = if (todoAiAnalyzing) "Đang..." else "✦ Wally",
+                                fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = WalletWarningText
+                                color = WalletMintAccent,
+                                maxLines = 1,
+                                softWrap = false
                             )
-                            todoRiskAlerts.take(3).forEach { alert ->
+                        }
+                    }
+                }
+
+                // 2. Hàng lọc 1 dòng có gợi ý cuộn ngang rõ ràng ngay trước danh sách việc
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TaskSmartFilter.entries.forEach { f ->
+                            val isSel = f == taskFilter
+                            WalletPill(
+                                onClickLabel = "Lọc ${f.labelVi}",
+                                containerColor = if (isSel) WalletMintSoft else WalletCardBg,
+                                selected = isSel,
+                                contentPadding = PaddingValues(horizontal = 11.dp, vertical = 6.dp),
+                                onClick = { onSelectTaskFilter(f) }
+                            ) {
                                 Text(
-                                    text = "• ${alert.taskTitle}: ${alert.detailVi}",
+                                    text = f.labelVi,
                                     fontSize = 11.5.sp,
-                                    color = if (alert.severityHigh) WalletDangerText else WalletInk
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSel) WalletMintAccent else WalletMuted,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
+                            }
+                        }
+                    }
+                    Text(
+                        text = "›",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = WalletMuted.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(end = 2.dp)
+                    )
+                }
+
+                // 3. Dải tóm tắt gọn (1 dòng) cho Cảnh báo / Đề xuất AI / Inbox; bấm để bung chi tiết khi cần
+                val hasSummaryBanner = todoRiskAlerts.isNotEmpty() || hasAiSummary || inboxCount > 0
+                if (hasSummaryBanner && !aiPanelExpanded) {
+                    val summaryLabel = buildList {
+                        if (hasActiveProposals) add("✦ ${todoAiReport!!.proposals.size} gợi ý xếp lịch")
+                        if (todoRiskAlerts.isNotEmpty()) add("⚠ ${todoRiskAlerts.size} gần hạn")
+                        if (inboxCount > 0) add("$inboxCount Inbox")
+                    }.joinToString(" · ")
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (todoRiskAlerts.any { it.severityHigh } && !hasActiveProposals) WalletWarningBg else WalletSoftNeutral)
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = summaryLabel,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = WalletInk,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (hasAiSummary || todoRiskAlerts.isNotEmpty()) {
+                            WalletPill(
+                                onClickLabel = "Xem chi tiết gợi ý và lưu ý To-do",
+                                containerColor = WalletCardBg,
+                                borderColor = WalletStroke,
+                                contentPadding = PaddingValues(horizontal = 9.dp, vertical = 3.dp),
+                                onClick = { aiPanelExpanded = true }
+                            ) {
+                                Text("Xem", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = WalletMintAccent)
+                            }
+                        }
+                        if (inboxCount > 0 && !hasActiveProposals) {
+                            WalletPill(
+                                onClickLabel = "Wally gợi ý xếp lịch Inbox",
+                                containerColor = WalletMintDark,
+                                contentPadding = PaddingValues(horizontal = 9.dp, vertical = 3.dp),
+                                onClick = onRequestWallyReplanInbox
+                            ) {
+                                Text("✦ Xếp lịch", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
                             }
                         }
                     }
                 }
 
-                // Kế hoạch & đề xuất Wally AI To-do (LUÔN chờ xác nhận người dùng)
-                if (todoAiReport != null && (todoAiReport.summaryVi.isNotBlank() || todoAiReport.proposals.isNotEmpty())) {
+                // Khung chi tiết AI & Cảnh báo chỉ mở khi đang xử lý đề xuất hoặc người dùng chạm "Xem"
+                if (aiPanelExpanded && (todoRiskAlerts.isNotEmpty() || hasAiSummary)) {
                     SoftCard(padding = 10.dp) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(
@@ -324,49 +445,98 @@ fun TasksHabitsScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = if (todoAiReport.fromCloudAi) "✦ Wally AI đề xuất kế hoạch" else "⚡ Gợi ý sắp xếp (trên máy)",
-                                    fontSize = 12.5.sp,
+                                    text = when {
+                                        todoAiReport?.fromCloudAi == true -> "✦ AI đề xuất · Chờ bạn duyệt"
+                                        hasAiSummary -> "⚡ Gợi ý trên máy · Chờ bạn duyệt"
+                                        else -> "⚠ Lưu ý khối lượng & hạn"
+                                    },
+                                    fontSize = 12.sp,
                                     fontWeight = FontWeight.ExtraBold,
-                                    color = WalletMintAccent
+                                    color = WalletMintAccent,
+                                    modifier = Modifier.weight(1f)
                                 )
-                                if (todoAiReport.proposals.size > 1) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    if (todoAiReport != null && todoAiReport.proposals.size > 1) {
+                                        WalletPill(
+                                            onClickLabel = "Áp dụng tất cả đề xuất hợp lệ",
+                                            containerColor = WalletMintDark,
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 3.dp),
+                                            onClick = onApplyAllTodoProposals
+                                        ) {
+                                            Text("✓ Áp dụng hết", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                        }
+                                    }
                                     WalletPill(
-                                        onClickLabel = "Áp dụng tất cả đề xuất hợp lệ",
-                                        containerColor = WalletMintDark,
-                                        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 4.dp),
-                                        onClick = onApplyAllTodoProposals
+                                        onClickLabel = "Thu gọn gợi ý",
+                                        containerColor = WalletBg,
+                                        borderColor = WalletStroke,
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 3.dp),
+                                        onClick = { aiPanelExpanded = false }
                                     ) {
-                                        Text("✓ Áp dụng hết", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                        Text("Thu gọn", fontSize = 10.5.sp, color = WalletMuted)
                                     }
                                 }
                             }
-                            if (todoAiReport.summaryVi.isNotBlank()) {
+                            if (todoRiskAlerts.isNotEmpty()) {
+                                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    todoRiskAlerts.take(3).forEach { alert ->
+                                        Text(
+                                            text = "• ${alert.taskTitle}: ${alert.detailVi}",
+                                            fontSize = 11.5.sp,
+                                            color = if (alert.severityHigh) WalletDangerText else WalletWarningText
+                                        )
+                                    }
+                                }
+                            }
+                            if (todoAiReport != null && todoAiReport.summaryVi.isNotBlank()) {
                                 Text(
                                     text = todoAiReport.summaryVi,
-                                    fontSize = 12.sp,
+                                    fontSize = 11.5.sp,
                                     color = WalletInk
                                 )
                             }
-                            todoAiReport.proposals.forEach { prop ->
+                            todoAiReport?.proposals?.forEach { prop ->
+                                val isCloudSource = todoAiReport.fromCloudAi
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(WalletBg)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(WalletMintTint)
                                         .border(
-                                            1.dp,
-                                            if (prop.conflictWarningVi != null) WalletDangerText else WalletStroke,
-                                            RoundedCornerShape(12.dp)
+                                            1.25.dp,
+                                            when {
+                                                prop.conflictWarningVi != null -> WalletDangerText
+                                                prop.deadlineWarningVi != null -> WalletWarningBorder
+                                                else -> WalletMintAccent.copy(alpha = 0.45f)
+                                            },
+                                            RoundedCornerShape(10.dp)
                                         )
                                         .padding(8.dp),
                                     verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    Text(
-                                        text = "${prop.kind.labelVi}: ${prop.taskTitle}",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = WalletInk
-                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "${prop.kind.labelVi}: ${prop.taskTitle}",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = WalletInk,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Text(
+                                            text = if (isCloudSource) "AI · Chờ duyệt" else "Gợi ý máy · Chờ duyệt",
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = WalletMintAccent,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(WalletMintSoft)
+                                                .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                                        )
+                                    }
                                     val timeHint = if (!prop.startHm.isNullOrBlank() && !prop.endHm.isNullOrBlank()) {
                                         " (${prop.targetDateLocal ?: todayDateLocal} · ${prop.startHm}–${prop.endHm})"
                                     } else if (!prop.targetDateLocal.isNullOrBlank()) {
@@ -377,6 +547,14 @@ fun TasksHabitsScreen(
                                         fontSize = 11.sp,
                                         color = WalletMuted
                                     )
+                                    if (!prop.deadlineWarningVi.isNullOrBlank()) {
+                                        Text(
+                                            text = "⏰ ${prop.deadlineWarningVi}",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = WalletWarningText
+                                        )
+                                    }
                                     if (!prop.conflictWarningVi.isNullOrBlank()) {
                                         Text(
                                             text = "⚠ ${prop.conflictWarningVi}",
@@ -410,86 +588,45 @@ fun TasksHabitsScreen(
                     }
                 }
 
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    TaskSmartFilter.entries.forEach { f ->
-                        val isSel = f == taskFilter
-                        WalletPill(
-                            onClickLabel = "Lọc ${f.labelVi}",
-                            containerColor = if (isSel) WalletMintSoft else WalletCardBg,
-                            borderColor = if (isSel) WalletMint else WalletStroke,
-                            selected = isSel,
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
-                            onClick = { onSelectTaskFilter(f) }
-                        ) {
-                            Text(
-                                text = f.labelVi,
-                                fontSize = 11.5.sp,
-                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
-                                color = if (isSel) WalletMintAccent else WalletMuted,
-                                maxLines = 1,
-                                softWrap = false
-                            )
-                        }
-                    }
-                }
+                // Thông báo xác nhận duyệt được báo qua Toast gọn ở đáy màn hình để tránh lặp biên nhận xanh.
+                @Suppress("UNUSED_EXPRESSION")
+                lastTodoApprovalReceipt
+                @Suppress("UNUSED_EXPRESSION")
+                onDismissTodoApprovalReceipt
 
-                if (inboxCount > 0) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(WalletMintTint)
-                            .border(1.dp, WalletStroke, RoundedCornerShape(12.dp))
-                            .padding(horizontal = 10.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = "📥 $inboxCount việc Inbox chưa xếp lịch",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = WalletInk,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        WalletPill(
-                            onClickLabel = "Wally gợi ý xếp lịch Inbox",
-                            containerColor = WalletMintDark,
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
-                            onClick = onRequestWallyReplanInbox
-                        ) {
-                            Text(
-                                text = "✦ Gợi ý lịch",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                maxLines = 1,
-                                softWrap = false
-                            )
-                        }
-                    }
-                }
-
+                // 4. Danh sách công việc làm trọng tâm chính của màn hình
                 if (filteredTasks.isEmpty()) {
                     SoftCard {
                         EmptyState(
                             glyph = WalletGlyph.CONFIRM,
-                            title = "Chưa có việc trong \"${taskFilter.labelVi}\"",
-                            hint = "Bấm '+ Việc' ở góc trên hoặc nhập nhanh bằng tiếng Việt.",
-                            actionLabel = "+ Việc",
-                            onAction = { showCreateTaskDialog = true }
+                            title = if (taskFilter == TaskSmartFilter.ALL_OPEN) "Chưa có công việc nào" else "Không có việc nào khớp bộ lọc \"${taskFilter.labelVi}\"",
+                            hint = if (taskFilter == TaskSmartFilter.ALL_OPEN) {
+                                "Bấm '+ Việc' ở góc trên hoặc nhập nhanh bằng tiếng Việt."
+                            } else {
+                                "Thử chọn mục \"Chưa xong\" hoặc bấm '+ Việc' để thêm công việc mới."
+                            },
+                            actionLabel = if (taskFilter == TaskSmartFilter.ALL_OPEN) "+ Việc" else "Xem Chưa xong",
+                            onAction = {
+                                if (taskFilter == TaskSmartFilter.ALL_OPEN) showCreateTaskDialog = true
+                                else onSelectTaskFilter(TaskSmartFilter.ALL_OPEN)
+                            }
                         )
                     }
                 } else {
+                    val nowEvalMs = remember(records, tasks) { System.currentTimeMillis() }
                     filteredTasks.forEach { task ->
+                        val linkedPlanned = records
+                            .filter {
+                                !it.isCancelled &&
+                                    it.taskId == task.id &&
+                                    it.resolveLayerAt(nowEvalMs, todayDateLocal) == TimeLayer.PLANNED &&
+                                    it.hasTimeBounds
+                            }
+                            .minByOrNull { it.startedAt ?: Long.MAX_VALUE }
                         TaskCard(
                             task = task,
                             loggedSeconds = TaskHabitEngine.computeTaskLoggedSeconds(task.id, records),
+                            plannedRecord = linkedPlanned,
                             riskAlerts = risksByTaskId[task.id].orEmpty(),
                             onToggleDone = { onToggleTaskDone(task) },
                             onToggleSubtask = onToggleSubtaskDone,
@@ -1042,10 +1179,12 @@ fun TasksHabitsScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TaskCard(
     task: TaskItem,
     loggedSeconds: Long,
+    plannedRecord: LedgerRecord? = null,
     riskAlerts: List<TodoRiskAlert> = emptyList(),
     onToggleDone: () -> Unit,
     onToggleSubtask: (SubtaskItem) -> Unit,
@@ -1095,14 +1234,13 @@ private fun TaskCard(
                         },
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text(
                             text = task.priority.badgeText,
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = if (task.priority == TaskPriority.P1) WalletDangerText else WalletMintAccent,
                             modifier = Modifier
-                                .padding(top = 2.dp)
                                 .clip(RoundedCornerShape(5.dp))
                                 .background(if (task.priority == TaskPriority.P1) WalletDangerBg else WalletMintTint)
                                 .padding(horizontal = 5.dp, vertical = 1.5.dp)
@@ -1121,7 +1259,9 @@ private fun TaskCard(
                     val meta = buildList {
                         add(task.category.displayName)
                         task.estimatedMinutes?.let { add("~${it}p") }
-                        if (loggedSeconds > 0L) add("Đã đo ${LedgerAnalyticsCalculator.formatCompactDurationSeconds(loggedSeconds)}")
+                        if (loggedSeconds > 0L) {
+                            add("Thực tế ${LedgerAnalyticsCalculator.formatCompactDurationSeconds(loggedSeconds)}")
+                        }
                         if (task.subtasks.isNotEmpty()) {
                             add("${task.subtasks.count { it.isDone }}/${task.subtasks.size} bước")
                         }
@@ -1130,40 +1270,47 @@ private fun TaskCard(
                         }
                         if (task.postponedCount > 0) add("Hoãn ${task.postponedCount}x")
                     }.joinToString(" · ")
-                    Text(meta, fontSize = 11.sp, color = WalletMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    if (riskAlerts.isNotEmpty()) {
-                        val topRisk = riskAlerts.first()
-                        Text(
-                            text = "⚠ ${topRisk.kind.shortLabel}: ${topRisk.detailVi}",
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (topRisk.severityHigh) WalletDangerText else WalletWarningText,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                    Text(meta, fontSize = 11.sp, color = WalletMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
 
-                if (!task.isDone) {
-                    WalletPill(
-                        onClickLabel = "Bắt đầu tập trung ${task.title}",
-                        containerColor = WalletMintDark,
-                        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 5.dp),
-                        onClick = onStartFocus
+                CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 36.dp) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("▶", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                    }
-                }
-                Box {
-                    WalletPill(
-                        onClickLabel = "Thao tác khác cho ${task.title}",
-                        containerColor = WalletSoftNeutral,
-                        borderColor = WalletStroke,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 5.dp),
-                        onClick = { menuOpen = true }
-                    ) {
-                        Text("⋯", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk)
-                    }
+                        if (!task.isDone) {
+                            Box(
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .clip(RoundedCornerShape(100.dp))
+                                    .background(WalletMint)
+                                    .semantics {
+                                        contentDescription = "Bắt đầu tập trung ${task.title}"
+                                        role = Role.Button
+                                    }
+                                    .clickable(onClickLabel = "Bắt đầu tập trung ${task.title}", onClick = onStartFocus)
+                                    .padding(horizontal = 11.dp, vertical = 7.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("▶", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                        }
+                        Box {
+                            Box(
+                                modifier = Modifier
+                                    .minimumInteractiveComponentSize()
+                                    .clip(RoundedCornerShape(100.dp))
+                                    .background(WalletSoftNeutral)
+                                    .semantics {
+                                        contentDescription = "Thao tác khác cho ${task.title}"
+                                        role = Role.Button
+                                    }
+                                    .clickable(onClickLabel = "Thao tác khác cho ${task.title}") { menuOpen = true }
+                                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("⋯", fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk)
+                            }
                     DropdownMenu(
                         expanded = menuOpen,
                         onDismissRequest = { menuOpen = false },
@@ -1228,6 +1375,65 @@ private fun TaskCard(
                                 onDelete()
                             }
                         )
+                    }
+                        }
+                    }
+                }
+            }
+
+            if ( plannedRecord != null && plannedRecord.startedAt != null && plannedRecord.endedAt != null || riskAlerts.isNotEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (plannedRecord != null && plannedRecord.startedAt != null && plannedRecord.endedAt != null) {
+                        val zone = remember { ZoneId.systemDefault() }
+                        val hmFmt = remember { DateTimeFormatter.ofPattern("HH:mm") }
+                        val st = Instant.ofEpochMilli(plannedRecord.startedAt).atZone(zone).format(hmFmt)
+                        val et = Instant.ofEpochMilli(plannedRecord.endedAt).atZone(zone).format(hmFmt)
+                        val planText = if (plannedRecord.source == "todo_ai_plan") {
+                            "✓ Đã duyệt AI → Lịch dự kiến ${plannedRecord.date.substring(5)} $st–$et"
+                        } else {
+                            "📅 Lịch dự kiến: ${plannedRecord.date.substring(5)} $st–$et"
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(7.dp))
+                                .background(WalletInfoBg)
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = planText,
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = WalletInfoText,
+                                maxLines = 2
+                            )
+                        }
+                    }
+                    if (riskAlerts.isNotEmpty()) {
+                        val topRisk = riskAlerts.first()
+                        val riskFg = if (topRisk.severityHigh) WalletDangerText else WalletWarningText
+                        val riskBg = if (topRisk.severityHigh) WalletDangerBg else WalletWarningBg
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(7.dp))
+                                .background(riskBg)
+                                .padding(horizontal = 8.dp, vertical = 3.5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "⚠ ${topRisk.kind.shortLabel}: ${topRisk.detailVi}",
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = riskFg,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
                     }
                 }
             }

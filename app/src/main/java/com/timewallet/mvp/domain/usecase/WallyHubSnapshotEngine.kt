@@ -224,7 +224,7 @@ object WallyHubSnapshotEngine {
         val freeRemainingMinutes = remainingFreeGaps.sumOf { it.second - it.first }
         val nextGap = remainingFreeGaps.firstOrNull { (it.second - it.first) >= 15 }
         val nextFreeWindowLabel = nextGap?.let { (s, e) ->
-            "${ScheduleGridEngine.formatHmWindow(s, e)} (${TimeRange.formatDuration(e - s)})"
+            ScheduleGridEngine.formatHmWindow(s, e)
         }
 
         val dayHorizon = (23 * 60 - 6 * 60).toFloat().coerceAtLeast(1f)

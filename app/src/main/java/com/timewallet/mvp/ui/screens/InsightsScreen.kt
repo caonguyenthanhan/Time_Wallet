@@ -77,6 +77,7 @@ import com.timewallet.mvp.domain.usecase.FocusPinState
 import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
 import com.timewallet.mvp.domain.usecase.PeakFocusWindow
 import com.timewallet.mvp.domain.usecase.PlanAccuracySummary
+import com.timewallet.mvp.domain.usecase.WallyStoryAction
 import com.timewallet.mvp.domain.usecase.WeeklyEfficiencySummary
 import com.timewallet.mvp.domain.usecase.WeeklyInsightsSummary
 import com.timewallet.mvp.ui.CoachUiState
@@ -84,6 +85,7 @@ import com.timewallet.mvp.ui.theme.WalletBg
 import com.timewallet.mvp.ui.theme.WalletCardBg
 import com.timewallet.mvp.ui.theme.WalletDangerText
 import com.timewallet.mvp.ui.theme.WalletInk
+import com.timewallet.mvp.ui.theme.WalletIsDark
 import com.timewallet.mvp.ui.theme.WalletMint
 import com.timewallet.mvp.ui.theme.WalletMintAccent
 import com.timewallet.mvp.ui.theme.WalletMintDark
@@ -99,7 +101,10 @@ import java.util.Locale
 private val EfficiencyGoalMint = Color(0xFF33A378)
 private val EfficiencyNeutralBlue = Color(0xFF7894CF)
 private val EfficiencyWasteCoral = Color(0xFFDE846F)
-private val EfficiencyUnknownGray = Color(0xFFE0DFDB)
+private val EfficiencyUnknownGray: Color
+    @Composable
+    @androidx.compose.runtime.ReadOnlyComposable
+    get() = if (WalletIsDark) Color(0xFF2B3036) else Color(0xFFE2E4E0)
 
 /** Nhãn đỉnh cột: ngắn để vừa cột hẹp ("2h15", "10h", "45p"); 0 = "–". */
 internal fun compactBarLabel(seconds: Long): String {
@@ -201,7 +206,8 @@ fun InsightsScreen(
     planAccuracySummary: PlanAccuracySummary? = null,
     onOpenMarkdownExport: () -> Unit = {},
     onOpenWallyChat: () -> Unit = {},
-    onOpenProfileSettings: () -> Unit = {}
+    onOpenProfileSettings: () -> Unit = {},
+    onExecuteWallyStoryAction: (WallyStoryAction) -> Unit = {}
 ) {
     var showToolsSegment by rememberSaveable { mutableStateOf(false) }
     var showActivityView by rememberSaveable { mutableStateOf(true) }
@@ -218,7 +224,7 @@ fun InsightsScreen(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Đầu trang Mở rộng với chuyển đổi 2 ngăn Thống kê | Công cụ.
+        // Đầu trang Mở rộng rõ nét hơn + chuyển đổi 2 ngăn Thống kê | Công cụ trên nền trung tính sạch.
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -226,7 +232,8 @@ fun InsightsScreen(
         ) {
             Text(
                 text = "Mở rộng",
-                fontSize = 22.sp,
+                fontSize = 26.sp,
+                letterSpacing = (-0.4).sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = WalletInk,
                 modifier = Modifier.weight(1f)
@@ -234,8 +241,7 @@ fun InsightsScreen(
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(100.dp))
-                    .background(WalletStroke.copy(alpha = 0.45f))
-                    .border(1.dp, WalletStroke, RoundedCornerShape(100.dp))
+                    .background(WalletSoftNeutral)
                     .padding(3.dp),
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
@@ -243,7 +249,7 @@ fun InsightsScreen(
                     val isSel = showToolsSegment == isTools
                     WalletPill(
                         onClickLabel = "Chuyển sang $label",
-                        containerColor = if (isSel) WalletMintDark else Color.Transparent,
+                        containerColor = if (isSel) WalletMint else Color.Transparent,
                         selected = isSel,
                         role = Role.Tab,
                         contentDescription = "Ngăn $label",
@@ -288,7 +294,8 @@ fun InsightsScreen(
                 onOpenWallyChat = onOpenWallyChat,
                 aiEnabled = aiEnabled,
                 peakFocusWindow = peakFocusWindow,
-                planAccuracySummary = planAccuracySummary
+                planAccuracySummary = planAccuracySummary,
+                onExecuteWallyStoryAction = onExecuteWallyStoryAction
             )
         } else {
             ToolsHubSegment(
@@ -351,6 +358,9 @@ fun InsightsScreen(
         ) {
             CoachSheetContent(
                 coach = coach,
+                weeklyEfficiency = weeklyEfficiency,
+                peakFocusWindow = peakFocusWindow,
+                planAccuracySummary = planAccuracySummary,
                 aiEnabled = aiEnabled,
                 aiModeLabel = aiModeLabel,
                 onAskCoach = onAskCoach,
@@ -360,6 +370,14 @@ fun InsightsScreen(
                 onTriggerAction = { action ->
                     showCoachSheet = false
                     onTriggerAction(action)
+                },
+                onExecuteWallyStoryAction = { action ->
+                    showCoachSheet = false
+                    onExecuteWallyStoryAction(action)
+                },
+                onOpenWallyChat = {
+                    showCoachSheet = false
+                    onOpenWallyChat()
                 }
             )
         }
@@ -384,7 +402,8 @@ private fun EfficiencyAnalyticsSegment(
     onOpenWallyChat: () -> Unit = {},
     aiEnabled: Boolean = false,
     peakFocusWindow: PeakFocusWindow? = null,
-    planAccuracySummary: PlanAccuracySummary? = null
+    planAccuracySummary: PlanAccuracySummary? = null,
+    onExecuteWallyStoryAction: (WallyStoryAction) -> Unit = {}
 ) {
     val fmt = LedgerAnalyticsCalculator::formatHoursMinutesFromSeconds
     val fmtCompact = LedgerAnalyticsCalculator::formatCompactDurationSeconds
@@ -434,25 +453,14 @@ private fun EfficiencyAnalyticsSegment(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "THỜI GIAN CỦA BẠN · 7 NGÀY",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        letterSpacing = 0.5.sp,
-                        color = WalletMintAccent
-                    )
-                    Text(
                         text = "Phân bổ 24 giờ · 7 ngày",
                         fontSize = 15.5.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = WalletInk
                     )
                     Text(
-                        text = if (showActivityView) {
-                            "Mỗi cột = 24 giờ · chạm ngày hoặc nhóm hoạt động"
-                        } else {
-                            "Mỗi cột = 24 giờ · chạm ngày hoặc tầng để lọc"
-                        },
-                        fontSize = 11.5.sp,
+                        text = if (showActivityView) "Chạm cột ngày hoặc nhóm bên dưới" else "Chạm cột ngày hoặc tầng để lọc",
+                        fontSize = 11.sp,
                         color = WalletMuted
                     )
                 }
@@ -472,12 +480,11 @@ private fun EfficiencyAnalyticsSegment(
 
             Spacer(modifier = Modifier.height(5.dp))
 
-            // Chuyển góc nhìn gọn trong cùng thẻ: Hoạt động (mặc định) vs Mục tiêu (4 tầng).
+            // Chuyển góc nhìn gọn trong cùng thẻ trên surface trung tính không viền.
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(100.dp))
-                    .background(WalletBg)
-                    .border(1.dp, WalletStroke, RoundedCornerShape(100.dp))
+                    .background(WalletSoftNeutral)
                     .padding(3.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
@@ -485,7 +492,7 @@ private fun EfficiencyAnalyticsSegment(
                     val isSel = showActivityView == isAct
                     WalletPill(
                         onClickLabel = "Xem theo $label",
-                        containerColor = if (isSel) WalletMintDark else Color.Transparent,
+                        containerColor = if (isSel) WalletMint else Color.Transparent,
                         selected = isSel,
                         role = Role.Tab,
                         contentDescription = "Góc nhìn $label",
@@ -506,10 +513,17 @@ private fun EfficiencyAnalyticsSegment(
 
             Spacer(modifier = Modifier.height(6.dp))
 
+            val activeDaysCount = days.count { it.calendarDaySeconds - it.unknownSeconds > 0L }
+            val adaptiveChartHeight = when {
+                activeDaysCount == 0 -> 114.dp
+                activeDaysCount <= 2 -> 140.dp
+                else -> 178.dp
+            }
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(196.dp),
+                    .height(adaptiveChartHeight),
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
                 verticalAlignment = Alignment.Bottom
             ) {
@@ -550,16 +564,18 @@ private fun EfficiencyAnalyticsSegment(
                             overflow = TextOverflow.Clip
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                        // Cột luôn biểu diễn trọn 24h theo đúng góc nhìn đang chọn.
+                        // Cột 24h sạch không viền xám lặp lại; chỉ tô khung xanh thương hiệu cho ngày đang chọn.
                         Column(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxWidth(0.84f)
                                 .clip(RoundedCornerShape(10.dp))
-                                .border(
-                                    width = if (isSelectedDay) 2.dp else 1.dp,
-                                    color = if (isSelectedDay) MaterialTheme.colorScheme.primary else WalletStroke,
-                                    shape = RoundedCornerShape(10.dp)
+                                .then(
+                                    if (isSelectedDay) {
+                                        Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(10.dp))
+                                    } else {
+                                        Modifier
+                                    }
                                 ),
                             verticalArrangement = Arrangement.Bottom
                         ) {
@@ -669,9 +685,9 @@ private fun EfficiencyAnalyticsSegment(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(WalletBg)
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(WalletSoftNeutral)
+                        .padding(horizontal = 12.dp, vertical = 11.dp),
                     verticalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     Row(
@@ -698,15 +714,52 @@ private fun EfficiencyAnalyticsSegment(
                             )
                         }
                     }
+                    Row(
+                        verticalAlignment = Alignment.Bottom,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = shownLabel,
+                            fontSize = 26.sp,
+                            lineHeight = 30.sp,
+                            letterSpacing = (-0.5).sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = WalletInk,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                        Text(
+                            text = "/ 24h",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = WalletMuted,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(bottom = 3.dp)
+                        )
+                    }
                     Text(
                         text = "$filterLabel: $shownLabel / 24h",
-                        fontSize = 13.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = WalletInk,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = WalletMuted,
                         maxLines = 1,
                         softWrap = false,
                         overflow = TextOverflow.Ellipsis
                     )
+                    if (activeDaysCount == 0) {
+                        Text(
+                            text = "Tuần này chưa có bản ghi nào — bắt đầu đo hoặc ghi lịch để thấy phân bổ 24h.",
+                            fontSize = 11.sp,
+                            color = WalletMuted
+                        )
+                    } else if (activeDaysCount == 1 && shownSecs in 1L..179L) {
+                        Text(
+                            text = "Dữ liệu ít ($shownLabel trên 1 ngày) — cần thêm ngày ghi nhận để rút ra xu hướng.",
+                            fontSize = 11.sp,
+                            color = WalletMuted
+                        )
+                    }
 
                     if (filteredActDay != null) {
                         val filteredItems = remember(filteredActDay, activeBucketFilter) {
@@ -1028,7 +1081,9 @@ private fun EfficiencyAnalyticsSegment(
             }
         }
 
-        // Lớp 3: Wally kể từ dữ liệu (Điều gì xảy ra -> Đáng chú ý -> Ảnh hưởng mục tiêu -> Gợi ý tiếp theo).
+        // Lớp 3: Wally kể từ dữ liệu — tối đa 1 phát hiện chính + tối đa 1 hành động (+ lưu ý nếu làm thay đổi cách hiểu).
+        // Khi dữ liệu chỉ đủ tính tổng (wallyStory == null), ẩn phần lời kể để tránh lặp lại biểu đồ hoặc suy diễn.
+        val story = weeklyEfficiency.wallyStory
         SoftCard(padding = 14.dp, tint = WalletMintTint) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
@@ -1056,13 +1111,13 @@ private fun EfficiencyAnalyticsSegment(
                         )
                     }
                     WalletPill(
-                        onClickLabel = if (aiEnabled) "Mở AI Coach" else "Hỏi Wally AI",
+                        onClickLabel = "Xem căn cứ và phân tích AI",
                         containerColor = WalletCardBg,
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        onClick = if (aiEnabled) onOpenCoach else onOpenWallyChat
+                        onClick = onOpenCoach
                     ) {
                         Text(
-                            text = if (aiEnabled) "Phân tích AI ›" else "Hỏi Wally ›",
+                            text = "Phân tích AI ›",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = WalletMintAccent,
@@ -1072,35 +1127,45 @@ private fun EfficiencyAnalyticsSegment(
                     }
                 }
 
-                Text(
-                    text = weeklyEfficiency.actionableInsight,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = WalletInk,
-                    lineHeight = 18.sp
-                )
-
-                val story = weeklyEfficiency.wallyStory
-                if (story != null) {
-                    HorizontalDivider(color = WalletStroke)
-                    listOf(
-                        "Điều gì xảy ra" to story.whatHappened,
-                        "Đáng chú ý" to story.notable,
-                        "Ảnh hưởng mục tiêu" to story.goalImpact,
-                        "Có thể làm tiếp" to story.nextAction
-                    ).forEach { (stepLabel, stepText) ->
-                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                if (story == null) {
+                    Text(
+                        text = "Đã ẩn lời kể — dữ liệu hiện tại chỉ đủ tổng hợp giờ trên biểu đồ.",
+                        fontSize = 12.sp,
+                        color = WalletMuted,
+                        lineHeight = 17.sp
+                    )
+                } else {
+                    Text(
+                        text = story.mainFinding.ifBlank { weeklyEfficiency.actionableInsight },
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = WalletInk,
+                        lineHeight = 19.sp
+                    )
+                    story.findingDetail?.takeIf { it.isNotBlank() }?.let { detail ->
+                        Text(
+                            text = detail,
+                            fontSize = 12.sp,
+                            color = WalletMuted,
+                            lineHeight = 17.sp
+                        )
+                    }
+                    val storyAction = story.action
+                    val storyActionLabel = story.actionLabel
+                    if (storyAction != null && !storyActionLabel.isNullOrBlank()) {
+                        Button(
+                            onClick = { onExecuteWallyStoryAction(storyAction) },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = WalletMintDark, contentColor = Color.White),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
+                            modifier = Modifier.heightIn(min = 38.dp)
+                        ) {
                             Text(
-                                text = stepLabel,
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = WalletMintAccent
-                            )
-                            Text(
-                                text = stepText,
-                                fontSize = 12.sp,
-                                color = WalletInk,
-                                lineHeight = 17.sp
+                                text = storyActionLabel,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -1125,8 +1190,10 @@ private fun EfficiencyAnalyticsSegment(
             }
         }
 
-        // Thẻ Intelligence 2.0: Giờ vàng tập trung & Độ sát kế hoạch (có nguồn dữ liệu minh bạch).
-        if (peakFocusWindow != null || (planAccuracySummary != null && planAccuracySummary.sampleCount > 0)) {
+        // Thẻ Nhịp tập trung & Độ sát kế hoạch (chỉ hiện từng chỉ số khi có đủ cặp dữ liệu hợp lệ).
+        val validPeakFocus = peakFocusWindow?.takeIf { it.goalMinutes > 0L && it.sharePercent in 1..100 }
+        val hasPlanAccuracy = planAccuracySummary != null && planAccuracySummary.sampleCount > 0 && planAccuracySummary.summaryText.isNotBlank()
+        if (validPeakFocus != null || hasPlanAccuracy) {
             SoftCard(padding = 14.dp) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(
@@ -1142,24 +1209,30 @@ private fun EfficiencyAnalyticsSegment(
                             modifier = Modifier.weight(1f).padding(end = 6.dp)
                         )
                         Text(
-                            text = "ⓘ Sổ cái cục bộ",
+                            text = "Đối chiếu ›",
                             fontSize = 11.sp,
-                            color = WalletMuted,
+                            fontWeight = FontWeight.SemiBold,
+                            color = WalletMintAccent,
                             maxLines = 1,
-                            softWrap = false
+                            softWrap = false,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .walletClickable(onClickLabel = "Xem căn cứ Nhịp tập trung và Độ sát kế hoạch", onClick = onOpenCoach)
+                                .padding(horizontal = 4.dp, vertical = 2.dp)
                         )
                     }
-                    if (peakFocusWindow != null) {
+                    if (validPeakFocus != null) {
+                        val peakFormatted = LedgerAnalyticsCalculator.formatCompactDurationSeconds(validPeakFocus.goalMinutes * 60L)
                         Text(
-                            text = "Giờ vàng: ${peakFocusWindow.windowLabel} (${peakFocusWindow.goalMinutes}p · ${peakFocusWindow.sharePercent}% giờ mục tiêu 14 ngày)",
+                            text = "Khung ghi nhận nhiều nhất: ${validPeakFocus.windowLabel} ($peakFormatted · ${validPeakFocus.sharePercent}% giờ hoạt động 14 ngày)",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
-                    if (planAccuracySummary != null && planAccuracySummary.sampleCount > 0) {
+                    if (hasPlanAccuracy) {
                         Text(
-                            text = planAccuracySummary.summaryText,
+                            text = planAccuracySummary!!.summaryText,
                             fontSize = 13.sp,
                             color = WalletInk
                         )
@@ -1270,10 +1343,7 @@ private fun ToolsHubSegment(
                 Switch(
                     checked = focusPinEnabled,
                     onCheckedChange = onToggleFocusPin,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = WalletMint
-                    )
+                    colors = walletSwitchColors(WalletMint)
                 )
             }
         }
@@ -1831,14 +1901,20 @@ private fun BudgetsManagerSheetContent(
 @Composable
 private fun CoachSheetContent(
     coach: CoachUiState,
+    weeklyEfficiency: WeeklyEfficiencySummary,
+    peakFocusWindow: PeakFocusWindow? = null,
+    planAccuracySummary: PlanAccuracySummary? = null,
     aiEnabled: Boolean,
     aiModeLabel: String = "",
     onAskCoach: (Int) -> Unit,
     onDismissCoach: () -> Unit,
     onConfirmSuggestion: (Int) -> Unit,
     onDismissSuggestion: (Int) -> Unit,
-    onTriggerAction: (CoachActionItem) -> Unit
+    onTriggerAction: (CoachActionItem) -> Unit,
+    onExecuteWallyStoryAction: (WallyStoryAction) -> Unit,
+    onOpenWallyChat: () -> Unit
 ) {
+    val story = weeklyEfficiency.wallyStory
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1854,32 +1930,191 @@ private fun CoachSheetContent(
         ) {
             WallyMascotAvatar(size = 40.dp, contentDescription = null)
             Column(modifier = Modifier.weight(1f)) {
-                Text("Wally AI Coach", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk)
+                Text("Phân tích & Căn cứ dữ liệu", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = WalletInk)
                 Text(
-                    text = when {
-                        aiEnabled && aiModeLabel.isNotBlank() -> "$aiModeLabel · Tóm tắt 5 giây & Action items"
-                        aiEnabled -> "Tóm tắt 5 giây · Điểm sáng · Action items"
-                        else -> "Bật AI trong Hồ sơ & Cài đặt để nhận tóm tắt cá nhân hóa"
-                    },
+                    text = "Đối chiếu kỳ so sánh, ngày/phiên gốc và lý do gợi ý ngay tại đây",
                     fontSize = 12.sp,
                     color = WalletMuted
                 )
             }
         }
+
+        // Khối 1: Căn cứ đối chiếu cục bộ (luôn sẵn sàng, người dùng không cần vào Chat hỏi lại).
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = WalletSoftNeutral,
+            border = BorderStroke(1.dp, WalletStroke),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (story != null) {
+                    Text(
+                        text = "Phát hiện hiện tại",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = WalletMintAccent
+                    )
+                    Text(
+                        text = story.mainFinding.ifBlank { weeklyEfficiency.actionableInsight },
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = WalletInk,
+                        lineHeight = 19.sp
+                    )
+                    if (story.comparisonPeriodVi.isNotBlank()) {
+                        Text(
+                            text = "Kỳ so sánh: ${story.comparisonPeriodVi}",
+                            fontSize = 12.sp,
+                            color = WalletMuted,
+                            lineHeight = 17.sp
+                        )
+                    }
+                    if (story.rationaleVi.isNotBlank()) {
+                        Text(
+                            text = "Lý do gợi ý: ${story.rationaleVi}",
+                            fontSize = 12.sp,
+                            color = WalletInk,
+                            lineHeight = 17.sp
+                        )
+                    }
+                    if (story.evidenceItems.isNotEmpty()) {
+                        HorizontalDivider(color = WalletStroke)
+                        Text(
+                            text = "Các ngày / phiên làm căn cứ (${story.evidenceItems.size})",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = WalletMintAccent
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            story.evidenceItems.forEach { ev ->
+                                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                    Text(
+                                        text = "${ev.dateLocal} · ${ev.label}",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = WalletInk
+                                    )
+                                    Text(
+                                        text = ev.detailVi,
+                                        fontSize = 11.5.sp,
+                                        color = WalletMuted,
+                                        lineHeight = 16.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    val action = story.action
+                    val actionLabel = story.actionLabel
+                    if (action != null && !actionLabel.isNullOrBlank()) {
+                        Button(
+                            onClick = { onExecuteWallyStoryAction(action) },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = WalletMintDark, contentColor = Color.White),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 42.dp)
+                        ) {
+                            Text(actionLabel, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                } else {
+                    Text(
+                        text = "Chưa có phát hiện nâng cao",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = WalletMintAccent
+                    )
+                    Text(
+                        text = "Dữ liệu kỳ này hiện chỉ đủ tính tổng giờ theo ngày/danh mục trên biểu đồ; chưa thấy mẫu lặp, chênh lệch cùng kỳ hay mục tiêu cần cảnh báo.",
+                        fontSize = 12.5.sp,
+                        color = WalletInk,
+                        lineHeight = 18.sp
+                    )
+                }
+
+                if (planAccuracySummary != null && (planAccuracySummary.sampleCount > 0 || !planAccuracySummary.excludedNote.isNullOrBlank())) {
+                    HorizontalDivider(color = WalletStroke)
+                    Text(
+                        text = "Đối chiếu Kế hoạch vs Thực tế (${planAccuracySummary.sampleCount} phiên tập trung)",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = WalletMintAccent
+                    )
+                    if (planAccuracySummary.summaryText.isNotBlank()) {
+                        Text(
+                            text = planAccuracySummary.summaryText,
+                            fontSize = 12.sp,
+                            color = WalletInk,
+                            lineHeight = 17.sp
+                        )
+                    }
+                    planAccuracySummary.sessionEvidence.take(5).forEach { ev ->
+                        val sign = if (ev.deltaMinutes > 0L) "+" else ""
+                        Text(
+                            text = "• ${ev.dateLocal} · ${ev.title} (${ev.category.displayName}): KH ${ev.plannedMinutes}p → TT ${ev.actualMinutes}p ($sign${ev.deltaMinutes}p)",
+                            fontSize = 11.5.sp,
+                            color = WalletMuted,
+                            lineHeight = 16.sp
+                        )
+                    }
+                    planAccuracySummary.excludedNote?.takeIf { it.isNotBlank() }?.let { excl ->
+                        Text(
+                            text = excl,
+                            fontSize = 11.sp,
+                            color = WalletMuted,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+
+                if (peakFocusWindow != null && peakFocusWindow.goalMinutes > 0L) {
+                    val fmtPeak = LedgerAnalyticsCalculator.formatCompactDurationSeconds(peakFocusWindow.goalMinutes * 60L)
+                    Text(
+                        text = "Khung ghi nhận nhiều nhất 14 ngày: ${peakFocusWindow.windowLabel} ($fmtPeak · ${peakFocusWindow.sharePercent}% giờ hoạt động chính).",
+                        fontSize = 11.5.sp,
+                        color = WalletMuted,
+                        lineHeight = 16.sp
+                    )
+                }
+            }
+        }
+
+        HorizontalDivider(color = WalletStroke)
+        Text(
+            text = when {
+                aiEnabled && aiModeLabel.isNotBlank() -> "Wally AI Coach · $aiModeLabel"
+                aiEnabled -> "Wally AI Coach"
+                else -> "Phân tích sâu bằng AI (tùy chọn — số liệu đối chiếu đã hiện đầy đủ ở trên)"
+            },
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = WalletMuted
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             Button(
                 onClick = { onAskCoach(1) },
                 enabled = !coach.loading,
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                modifier = Modifier.weight(1f).heightIn(min = 46.dp)
             ) { Text("✦ Hôm nay", fontWeight = FontWeight.Bold) }
             OutlinedButton(
                 onClick = { onAskCoach(7) },
                 enabled = !coach.loading,
                 shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                modifier = Modifier.weight(1f).heightIn(min = 46.dp)
             ) { Text("✦ 7 ngày qua", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) }
+        }
+        if (!aiEnabled) {
+            OutlinedButton(
+                onClick = onOpenWallyChat,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 42.dp)
+            ) {
+                Text("Mở Chat Wally ›", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+            }
         }
         if (coach.requested || coach.loading) {
             CoachPanel(

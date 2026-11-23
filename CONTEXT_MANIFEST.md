@@ -1,17 +1,17 @@
 # CONTEXT_MANIFEST.md
-Cập nhật lần cuối: 2026-11-23T14:06:00+07:00
+Cập nhật lần cuối: 2026-11-24T04:12:00+07:00
 
 ## Core (luôn nạp vào context)
 - `.agents/` — Quy tắc dự án (`AGENTS.md`, `rules/link-ecosystem.md`)
 - `.gitignore`, `.repomixignore` — Bộ lọc tệp build, output QA, `reference/`, media promo, design vector nguồn lớn, `docs/archive` & tệp tạm
-- `README.md` — Trang giới thiệu sản phẩm trực quan cho `Wally — Time Wallet v2.2.0` (`versionCode 23`) theo bố cục 7 phần product-first
-- `docs/ARCHITECTURE_AND_PRIVACY.md` — Kiến trúc 4 lớp, Room v8, bảo mật Keystore/Permissions, kết quả kiểm chứng `v2.2.0` & hướng dẫn build
+- `README.md` — Trang giới thiệu sản phẩm trực quan cho `Wally — Time Wallet v2.2.1` (`versionCode 24`)
+- `docs/ARCHITECTURE_AND_PRIVACY.md` — Kiến trúc 4 lớp, Room v8, bảo mật Keystore/Permissions, kết quả kiểm chứng `v2.2.1` & hướng dẫn build
 - `promo-video/` — Mã nguồn bố cục HyperFrames (`index.html`, `compositions/*.html`, `SPEC.md`, `STORYLINES.md`, `REVIEW.md`)
 - `Time_Wallet_MVP/` — Đặc tả MVP & HTML Prototype gốc
 - `ai_test/` — Script kiểm thử gateway (`test_foza_ai.ts`, đọc `FOZA_API_KEY` từ biến môi trường; KHÔNG xóa dù có chuỗi `_test`)
-- `app/` — Mã nguồn Kotlin/Compose `v2.2.0` (`versionCode 23`): `WallyHomeWidgetProvider` & `WallyHomeWidgetService`, `WallyFloatingService`, `AiTodoEngine`, `WallyHubSnapshotEngine`, `WallyActionController`, `WallyTodoAiPlanner`, `AiProviderPreset`, `AppUpdateContract`, `GitHubReleaseUpdateChannel`, Room schema `v8` (`MIGRATION_7_8`) & bộ test JVM (`680` cases: `676` pass, `4` live-eval skip offline)
+- `app/` — Mã nguồn Kotlin/Compose `v2.2.1` (`versionCode 24`): `WallyDataStoryEngine`, `LedgerAnalyticsCalculator`, `TaskHabitEngine`, `ConfirmationEngine`, `WallyHomeWidgetProvider` & `WallyHomeWidgetService`, `WallyFloatingService`, `AiTodoEngine`, `WallyHubSnapshotEngine`, `WallyActionController`, `WallyTodoAiPlanner`, `AiProviderPreset`, `AppUpdateContract`, `GitHubReleaseUpdateChannel`, Room schema `v8` (`MIGRATION_7_8`), `src/screenshotTest` (`15/15` pass) & bộ test JVM (`687` cases: `683` pass, `4` skipped)
 - `build.gradle.kts`, `settings.gradle.kts`, `gradle/`, `gradle.properties`
-- Tài liệu đặc tả & phát hành khác: `SPEC_TIME_WALLET_WALLY.md`, `WALLY_TECHNICAL_SPEC.md`, `WALLY_V210_CANDIDATE.md`, `WALLY_V200_CANDIDATE.md`, `WALLY_V120_PRODUCTION_CANDIDATE.md`, `WALLY_V110_PLAN.md`, `WALLY_V110_CLOSURE_DIGEST.md`, `WALLY_OWNER_CHECKLIST_V110.md`
+- Tài liệu đặc tả & phát hành khác: `SPEC_TIME_WALLET_WALLY.md`, `SPEC_WALLY_UI_UX-v221.md`, `WALLY_TECHNICAL_SPEC.md`, `WALLY_V210_CANDIDATE.md`, `WALLY_V200_CANDIDATE.md`, `WALLY_V120_PRODUCTION_CANDIDATE.md`, `WALLY_V110_PLAN.md`, `WALLY_V110_CLOSURE_DIGEST.md`, `WALLY_OWNER_CHECKLIST_V110.md`
 
 ## Vendored / operational (KHÔNG nạp vào context, KHÔNG di chuyển)
 - `.git/`, `.gradle/`, `.kotlin/`, `.idea/`, `.vscode/`, `build/`, `app/build/`

@@ -353,16 +353,16 @@ fun ChatScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             if (!hasReply) {
-                // Trạng thái trống tự nhiên: lời chào ngắn gọn + một hàng gợi ý nhẹ, nhường chỗ cho trò chuyện.
+                // Trạng thái trống tự nhiên: lời chào gọn vừa đủ, nhường phần lớn chiều cao cho vùng hội thoại & ô nhập.
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 20.dp, bottom = 8.dp),
+                        .padding(top = 8.dp, bottom = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
                     WallyMascotAvatar(
-                        size = 64.dp,
+                        size = 50.dp,
                         contentDescription = null
                     )
                     Text(
@@ -887,7 +887,8 @@ private fun WallyBubble(
 /** Chỉ báo đang gõ: 3 chấm nảy nối tiếp nhau trong bong bóng của Wally. */
 @Composable
 private fun WallyTypingDots(modifier: Modifier = Modifier) {
-    val transition = rememberInfiniteTransition(label = "wallyTypingDots")
+    val reduceMotion = com.timewallet.mvp.ui.theme.WalletReduceMotion
+    val transition = if (!reduceMotion) rememberInfiniteTransition(label = "wallyTypingDots") else null
     Row(
         modifier = modifier
             .padding(vertical = 4.dp)
@@ -896,25 +897,28 @@ private fun WallyTypingDots(modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         (0..2).forEach { idx ->
-            val bounce by transition.animateFloat(
-                initialValue = 0f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(
-                        durationMillis = 520,
-                        delayMillis = idx * 140,
-                        easing = FastOutSlowInEasing
+            val bounce = if (transition != null) {
+                val anim by transition.animateFloat(
+                    initialValue = 0f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(
+                            durationMillis = 520,
+                            delayMillis = idx * 140,
+                            easing = FastOutSlowInEasing
+                        ),
+                        repeatMode = RepeatMode.Reverse
                     ),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "dotBounce_$idx"
-            )
+                    label = "dotBounce_$idx"
+                )
+                anim
+            } else 0f
             Box(
                 modifier = Modifier
                     .offset(y = (-5f * bounce).dp)
                     .size(7.dp)
                     .clip(CircleShape)
-                    .background(WalletMint.copy(alpha = 0.45f + 0.55f * bounce))
+                    .background(WalletMint.copy(alpha = if (reduceMotion) 0.75f else 0.45f + 0.55f * bounce))
             )
         }
     }
@@ -1679,32 +1683,38 @@ fun WallyAiOverlay(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(
-                        text = "✦ Trợ lý Wally",
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = WalletInk,
-                        maxLines = 1,
-                        softWrap = false,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
+                    Row(
+                        modifier = Modifier.weight(1f, fill = false),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        WallyMascotAvatar(size = 30.dp, contentDescription = "Linh vật Wally")
+                        Text(
+                            text = "Trợ lý Wally",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = WalletInk,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         val aiReady = aiPreferences.optInEnabled && aiPreferences.apiKey.isNotBlank()
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(100.dp))
                                 .background(WalletSoftNeutral)
-                                .border(1.dp, WalletStroke, RoundedCornerShape(100.dp))
                                 .walletClickable(onClickLabel = "Mở cấu hình AI", onClick = onOpenAiSettings)
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                .padding(horizontal = 9.dp, vertical = 5.dp)
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -1713,7 +1723,7 @@ fun WallyAiOverlay(
                                 Text(
                                     text = if (aiReady) "AI bật" else "Chưa bật AI",
                                     fontSize = 10.sp,
-                                    fontWeight = FontWeight.Medium,
+                                    fontWeight = FontWeight.SemiBold,
                                     color = if (aiReady) WalletMintAccent else WalletMuted,
                                     maxLines = 1,
                                     softWrap = false
@@ -1725,7 +1735,6 @@ fun WallyAiOverlay(
                             WalletPill(
                                 onClickLabel = "Gợi ý xếp lịch Inbox",
                                 containerColor = WalletMintTint,
-                                borderColor = WalletStroke,
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                                 onClick = onRequestReplanInbox
                             ) {
@@ -1743,8 +1752,7 @@ fun WallyAiOverlay(
                             modifier = Modifier
                                 .size(32.dp)
                                 .clip(CircleShape)
-                                .background(WalletCardBg)
-                                .border(1.dp, WalletStroke, CircleShape)
+                                .background(WalletSoftNeutral)
                                 .semantics { contentDescription = "Đóng trợ lý Wally" }
                                 .walletClickable(onClickLabel = "Đóng trợ lý Wally") { onDismiss() },
                             contentAlignment = Alignment.Center
@@ -1753,18 +1761,20 @@ fun WallyAiOverlay(
                         }
                     }
                 }
-                Text(
-                    text = if (activeScopes.isEmpty()) {
-                        "Quyền đọc AI: Đang tắt toàn bộ"
-                    } else {
-                        "Quyền đọc: ${activeScopes.joinToString(" · ")}"
-                    },
-                    fontSize = 11.sp,
-                    color = if (activeScopes.isEmpty()) WalletDangerText else WalletMuted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                if (activeScopes.size < 4) {
+                    Text(
+                        text = if (activeScopes.isEmpty()) {
+                            "Quyền đọc AI đang tắt"
+                        } else {
+                            "Quyền đọc: ${activeScopes.joinToString(" · ")}"
+                        },
+                        fontSize = 10.5.sp,
+                        color = if (activeScopes.isEmpty()) WalletDangerText else WalletMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
                 WallyModelModeSelector(
                     currentModelName = aiPreferences.modelName,
                     onSelectPreset = onSelectWallyPreset,
@@ -1877,10 +1887,12 @@ internal fun WallyModelModeSelector(
                         .heightIn(min = if (compact) 44.dp else 48.dp)
                         .clip(RoundedCornerShape(radius))
                         .background(if (isSelected) WalletMintSoft else WalletSoftNeutral)
-                        .border(
-                            width = if (isSelected) 1.3.dp else 1.dp,
-                            color = if (isSelected) WalletMint else WalletStroke,
-                            shape = RoundedCornerShape(radius)
+                        .then(
+                            if (isSelected) {
+                                Modifier.border(1.2.dp, WalletMint.copy(alpha = 0.65f), RoundedCornerShape(radius))
+                            } else {
+                                Modifier
+                            }
                         )
                         .semantics {
                             selected = isSelected
@@ -1896,31 +1908,17 @@ internal fun WallyModelModeSelector(
                         )
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(if (compact) 1.dp else 2.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Text(
-                                text = preset.displayTitle,
-                                fontSize = if (compact) 12.sp else 12.5.sp,
-                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
-                                color = if (isSelected) WalletMintAccent else WalletInk,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            if (!compact && preset == WallyModelPreset.PRO) {
-                                Text(
-                                    text = "Mặc định",
-                                    fontSize = 9.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = WalletMintAccent,
-                                    maxLines = 1
-                                )
-                            }
-                        }
+                        Text(
+                            text = preset.displayTitle,
+                            fontSize = if (compact) 12.sp else 13.sp,
+                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
+                            color = if (isSelected) WalletMintAccent else WalletInk,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                         Text(
                             text = preset.actualModelName,
-                            fontSize = if (compact) 10.sp else 10.5.sp,
+                            fontSize = if (compact) 10.sp else 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = if (isSelected) WalletMintAccent else WalletMuted,
                             maxLines = 1,
@@ -1928,14 +1926,10 @@ internal fun WallyModelModeSelector(
                         )
                         if (!compact) {
                             Text(
-                                text = preset.modelId,
-                                fontSize = 9.sp,
-                                color = WalletMuted,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = preset.descriptionVi,
+                                text = when (preset) {
+                                    WallyModelPreset.PRO -> "Mặc định · Phân tích sâu & lên kế hoạch"
+                                    WallyModelPreset.FLASH -> "Tốc độ nhanh · Hỏi đáp & ghi chú gọn"
+                                },
                                 fontSize = 10.sp,
                                 color = WalletMuted,
                                 lineHeight = 13.5.sp
@@ -1956,12 +1950,17 @@ internal fun WallyModelModeSelector(
             )
         }
         if (showAutoFutureHint) {
-            Text(
-                text = "Auto (Tự chọn Pro/Flash): Tạm khóa, chỉ bật khi bộ định tuyến chứng minh được hiệu quả.",
-                fontSize = 10.sp,
-                color = WalletMuted,
-                lineHeight = 14.sp
-            )
+            WallyAiDeveloperRoutingNote()
         }
     }
+}
+
+@Composable
+internal fun WallyAiDeveloperRoutingNote() {
+    Text(
+        text = "Ghi chú định tuyến kỹ thuật: Wally Pro (${WallyModelPreset.PRO.modelId}) · Wally Flash (${WallyModelPreset.FLASH.modelId}). Auto (Tự chọn Pro/Flash): Tạm khóa, chỉ bật khi bộ định tuyến chứng minh được hiệu quả.",
+        fontSize = 10.sp,
+        color = WalletMuted,
+        lineHeight = 14.sp
+    )
 }

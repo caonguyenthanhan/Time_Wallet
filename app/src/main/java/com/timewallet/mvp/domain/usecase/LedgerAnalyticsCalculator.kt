@@ -183,12 +183,43 @@ data class ActivityBucketTotal(
     val topItems: List<ActivityItemBreakdown>
 )
 
+data class WallySuggestedSlot(
+    val dateLocal: String,
+    val startMinute: Int,
+    val endMinute: Int,
+    val durationMinutes: Int,
+    val categoryKey: String,
+    val tagId: String? = null,
+    val title: String,
+    val buttonLabelVi: String,
+    val slotReasonVi: String
+)
+
+sealed class WallyStoryAction {
+    data class ScheduleSlot(val slot: WallySuggestedSlot) : WallyStoryAction()
+    data class OpenTagAssign(val buttonLabelVi: String, val categoryKey: String) : WallyStoryAction()
+    data class OpenConfirmPending(val buttonLabelVi: String, val targetDateLocal: String) : WallyStoryAction()
+}
+
+data class WallyEvidenceItem(
+    val dateLocal: String,
+    val label: String,
+    val detailVi: String
+)
+
 data class WallyStorySummary(
-    val whatHappened: String,
-    val notable: String,
-    val goalImpact: String,
-    val nextAction: String,
+    val mainFinding: String,
+    val findingDetail: String? = null,
+    val actionLabel: String? = null,
+    val action: WallyStoryAction? = null,
     val uncertaintyNote: String? = null,
+    val comparisonPeriodVi: String = "",
+    val rationaleVi: String = "",
+    val evidenceItems: List<WallyEvidenceItem> = emptyList(),
+    val whatHappened: String = mainFinding,
+    val notable: String = findingDetail.orEmpty(),
+    val goalImpact: String = comparisonPeriodVi,
+    val nextAction: String = actionLabel.orEmpty(),
     val goalContextNote: String? = null
 )
 
@@ -1099,176 +1130,26 @@ object LedgerAnalyticsCalculator {
             .take(limit)
 
     private fun buildWallyDataStory(
-        curSlices: List<ComputedDaySlice>,
-        activityTotals: List<ActivityBucketTotal>,
+        records: List<LedgerRecord>,
+        tags: List<Tag>,
         summaries: List<GoalRules.Summary>,
         goalItems: List<EfficiencyGoalItem>,
-        records: List<LedgerRecord>,
         activeTimer: ActiveTimerSession?,
-        totalTimedSeconds: Long,
-        totalUntimedSeconds: Long,
-        totalGoalSeconds: Long,
-        totalNeutralSeconds: Long,
-        totalWasteSeconds: Long,
-        totalUncategorizedSeconds: Long,
-        weekOverWeekDeltaPercent: Int?,
         endDate: LocalDate,
         todayLocal: LocalDate,
         zoneId: ZoneId,
         nowEpochMs: Long
-    ): WallyStorySummary {
-        val recordedBuckets = activityTotals.filter { it.durationSeconds > 0L }
-        val daysWithData = curSlices.count { it.efficiency.calendarDaySeconds - it.efficiency.unknownSeconds > 0L || it.efficiency.untimedSeconds > 0L }
-
-        val whatHappened = when {
-            totalTimedSeconds == 0L && totalUntimedSeconds == 0L ->
-                "7 ngày qua chưa có bản ghi thời gian nào trong sổ cái."
-            totalTimedSeconds == 0L ->
-                "7 ngày qua có ${formatCompactDurationSeconds(totalUntimedSeconds)} ghi nhận dạng chưa gắn giờ (chưa lên cột 24h)."
-            else -> {
-                val topParts = recordedBuckets.take(2).joinToString(", ") {
-                    "${it.bucket.labelVi} ${formatCompactDurationSeconds(it.durationSeconds)}"
-                }
-                val untimedSuffix = if (totalUntimedSeconds > 0L) " (+${formatCompactDurationSeconds(totalUntimedSeconds)} chưa gắn giờ)" else ""
-                "7 ngày qua đã ghi nhận ${formatCompactDurationSeconds(totalTimedSeconds)}$untimedSuffix; chiếm nhiều nhất là $topParts."
-            }
-        }
-
-        val weekendSlices = curSlices.filter { it.date.dayOfWeek.value >= 6 }
-        val weekdaySlices = curSlices.filter { it.date.dayOfWeek.value < 6 }
-        val weekdayLearn = weekdaySlices.sumOf { it.bucketSeconds[ActivityBucket.LEARN] ?: 0L }
-        val weekendLearn = weekendSlices.sumOf { it.bucketSeconds[ActivityBucket.LEARN] ?: 0L }
-        val weekendRecorded = weekendSlices.sumOf { it.efficiency.calendarDaySeconds - it.efficiency.unknownSeconds + it.efficiency.untimedSeconds }
-        val weekendDaysWithData = weekendSlices.count { (it.efficiency.calendarDaySeconds - it.efficiency.unknownSeconds + it.efficiency.untimedSeconds) > 0L }
-
-        val notableParts = mutableListOf<String>()
-        if (weekdayLearn >= 1800L && weekdayLearn > weekendLearn * 2) {
-            notableParts += "Thời gian học tập tập trung chủ yếu vào giữa tuần (T2–T6)"
-        }
-        val biggestShift = recordedBuckets
-            .filter { it.deltaPercentVsPrevWeek != null && kotlin.math.abs(it.deltaPercentVsPrevWeek) >= 15 }
-            .maxByOrNull { kotlin.math.abs(it.deltaPercentVsPrevWeek ?: 0) }
-        if (biggestShift != null) {
-            val dPct = biggestShift.deltaPercentVsPrevWeek!!
-            val sign = if (dPct > 0) "+$dPct%" else "$dPct%"
-            notableParts += "${biggestShift.bucket.labelVi} thay đổi $sign so với tuần trước"
-        } else if (weekOverWeekDeltaPercent != null && kotlin.math.abs(weekOverWeekDeltaPercent) >= 10) {
-            val sign = if (weekOverWeekDeltaPercent > 0) "+$weekOverWeekDeltaPercent%" else "$weekOverWeekDeltaPercent%"
-            notableParts += "Tổng thời lượng ghi nhận $sign so với 7 ngày trước"
-        }
-        if (weekendSlices.isNotEmpty() && weekendDaysWithData < weekendSlices.size && totalTimedSeconds > 0L) {
-            notableParts += "dữ liệu cuối tuần mới ghi $weekendDaysWithData/${weekendSlices.size} ngày (chưa đầy đủ)"
-        } else if (weekendRecorded == 0L && totalTimedSeconds > 0L) {
-            notableParts += "cuối tuần hiện chưa có dữ liệu"
-        }
-        if (totalUncategorizedSeconds >= 1800L) {
-            notableParts += "${formatCompactDurationSeconds(totalUncategorizedSeconds)} đã ghi nhận nhưng chưa gắn Tag chi tiết"
-        }
-        val notable = if (notableParts.isNotEmpty()) {
-            notableParts.joinToString("; ").replaceFirstChar { it.uppercaseChar() } + "."
-        } else if (daysWithData > 0) {
-            "Nhịp sinh hoạt phân bố tương đối đều qua $daysWithData ngày đã ghi."
-        } else {
-            "Chưa có đủ điểm dữ liệu để nhận diện xu hướng giữa các ngày."
-        }
-
-        val topUnmetSummary = summaries.firstOrNull { it.progress != null && !it.progress.met && it.latest.kind == GoalKind.MIN }
-        val untaggedHintGoal = goalItems.firstOrNull { !it.met && !it.hintVi.isNullOrBlank() }
-        val goalImpact = when {
-            untaggedHintGoal != null ->
-                "Mục tiêu \"${untaggedHintGoal.title}\" đang 0p nhưng ${untaggedHintGoal.hintVi?.replaceFirstChar { it.lowercaseChar() }} — có thể chỉ thiếu gắn Tag chứ không phải bỏ trống."
-            topUnmetSummary != null && topUnmetSummary.progress != null -> {
-                val p = topUnmetSummary.progress
-                val rem = p.remainingSeconds.coerceAtLeast(60L)
-                "Mục tiêu \"${topUnmetSummary.name}\" đang đạt ${formatCompactDurationSeconds(p.usedSeconds)}/${formatCompactDurationSeconds(p.targetSeconds)}, còn thiếu ${formatCompactDurationSeconds(rem)}."
-            }
-            goalItems.isNotEmpty() && goalItems.all { it.met } ->
-                "Bạn đang đạt toàn bộ mục tiêu đang theo dõi (${goalItems.size}/${goalItems.size})."
-            goalItems.isNotEmpty() -> {
-                val unmet = goalItems.first { !it.met }
-                "Mục tiêu/hạn mức \"${unmet.title}\" hiện ở mức ${unmet.progressText}."
-            }
-            totalNeutralSeconds > 0L && totalGoalSeconds == 0L ->
-                "Hiện chưa bật mục tiêu nào để đối chiếu trực tiếp; phần \"Phi mục tiêu\" (${formatCompactDurationSeconds(totalNeutralSeconds)}) chủ yếu là sinh hoạt, làm việc hoặc nghỉ ngơi cần thiết."
-            else ->
-                "Chưa có mục tiêu nào đang bật để đo mức độ tiến gần mục tiêu."
-        }
-
-        val nowMin = Instant.ofEpochMilli(nowEpochMs).atZone(zoneId).let { it.hour * 60 + it.minute }
-        val minStartToday = ((nowMin + 14) / 15) * 15
-        val todayGap = if (!endDate.isAfter(todayLocal) && minStartToday <= 23 * 60) {
-            ScheduleGridEngine.buildDayScheduleModel(todayLocal, records, activeTimer, nowEpochMs, zoneId)
-                .freeGaps
-                .firstOrNull { g ->
-                    val s = max(g.startMinute, minStartToday)
-                    (g.endMinute - s) >= 25
-                }
-                ?.let { g ->
-                    val s = max(g.startMinute, minStartToday)
-                    Triple("hôm nay", TimeRange.formatHm(s), min(g.endMinute - s, 90))
-                }
-        } else null
-        val tomorrowGap = if (todayGap == null) {
-            val tmr = todayLocal.plusDays(1)
-            ScheduleGridEngine.buildDayScheduleModel(tmr, records, null, nowEpochMs, zoneId)
-                .freeGaps
-                .firstOrNull { it.durationMinutes >= 30 }
-                ?.let { g ->
-                    Triple(
-                        "ngày mai",
-                        TimeRange.formatHm(g.startMinute.coerceIn(0, 1439)),
-                        min(g.durationMinutes, 90)
-                    )
-                }
-        } else null
-        val bestGap = todayGap ?: tomorrowGap
-
-        val nextAction = when {
-            topUnmetSummary != null && topUnmetSummary.progress != null && bestGap != null -> {
-                val remMins = ((topUnmetSummary.progress.remainingSeconds + 59L) / 60L).toInt().coerceAtLeast(15)
-                val suggestMins = min(remMins, bestGap.third).coerceAtLeast(20)
-                "Có thể dành 1 phiên ${suggestMins}p cho \"${topUnmetSummary.name}\" quanh ${bestGap.second} ${bestGap.first}, hoặc mở Chat Wally để gợi ý khung giờ trống."
-            }
-            untaggedHintGoal != null ->
-                "Kiểm tra gắn lại Tag đúng mục tiêu cho các phiên đã ghi trước khi thêm giờ mới."
-            totalWasteSeconds >= 1800L ->
-                "Có ${formatCompactDurationSeconds(totalWasteSeconds)} tự đánh dấu lãng phí; có thể chia mốc dừng sớm ở khung giờ dễ xao nhãng."
-            daysWithData < 3 ->
-                "Ghi thêm vài hoạt động chính trong 1–2 ngày tới để Wally đủ dữ liệu chỉ ra khung giờ phù hợp."
-            goalItems.isEmpty() ->
-                "Nếu muốn theo dõi tiến độ tự động, tạo 1 mục tiêu nhỏ (học tập, vận động hoặc dự án) rồi gắn Tag khi bấm giờ."
-            else ->
-                "Giữ đều nhịp ngủ/nghỉ hiện tại và hỏi Wally khi muốn sắp lại các phiên còn trống trong tuần."
-        }
-
-        val currentHour = Instant.ofEpochMilli(nowEpochMs).atZone(zoneId).hour
-        val partialEndDay = !endDate.isBefore(todayLocal) && currentHour < 22
-        val uncertaintyNote = when {
-            daysWithData == 0 ->
-                "Chưa có dữ liệu thực tế trong kỳ — Wally chỉ nêu bước khởi đầu."
-            daysWithData < 4 || partialEndDay -> {
-                val parts = mutableListOf("mới có dữ liệu $daysWithData/7 ngày")
-                if (partialEndDay) parts += "ngày hôm nay chưa kết thúc"
-                "Độ tin cậy một phần: ${parts.joinToString(", ")}; Wally giữ nhận xét thận trọng."
-            }
-            else -> null
-        }
-
-        val goalContextNote = if (totalGoalSeconds == 0L && totalNeutralSeconds > 0L) {
-            "\"Mục tiêu: 0p\" không có nghĩa bạn không làm gì — ${formatCompactDurationSeconds(totalNeutralSeconds)} còn lại thuộc sinh hoạt/nghỉ ngơi hoặc hoạt động chưa gắn mục tiêu."
-        } else {
-            null
-        }
-
-        return WallyStorySummary(
-            whatHappened = whatHappened,
-            notable = notable,
-            goalImpact = goalImpact,
-            nextAction = nextAction,
-            uncertaintyNote = uncertaintyNote,
-            goalContextNote = goalContextNote
-        )
-    }
+    ): WallyStorySummary? = WallyDataStoryEngine.build(
+        records = records,
+        tags = tags,
+        summaries = summaries,
+        goalItems = goalItems,
+        activeTimer = activeTimer,
+        endDate = endDate,
+        todayLocal = todayLocal,
+        zoneId = zoneId,
+        nowEpochMs = nowEpochMs
+    )
 
     /**
      * Tính câu chuyện phân bổ 24 giờ/ngày trong 7 ngày gần nhất thành 4 tầng hiệu quả
@@ -1394,11 +1275,11 @@ object LedgerAnalyticsCalculator {
                 } else {
                     null
                 }
-                val usedLabel = if (p.usedSeconds <= 0L) "0p" else formatCompactDurationSeconds(p.usedSeconds)
+                val math = GoalDisplayMath.from(p.usedSeconds, p.targetSeconds)
                 EfficiencyGoalItem(
                     id = s.groupId,
                     title = s.name,
-                    progressText = "$usedLabel / ${formatCompactDurationSeconds(p.targetSeconds)}",
+                    progressText = "${math.usedLabel} / ${math.targetLabel}",
                     fraction = p.fraction,
                     accentHex = colorHex,
                     met = p.met,
@@ -1433,19 +1314,11 @@ object LedgerAnalyticsCalculator {
         val totalUncategorized = activityDays.sumOf { it.uncategorizedOrUntaggedSeconds }
 
         val wallyStory = buildWallyDataStory(
-            curSlices = curSlices,
-            activityTotals = activityTotals,
+            records = records,
+            tags = tags,
             summaries = summaries,
             goalItems = goalItems,
-            records = records,
             activeTimer = activeTimer,
-            totalTimedSeconds = totalTimed,
-            totalUntimedSeconds = totalUntimed,
-            totalGoalSeconds = totalGoal,
-            totalNeutralSeconds = totalNeutral,
-            totalWasteSeconds = totalWaste,
-            totalUncategorizedSeconds = totalUncategorized,
-            weekOverWeekDeltaPercent = weekOverWeekDelta,
             endDate = endDate,
             todayLocal = todayLocal,
             zoneId = zoneId,
@@ -1454,26 +1327,12 @@ object LedgerAnalyticsCalculator {
 
         val topUnmetSummary = summaries.firstOrNull { it.progress != null && !it.progress.met && it.latest.kind == GoalKind.MIN }
         val actionableInsight = when {
-            goalItems.firstOrNull { !it.met && !it.hintVi.isNullOrBlank() } != null -> {
-                val hintGoal = goalItems.first { !it.met && !it.hintVi.isNullOrBlank() }
-                "\"${hintGoal.title}\" đang ở mức 0p (${hintGoal.hintVi}). Kiểm tra gắn Tag để số liệu phản ánh đúng."
-            }
+            wallyStory != null -> wallyStory.mainFinding
             topUnmetSummary != null && topUnmetSummary.progress != null -> {
-                val rem = topUnmetSummary.progress.remainingSeconds.coerceAtLeast(60L)
-                "Tuần này \"${topUnmetSummary.name}\" còn thiếu ${formatCompactDurationSeconds(rem)}. Thử chia nhỏ thành 1–2 phiên ngắn trên lịch."
+                val math = GoalDisplayMath.from(topUnmetSummary.progress.usedSeconds, topUnmetSummary.progress.targetSeconds)
+                "Mục tiêu \"${topUnmetSummary.name}\" đang ở ${math.usedLabel}/${math.targetLabel} (còn ${math.remainingLabel})."
             }
-            goalItems.any { !it.met } -> {
-                val unmet = goalItems.first { !it.met }
-                "\"${unmet.title}\" đang ở mức ${unmet.progressText}. Hỏi Wally hoặc chạm lịch trống để hoàn tất phần còn thiếu."
-            }
-            totalWaste >= 1800L ->
-                "Có ${formatCompactDurationSeconds(totalWaste)} tự đánh dấu lãng phí trong 7 ngày qua. Thử đặt hẹn giờ kết thúc sớm hơn ở khung giờ dễ xao nhãng."
-            goalItems.isNotEmpty() && goalItems.all { it.met } ->
-                "Bạn đã đạt toàn bộ mục tiêu đang theo dõi tuần này. Tiếp tục giữ nhịp ngủ ≥ 7h và khoảng nghỉ phục hồi đều đặn."
-            totalGoal + totalNeutral > 0L ->
-                wallyStory.goalImpact
-            else ->
-                "Chưa đủ dữ liệu nhiều ngày — ghi thêm 1–2 hoạt động để Wally mở khóa nhận xét xu hướng tuần."
+            else -> ""
         }
 
         return WeeklyEfficiencySummary(
@@ -1503,7 +1362,9 @@ object LedgerAnalyticsCalculator {
     }
 
     fun formatCompactDurationSeconds(seconds: Long): String {
-        val totalMinutes = max(1L, (seconds + 30L) / 60L)
+        if (seconds <= 0L) return "0p"
+        val totalMinutes = (seconds + 30L) / 60L
+        if (totalMinutes <= 0L) return "0p"
         val hours = totalMinutes / 60L
         val mins = totalMinutes % 60L
         return when {

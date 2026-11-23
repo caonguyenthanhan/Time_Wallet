@@ -1,6 +1,16 @@
-# Thư viện ảnh giao diện thực tế — Time Wallet `v2.2.0` (`versionCode 23`)
+# Thư viện ảnh giao diện thực tế — Time Wallet `v2.2.1` (`versionCode 24`)
 
 Bộ ảnh chụp màn hình thật từ emulator QA tách biệt **`WallyQA`** (`index 1`, Android 9, `780×1688 @320dpi`, múi giờ `Asia/Ho_Chi_Minh`, dữ liệu synthetic — không chạm instance cá nhân của Owner).
+
+## Cập nhật mới trong `v2.2.1` (`D02C4A07…` · `9,457,633` bytes)
+
+| Tệp ảnh | Màn hình / Trạng thái | Điểm kiểm chứng thực tế |
+|---|---|---|
+| [`v221_01_wally-ke-tu-du-lieu.png`](v221_01_wally-ke-tu-du-lieu.png) | **Thẻ Wally kể từ dữ liệu (mẫu lặp)** | Một phát hiện chính (`2/3 buổi dự kiến "Vận động" tối trùng giờ Công việc kéo dài`) + tối đa 1 hành động khả thi (`Xếp thứ Tư 12:15–12:35`). |
+| [`v221_02_phan-tich-va-can-cu.png`](v221_02_phan-tich-va-can-cu.png) | **Modal Phân tích & Căn cứ dữ liệu** | Hiện kỳ so sánh, lý do gợi ý, danh sách 5 ngày/phiên làm căn cứ và nút xếp lịch ngay không cần hỏi lại qua Chat. |
+| [`v221_03_nhip-tap-trung_22h30p.png`](v221_03_nhip-tap-trung_22h30p.png) | **Nhịp tập trung & Thống kê mâu thuẫn (`v2.2.1`)** | Không gợi ý khung ban đêm (`07:05–07:20`), hiển thị `22h 30p` thay vì `1350p`, loại phiên `Ngủ` `+48938%` và diễn giải độ lệch `> 300%` bằng phút. |
+
+---
 
 ## Tổng hợp nhanh (`v2.2.0` Light, Dark & Trợ lý nổi)
 

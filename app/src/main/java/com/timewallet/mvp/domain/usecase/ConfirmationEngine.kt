@@ -31,9 +31,22 @@ sealed class ConfirmationActionResult {
  */
 object ConfirmationEngine {
 
-    private fun preservedPlanStart(r: LedgerRecord): Long? = r.plannedStartedAt ?: r.startedAt
-    private fun preservedPlanEnd(r: LedgerRecord): Long? = r.plannedEndedAt ?: r.endedAt
-    private fun preservedPlanDuration(r: LedgerRecord): Long? = r.plannedDurationSeconds ?: r.durationSeconds
+    private fun hasExplicitPlan(r: LedgerRecord): Boolean =
+        r.plannedDurationSeconds != null ||
+            r.plannedStartedAt != null ||
+            r.layer == TimeLayer.PLANNED ||
+            r.layer == TimeLayer.ACTIVE ||
+            r.status.equals("PLANNED", ignoreCase = true) ||
+            r.status.equals("ACTIVE", ignoreCase = true)
+
+    private fun preservedPlanStart(r: LedgerRecord): Long? =
+        if (hasExplicitPlan(r)) r.plannedStartedAt ?: r.startedAt else null
+
+    private fun preservedPlanEnd(r: LedgerRecord): Long? =
+        if (hasExplicitPlan(r)) r.plannedEndedAt ?: r.endedAt else null
+
+    private fun preservedPlanDuration(r: LedgerRecord): Long? =
+        if (hasExplicitPlan(r)) r.plannedDurationSeconds ?: r.durationSeconds else null
 
     /** Bắt đầu thực hiện một kế hoạch (PLANNED -> DOING) khi đã tới hoặc gần giờ bắt đầu. */
     fun startDoingNow(
@@ -222,10 +235,11 @@ object ConfirmationEngine {
                 "Không thể dời hoạt động thực tế sang khung giờ tương lai (tránh tự chuyển thành Dự kiến). Hãy tạo mới ở mục Dự kiến."
             )
         }
+        val hadPlan = hasExplicitPlan(existing)
         val confState = when (built.layer) {
             TimeLayer.PLANNED -> ConfirmationState.PLANNED.name
             TimeLayer.ACTIVE -> ConfirmationState.DOING.name
-            else -> ConfirmationState.ADJUSTED.name
+            else -> if (hadPlan) ConfirmationState.ADJUSTED.name else ConfirmationState.COMPLETED.name
         }
         val candidate = built.copy(
             createdAt = existing.createdAt,

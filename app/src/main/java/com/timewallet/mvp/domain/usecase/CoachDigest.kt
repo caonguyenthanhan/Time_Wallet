@@ -236,7 +236,7 @@ object CoachDigestBuilder {
                 }
                 val used = GoalRules.progress(open, records, today, nowEpochMs, zone)
                 val confSec = GoalRules.confirmedUsedSeconds(open.targetType, open.targetKey, records, today, today, nowEpochMs, zone)
-                val u = mins(used.usedSeconds); val rem = mins(used.remainingSeconds); val over = mins(used.overSeconds); val cu = mins(confSec)
+                val u = mins(used.usedSeconds); val rem = (tgtMin - u).coerceAtLeast(0); val over = (u - tgtMin).coerceAtLeast(0); val cu = mins(confSec)
                 val minMetConfirmed = confSec >= open.targetSeconds
                 allowedMinutes += u; allowedMinutes += rem; allowedMinutes += over; allowedMinutes += cu
                 line.append(" Hôm nay: $u phút")
@@ -255,7 +255,7 @@ object CoachDigestBuilder {
                 val used = GoalRules.progress(open, records, today, nowEpochMs, zone)
                 val (pStart, pEnd) = GoalRules.periodBounds(GoalPeriod.WEEK, today)
                 val confSec = GoalRules.confirmedUsedSeconds(open.targetType, open.targetKey, records, pStart, pEnd, nowEpochMs, zone)
-                val u = mins(used.usedSeconds); val rem = mins(used.remainingSeconds); val over = mins(used.overSeconds); val cu = mins(confSec)
+                val u = mins(used.usedSeconds); val rem = (tgtMin - u).coerceAtLeast(0); val over = (u - tgtMin).coerceAtLeast(0); val cu = mins(confSec)
                 val minMetConfirmed = confSec >= open.targetSeconds
                 allowedMinutes += u; allowedMinutes += rem; allowedMinutes += over; allowedMinutes += cu
                 allowedDates += LocalDate.parse(used.periodStart).format(dm); allowedDates += LocalDate.parse(used.periodEnd).format(dm)

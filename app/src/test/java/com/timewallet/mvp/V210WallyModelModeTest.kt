@@ -77,13 +77,16 @@ class V210WallyModelModeTest {
         assertTrue(chat.contains("internal fun WallyModelModeSelector("))
         assertTrue(Regex("""text\s*=\s*preset\.displayTitle""").containsMatchIn(chat))
         assertTrue(Regex("""text\s*=\s*preset\.actualModelName""").containsMatchIn(chat))
+        assertTrue(chat.contains("internal fun WallyAiDeveloperRoutingNote("))
         assertTrue(chat.contains("Auto (Tự chọn Pro/Flash): Tạm khóa"))
 
         val aiDlg = dialogs.substring(dialogs.indexOf("fun AiSettingsDialog("), dialogs.indexOf("fun ProductInfoDialog("))
         assertFalse("AiSettingsDialog không còn chip Gemini 3.8", aiDlg.contains("cinb/gemini-3.8-flash"))
         assertTrue(aiDlg.contains("WallyModelModeSelector("))
+        assertTrue(aiDlg.contains("WallyAiDeveloperRoutingNote()"))
 
         assertTrue(profile.contains("Chế độ Wally (Claude)") && profile.contains("WallyModelModeSelector("))
+        assertTrue(profile.contains("showAutoFutureHint = false"))
         assertTrue(vm.contains("fun selectWallyPreset(preset: WallyModelPreset)"))
         assertTrue(main.contains("onSelectWallyPreset = viewModel::selectWallyPreset"))
     }

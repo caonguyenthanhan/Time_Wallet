@@ -1,6 +1,6 @@
-# Kiến trúc, Quyền riêng tư & Kiểm chứng kỹ thuật — Time Wallet `v2.2.0`
+# Kiến trúc, Quyền riêng tư & Kiểm chứng kỹ thuật — Time Wallet `v2.2.1`
 
-Tài liệu kỹ thuật chuyên sâu cho **Time Wallet (`Wally`)** `v2.2.0` (`versionCode = 23`), tách khỏi `README.md` để trang chính giữ vai trò giới thiệu sản phẩm.
+Tài liệu kỹ thuật chuyên sâu cho **Time Wallet (`Wally`)** `v2.2.1` (`versionCode = 24`), tách khỏi `README.md` để trang chính giữ vai trò giới thiệu sản phẩm.
 
 ---
 
@@ -23,8 +23,9 @@ Time Wallet lưu trữ dữ liệu theo nguyên tắc trung thực, không tự 
 app/src/main/java/com/timewallet/mvp/
 ├── domain/
 │   ├── model/         # LedgerRecord, TaskItem, Habit, Goal, Proposal, UpdateContract
-│   └── usecase/       # AiTodoEngine, WallyHubSnapshotEngine, ScheduleGridEngine,
-│                      # LedgerAnalyticsCalculator, AdaptiveContextRouter, AppUpdateContract
+│   └── usecase/       # WallyDataStoryEngine, LedgerAnalyticsCalculator, TaskHabitEngine,
+│                      # ConfirmationEngine, AiTodoEngine, WallyHubSnapshotEngine,
+│                      # ScheduleGridEngine, AdaptiveContextRouter, AppUpdateContract
 ├── data/
 │   ├── local/         # Room Database v8 (MIGRATION_4_5..7_8), DAO, Android Keystore prefs,
 │   │                  # WallyActionController (SSOT cho App + Widget + Floating Assistant)
@@ -57,16 +58,17 @@ app/src/main/java/com/timewallet/mvp/
 
 ---
 
-## 4. Kết quả kiểm chứng bản `v2.2.0` (`versionCode 23`)
+## 4. Kết quả kiểm chứng bản `v2.2.1` (`versionCode 24`)
 
 | Hạng mục | Kết quả | Chi tiết đo trực tiếp |
 |---|---|---|
-| Unit & Contract Tests (`:app:testDebugUnitTest`) | **PASS (676 / 676 chạy offline)** | `76` test suites, `680` test cases (`676 passed, 0 failures, 0 errors, 4 skipped` — 4 suite Live Eval bỏ qua khi không có API key live). |
-| Android Lint (`:app:lintDebug` & `:app:lintRelease`) | **PASS (0 errors)** | `lintDebug`: `0 errors, 109 warnings` · `lintRelease`: `0 errors, 99 warnings`. |
-| Release APK & chữ ký (`apksigner`) | **PASS** | `TimeWallet-MVP-v2.2.0-release.apk`: **`9,375,715` bytes** · `SHA-256`: `CB243B229D85F9BAE39E65D9E06E159722489BF41CACF0A79BEF2D603FC59E6A` · ký v2 bằng chứng thư `39f5712d…`. |
-| Debug APK | **PASS** | `TimeWallet-MVP-v2.2.0-debug.apk`: **`14,496,991` bytes** · `SHA-256`: `9477BDC879D8253B0EC996AD7F136459569868D5920FE1F1B24C567C6EBE1209`. |
-| QA giao diện trên `WallyQA` (`index 1`, Android 9) | **PASS (`NO_FATAL_EXCEPTION`)** | Kiểm chứng AI To-do, Focus Pause/Resume, Trợ lý nổi (bong bóng + bảng nhanh + chat nhanh + `Tắt` đồng bộ), Lịch trình & Thống kê 24h đồng bộ, và `dumpsys appwidget` xác nhận đăng ký `WallyHomeWidgetProvider`. |
-| Phạm vi chưa chạy trên phần cứng thật (`NOT_TESTED`) | — | Xem trước ghim Home Widget trực tiếp trên launcher chuẩn Google/Samsung (giả lập LDPlayer lược bỏ `AppWidgetHost` pin drawer), gọi Cloud AI live cho tuyến To-do mới trên bản `v2.2.0`, AVD Android 16 (tạm dừng theo quy tắc ổn định phần cứng) và máy thật. |
+| Unit & Contract Tests (`:app:testDebugUnitTest`) | **PASS (683 / 683 chạy offline)** | `687` test cases (`683 passed, 0 failures, 0 errors, 4 skipped` — 4 test Live AI / live-eval bỏ qua khi không có API key live). |
+| Compose Screenshot Validation (`:app:validateDebugScreenshotTest`) | **PASS (15 / 15)** | `15 passed, 0 failures, 0 errors, 0 skipped` (gồm các preview `Thống kê` / `Wally kể từ dữ liệu` Light & Dark). |
+| Android Lint (`:app:lintDebug` & `:app:lintRelease`) | **PASS (0 errors)** | `lintDebug`: `0 errors, 117 warnings` · `lintRelease`: `0 errors, 105 warnings`. |
+| Release APK & chữ ký (`apksigner`) | **PASS** | `TimeWallet-MVP-v2.2.1-release.apk`: **`9,457,633` bytes** · `SHA-256`: `D02C4A077AA0750AA8EB72F5BD0539B6ECA68110B8EFC68E4F2CB71ACE1A19C4` · ký bằng chứng thư `39f5712d…`. |
+| Debug APK | **PASS** | `TimeWallet-MVP-v2.2.1-debug.apk`: **`15,723,946` bytes** · `SHA-256`: `42C71CECBA77F1B0C72A06E1EB94B2B89C8751971A402DE51BC3F9D47FB815F7`. |
+| QA giao diện trên `WallyQA` (`index 1`, Android 9) | **PASS (`NO_FATAL_EXCEPTION`)** | Cài đè `v2.2.0 → v2.2.1` giữ nguyên task & `v2.2.1`; xác minh 4 bộ dữ liệu của **Wally kể từ dữ liệu**, **Phân tích AI** (căn cứ ngày/phiên & kỳ so sánh), **Nhịp tập trung & Độ sát kế hoạch** (`22h 30p`, loại phiên `Ngủ`), Focus `320dp` & Trợ lý nổi (`▶` → `Mở app`). |
+| Phạm vi chưa chạy trên phần cứng thật (`NOT_TESTED`) | — | Xem trước ghim Home Widget trực tiếp trên launcher chuẩn Google/Samsung (`isRequestPinAppWidgetSupported == false` trên launcher LDPlayer), gọi Cloud AI live trên bản `v2.2.1`, AVD Android 16 (tạm dừng theo quy tắc ổn định phần cứng) và thiết bị thật. |
 
 ---
 

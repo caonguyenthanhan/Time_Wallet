@@ -564,22 +564,23 @@ class WallyContextEngineTest {
 
         val story = summary.wallyStory
         assertNotNull(story)
-        assertTrue(story!!.whatHappened.isNotBlank() && story.notable.isNotBlank() && story.goalImpact.isNotBlank() && story.nextAction.isNotBlank())
-        assertTrue(story.uncertaintyNote != null) // thin data -> honest uncertainty
+        assertTrue(story!!.mainFinding.isNotBlank() && !story.actionLabel.isNullOrBlank())
+        assertTrue(story.uncertaintyNote != null) // missing Tag goal nuance -> honest conditional note
         assertFalse(summary.actionableInsight.contains("Đặt giờ trên lịch"))
         assertFalse(summary.actionableInsight.contains("mô phỏng", ignoreCase = true))
 
         val insightsSrc = java.io.File("src/main/java/com/timewallet/mvp/ui/screens/InsightsScreen.kt").readText()
         assertFalse(insightsSrc.contains("Đã dùng"))
+        assertFalse(insightsSrc.contains("Giờ vàng:"))
         listOf(
             "Đã ghi nhận",
             "\$filterLabel: \$shownLabel / 24h",
             "Hoạt động",
             "Chưa ghi nhận",
             "Wally kể từ dữ liệu",
-            "Điều gì xảy ra",
-            "Ảnh hưởng mục tiêu",
-            "Có thể làm tiếp"
+            "Phân tích AI ›",
+            "Khung ghi nhận nhiều nhất",
+            "Đã ẩn lời kể"
         ).forEach { expected ->
             assertTrue("InsightsScreen thiếu \"$expected\"", insightsSrc.contains(expected))
         }

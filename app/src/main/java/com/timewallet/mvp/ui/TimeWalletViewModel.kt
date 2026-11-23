@@ -119,6 +119,7 @@ import com.timewallet.mvp.domain.usecase.ManualEntryValidation
 import com.timewallet.mvp.domain.usecase.ScheduleViewMode
 import com.timewallet.mvp.domain.usecase.SelectedSlotGroup
 import com.timewallet.mvp.domain.usecase.ValidationResult
+import com.timewallet.mvp.domain.usecase.WallyStoryAction
 import com.timewallet.mvp.domain.usecase.WeeklyEfficiencySummary
 import com.timewallet.mvp.domain.usecase.WeeklyInsightsSummary
 import androidx.room.withTransaction
@@ -256,7 +257,8 @@ data class ManualEntryState(
     val saveAsPlanned: Boolean = false,
     val isMarkedWaste: Boolean = false,
     val batchSlots: List<SelectedSlotGroup> = emptyList(),
-    val taskId: String? = null
+    val taskId: String? = null,
+    val fromWallySuggestion: Boolean = false
 ) {
     fun hasUserData(todayLocal: String = LocalDate.now().toString()): Boolean =
         categoryKey != null ||
@@ -484,6 +486,7 @@ data class TimeWalletUiState(
     val todoRiskAlerts: List<TodoRiskAlert> = emptyList(),
     val todoAiReport: AiTodoAnalysisReport? = null,
     val todoAiAnalyzing: Boolean = false,
+    val lastTodoApprovalReceipt: String? = null,
     val floatingAssistantEnabled: Boolean = false
 )
 
@@ -708,11 +711,37 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 _uiState.update { it.copy(habits = domainHabits, habitLogs = domainLogs) }
             }
         }
+        viewModelScope.launch(safeHandler) {
+            WallyActionController.hubStateVersion
+                .drop(1)
+                .collect { syncExternalHubState() }
+        }
 
         // v1.0.6: vòng cập nhật đồng hồ KHÔNG chạy ngầm; chỉ chạy khi màn hình đang hiện (onAppResumed ... onAppPaused).
     }
 
     private var tickerJob: Job? = null
+
+    private fun syncExternalHubState() {
+        val persistedTimer = settingsStore.loadActiveTimer()
+        val persistedPaused = runCatching { settingsStore.loadPausedTimer() }.getOrNull()
+        val persistedFloating = runCatching { settingsStore.loadFloatingAssistantPrefs().enabled }.getOrDefault(false)
+        val persistedFocusPin = runCatching { settingsStore.isFocusPinEnabled() }.getOrDefault(false)
+        val persistedTodoReport = runCatching {
+            AiTodoEngine.deserializeReport(settingsStore.loadTodoAiAnalysisJson())
+        }.getOrNull()
+        _uiState.update { cur ->
+            cur.copy(
+                activeTimer = persistedTimer,
+                pausedTimer = persistedPaused,
+                floatingAssistantEnabled = persistedFloating && android.provider.Settings.canDrawOverlays(getApplication()),
+                focusPinEnabled = persistedFocusPin,
+                todoAiReport = persistedTodoReport ?: cur.todoAiReport
+            )
+        }
+        refreshTimerTick()
+        if (persistedTimer != null) startTicker()
+    }
 
     private fun startTicker() {
         if (tickerJob?.isActive == true) return
@@ -1236,7 +1265,10 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 currentTab = AppTab.FOCUS
             )
         }
+        refreshTimerTick()
+        startTicker()
         recomputeStats(_uiState.value.records)
+        WallyActionController.notifyAllWidgets(getApplication())
         showToast("▶ Đã bắt đầu: ${face.activityTitle} (${face.durationMinutes}p).")
     }
 
@@ -1272,7 +1304,10 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 pausedTimer = null
             )
         }
+        refreshTimerTick()
+        startTicker()
         recomputeStats(_uiState.value.records)
+        WallyActionController.notifyAllWidgets(getApplication())
         showToast("Đồng hồ đã bắt đầu đo.")
     }
 
@@ -1389,7 +1424,9 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                             nowEpochMs = endEpochMs,
                             zoneId = zone,
                             idempotencyKey = TimerSegments.idempotencyKey(session.startedAtEpochMs, 0),
-                            tagId = session.tagId
+                            tagId = session.tagId,
+                            taskId = session.taskId,
+                            habitId = session.habitId
                         )
                         if (conflicts.isNotEmpty() && built is ValidationResult.Valid) {
                             _uiState.update {
@@ -2130,6 +2167,10 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                     nowEpochMs = nowMs,
                     excludeRecordIds = setOf(conflict.incoming.id)
                 )
+                val hadPlan = conflict.incoming.plannedDurationSeconds != null ||
+                    conflict.incoming.plannedStartedAt != null ||
+                    conflict.incoming.layer == TimeLayer.PLANNED ||
+                    conflict.incoming.layer == TimeLayer.ACTIVE
                 val built = LedgerValidator.validateAndBuildRecord(
                     id = conflict.incoming.id,
                     source = conflict.incoming.source,
@@ -2147,12 +2188,12 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                     excludeRecordId = conflict.incoming.id,
                     convertFutureToPlanned = false,
                     tagId = conflict.incoming.tagId,
-                    confirmationStateOverride = if (alreadyExists && range.second <= nowMs) {
+                    confirmationStateOverride = if (alreadyExists && hadPlan && range.second <= nowMs) {
                         ConfirmationState.ADJUSTED.name
                     } else null,
-                    plannedStartedAt = conflict.incoming.plannedStartedAt ?: conflict.incoming.startedAt,
-                    plannedEndedAt = conflict.incoming.plannedEndedAt ?: conflict.incoming.endedAt,
-                    plannedDurationSeconds = conflict.incoming.plannedDurationSeconds ?: conflict.incoming.durationSeconds
+                    plannedStartedAt = if (hadPlan) (conflict.incoming.plannedStartedAt ?: conflict.incoming.startedAt) else null,
+                    plannedEndedAt = if (hadPlan) (conflict.incoming.plannedEndedAt ?: conflict.incoming.endedAt) else null,
+                    plannedDurationSeconds = if (hadPlan) (conflict.incoming.plannedDurationSeconds ?: conflict.incoming.durationSeconds) else null
                 )
                 when (built) {
                     is ValidationResult.Invalid -> showToast(built.message)
@@ -3154,6 +3195,39 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
 
             if (range != null) {
                 val existing = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
+                if (form.fromWallySuggestion && validation.saveAsPlanned) {
+                    val targetDay = runCatching { LocalDate.parse(batchInput.dateLocal) }.getOrNull()
+                    if (targetDay != null) {
+                        val sMin = ((range.first - targetDay.atStartOfDay(zone).toInstant().toEpochMilli()) / 60_000L).toInt()
+                        val eMin = ((range.second - targetDay.atStartOfDay(zone).toInstant().toEpochMilli()) / 60_000L).toInt()
+                        val dayModel = ScheduleGridEngine.buildDayScheduleModel(
+                            date = targetDay,
+                            records = existing,
+                            activeTimer = _uiState.value.activeTimer,
+                            nowEpochMs = nowMs,
+                            zone = zone
+                        )
+                        val gridConflict = ScheduleGridEngine.findConflictingBlocks(
+                            candidateStartMin = sMin,
+                            candidateEndMin = eMin,
+                            excludeRecordId = null,
+                            isPlannedCandidate = true,
+                            dayBlocks = dayModel.timedBlocks
+                        )
+                        val hit = gridConflict.planConflicts.firstOrNull() ?: gridConflict.actualOverlapNotes.firstOrNull()
+                        if (hit != null) {
+                            _uiState.update {
+                                it.copy(
+                                    manualEntry = it.manualEntry?.copy(
+                                        saving = false,
+                                        error = "Khung ${batchInput.startHm}–${batchInput.endHm} vừa phát sinh xung đột với \"${hit.title}\" (${TimeRange.formatHm(hit.startMinute)}–${ScheduleGridEngine.formatHmEnd(hit.endMinute)}). Hãy đổi khung giờ khác trước khi lưu."
+                                    )
+                                )
+                            }
+                            return@launch
+                        }
+                    }
+                }
                 val conflicts = ActivityBreakEngine.findAllOverlaps(
                     startMs = range.first,
                     endMs = range.second,
@@ -3551,6 +3625,89 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun dismissCoach() { coachJob?.cancel(); _uiState.update { it.copy(coach = CoachUiState()) } }
+
+    /**
+     * Thực thi tối đa 1 hành động từ thẻ "Wally kể từ dữ liệu":
+     * - Đặt lịch gợi ý: kiểm tra lại xung đột trực tiếp với DB tại thời điểm bấm, không gợi ý 22:00–06:00,
+     *   và luôn mở hộp xác nhận Dự kiến (chỉ lưu khi người dùng xác nhận).
+     */
+    fun executeWallyStoryAction(action: WallyStoryAction) {
+        when (action) {
+            is WallyStoryAction.OpenTagAssign -> {
+                val cat = TimeCategory.fromKeyOrDefault(action.categoryKey)
+                _uiState.update {
+                    it.copy(
+                        currentTab = AppTab.SCHEDULE,
+                        historyFilter = HistoryFilter.ALL
+                    )
+                }
+                showToast("Mở Lịch trình: chạm vào phiên ${cat.displayName} để sửa và gắn Tag.")
+            }
+            is WallyStoryAction.OpenConfirmPending -> {
+                _uiState.update {
+                    it.copy(
+                        currentTab = AppTab.SCHEDULE,
+                        scheduleFocusDateLocal = action.targetDateLocal
+                    )
+                }
+                showToast("Kiểm tra và xác nhận các phiên chờ trên lịch.")
+            }
+            is WallyStoryAction.ScheduleSlot -> {
+                val slot = action.slot
+                if (_uiState.value.manualEntry != null) return
+                val zone = ZoneId.systemDefault()
+                viewModelScope.launch(safeHandler) {
+                    val nowMs = System.currentTimeMillis()
+                    val existing = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
+                    val startHm = TimeRange.formatHm(slot.startMinute.coerceIn(0, 1439))
+                    val endHm = ScheduleGridEngine.formatHmEnd(slot.endMinute.coerceIn(1, 1440))
+                    val range = LedgerValidator.parseTimeRangeToEpochMillis(slot.dateLocal, startHm, endHm, zone)
+                    if (slot.startMinute < 360 || slot.endMinute > 1320 || range == null || range.first <= nowMs) {
+                        recomputeStats(existing)
+                        showToast("Khung giờ gợi ý $startHm–$endHm đã qua hoặc không còn phù hợp; đã làm mới gợi ý.")
+                        return@launch
+                    }
+                    val targetDate = runCatching { LocalDate.parse(slot.dateLocal) }.getOrNull() ?: return@launch
+                    val dayModel = ScheduleGridEngine.buildDayScheduleModel(
+                        date = targetDate,
+                        records = existing,
+                        activeTimer = _uiState.value.activeTimer,
+                        nowEpochMs = nowMs,
+                        zone = zone
+                    )
+                    val conflictCheck = ScheduleGridEngine.findConflictingBlocks(
+                        candidateStartMin = slot.startMinute,
+                        candidateEndMin = slot.endMinute,
+                        excludeRecordId = null,
+                        isPlannedCandidate = true,
+                        dayBlocks = dayModel.timedBlocks
+                    )
+                    val hit = conflictCheck.planConflicts.firstOrNull() ?: conflictCheck.actualOverlapNotes.firstOrNull()
+                    if (hit != null) {
+                        recomputeStats(existing)
+                    }
+                    val startDigits = startHm.filter(Char::isDigit).take(4).padStart(4, '0')
+                    val endDigits = endHm.filter(Char::isDigit).take(4).padStart(4, '0')
+                    val conflictWarning = hit?.let {
+                        "Khung $startHm–$endHm ngày ${slot.dateLocal} vừa phát sinh xung đột với \"${it.title}\" (${TimeRange.formatHm(it.startMinute)}–${ScheduleGridEngine.formatHmEnd(it.endMinute)}). Hãy đổi khung giờ khác trước khi lưu."
+                    }
+                    val form = ManualEntryState(
+                        categoryKey = slot.categoryKey,
+                        tagId = slot.tagId,
+                        dateLocal = slot.dateLocal,
+                        mode = ManualMode.RANGE,
+                        startText = startDigits,
+                        endText = endDigits,
+                        note = slot.title,
+                        saveAsPlanned = true,
+                        error = conflictWarning,
+                        fromWallySuggestion = true
+                    )
+                    _uiState.update { it.copy(manualEntry = form) }
+                }
+            }
+        }
+    }
 
     /** Đề xuất của Coach chỉ thành mục tiêu khi người dùng bấm Xác nhận. */
     fun confirmCoachSuggestion(index: Int) {
@@ -3966,7 +4123,10 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 currentTab = AppTab.FOCUS
             )
         }
+        refreshTimerTick()
+        startTicker()
         recomputeStats(_uiState.value.records)
+        WallyActionController.notifyAllWidgets(getApplication())
         showToast("▶ Đã bắt đầu tập trung: ${task.title}.")
     }
 
@@ -4156,7 +4316,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                     optInEnabled = ai.optInEnabled,
                     baseUrl = ai.baseUrl,
                     apiKey = ai.apiKey,
-                    modelName = ai.actualModelDisplay(),
+                    modelName = ai.modelName,
                     trustedHost = ai.trustedHost
                 )
                 when (outcome) {
@@ -4229,7 +4389,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 AiTodoProposalKind.PRIORITIZE_TODAY -> {
                     val updated = task.copy(
                         priority = proposal.suggestedPriority ?: TaskPriority.P1,
-                        dueDateLocal = proposal.targetDateLocal ?: s.todayDateLocal,
+                        dueDateLocal = task.dueDateLocal ?: proposal.targetDateLocal ?: s.todayDateLocal,
                         status = if (task.status == TaskStatus.INBOX) TaskStatus.TODO else task.status,
                         updatedAt = nowMs
                     )
@@ -4285,16 +4445,18 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                                 zone = zone
                             )) {
                                 is com.timewallet.mvp.data.local.ConfirmResult.Committed -> {
-                                    taskDao.upsertTask(
-                                        TaskEntity.fromDomain(
-                                            task.copy(
-                                                dueDateLocal = targetDate,
-                                                dueTimeLocal = startHm,
-                                                status = if (task.status == TaskStatus.INBOX) TaskStatus.TODO else task.status,
-                                                updatedAt = nowMs
+                                    // Tuyệt đối giữ nguyên hạn gốc (dueDateLocal/dueTimeLocal) của công việc khi xếp lịch dự kiến;
+                                    // chỉ nâng trạng thái Inbox -> TODO và cập nhật mốc chỉnh sửa.
+                                    if (task.status == TaskStatus.INBOX) {
+                                        taskDao.upsertTask(
+                                            TaskEntity.fromDomain(
+                                                task.copy(
+                                                    status = TaskStatus.TODO,
+                                                    updatedAt = nowMs
+                                                )
                                             )
                                         )
-                                    )
+                                    }
                                     true
                                 }
                                 is com.timewallet.mvp.data.local.ConfirmResult.Aborted -> {
@@ -4311,10 +4473,25 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 }
             }
             if (appliedOk) {
+                val receiptVi = when (proposal.kind) {
+                    AiTodoProposalKind.SCHEDULE_INTO_GAP ->
+                        "✓ Bạn đã duyệt đề xuất → Đã xếp \"${task.title}\" vào Lịch dự kiến (${proposal.targetDateLocal ?: s.todayDateLocal} · ${proposal.startHm}–${proposal.endHm}). Thời gian Thực tế giữ nguyên 0p."
+                    AiTodoProposalKind.PRIORITIZE_TODAY ->
+                        "✓ Bạn đã duyệt đề xuất → Đưa \"${task.title}\" lên P1 hôm nay (không thay đổi lịch thực tế)."
+                    AiTodoProposalKind.POSTPONE_TO_TOMORROW ->
+                        "✓ Bạn đã duyệt đề xuất → Dời hạn \"${task.title}\" sang ${proposal.targetDateLocal ?: "ngày mai"}."
+                    AiTodoProposalKind.SPLIT_SUBTASKS ->
+                        "✓ Bạn đã duyệt đề xuất → Đã tách ${proposal.suggestedSubtasks.size} bước con cho \"${task.title}\"."
+                }
+                _uiState.update { it.copy(lastTodoApprovalReceipt = receiptVi) }
                 dismissTodoProposal(proposal.id, silent = true)
-                showToast("✓ Đã áp dụng: ${proposal.kind.labelVi} cho \"${task.title}\".")
+                showToast("✓ Đã chấp thuận: ${proposal.kind.labelVi} cho \"${task.title}\".")
             }
         }
+    }
+
+    fun dismissTodoApprovalReceipt() {
+        _uiState.update { it.copy(lastTodoApprovalReceipt = null) }
     }
 
     fun applyAllTodoProposals() {

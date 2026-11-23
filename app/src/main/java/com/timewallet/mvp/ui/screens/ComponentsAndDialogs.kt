@@ -101,11 +101,11 @@ import com.timewallet.mvp.ui.ImportBackupUiState
 import com.timewallet.mvp.ui.TaskCompletionPrompt
 import com.timewallet.mvp.ui.theme.WalletBg
 import com.timewallet.mvp.ui.theme.WalletCardBg
-import com.timewallet.mvp.ui.theme.WalletCardBg
 import com.timewallet.mvp.ui.theme.WalletDangerBg
 import com.timewallet.mvp.ui.theme.WalletDangerBorder
 import com.timewallet.mvp.ui.theme.WalletDangerSolid
 import com.timewallet.mvp.ui.theme.WalletDangerText
+import com.timewallet.mvp.ui.theme.WalletDivider
 import com.timewallet.mvp.ui.theme.WalletInfoBg
 import com.timewallet.mvp.ui.theme.WalletInfoText
 import com.timewallet.mvp.ui.theme.WalletInk
@@ -123,8 +123,6 @@ import com.timewallet.mvp.ui.theme.WalletStroke
 import com.timewallet.mvp.ui.theme.WalletUntrackedBar
 import com.timewallet.mvp.ui.theme.WalletWarningBg
 import com.timewallet.mvp.ui.theme.WalletWarningText
-import com.timewallet.mvp.ui.theme.WalletMuted
-import com.timewallet.mvp.ui.theme.WalletStroke
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -229,7 +227,7 @@ fun TimeWalletTopBar(
                 }
             }
 
-            // Nút + Ghi nhanh, ✦ Wally AI Overlay và Cài đặt.
+            // Nút + Ghi nhanh (tonal phụ), ✦ Wally (điểm nhấn chính) và Cài đặt tối giản không viền.
             if (onOpenQuickCapture != null) {
                 Box(
                     modifier = Modifier
@@ -241,16 +239,15 @@ fun TimeWalletTopBar(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(100.dp))
-                            .background(WalletMintTint)
-                            .border(1.dp, WalletStroke, RoundedCornerShape(100.dp))
-                            .padding(horizontal = if (compactTopBar) 8.dp else 10.dp, vertical = 5.dp),
+                            .background(WalletSoftNeutral)
+                            .padding(horizontal = if (compactTopBar) 9.dp else 11.dp, vertical = 6.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = "+ Ghi",
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = WalletMintAccent,
+                            fontWeight = FontWeight.SemiBold,
+                            color = WalletInk,
                             maxLines = 1,
                             softWrap = false
                         )
@@ -268,8 +265,8 @@ fun TimeWalletTopBar(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(100.dp))
-                            .background(if (wallyHasDrafts) Color(0xFF0A2E22) else WalletMintDark)
-                            .padding(horizontal = if (compactTopBar) 8.dp else 10.dp, vertical = 5.dp),
+                            .background(if (wallyHasDrafts) WalletMintDark else WalletMint)
+                            .padding(horizontal = if (compactTopBar) 9.dp else 11.dp, vertical = 6.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -334,13 +331,12 @@ private fun TopBarCircleButton(
     ) {
         Box(
             modifier = Modifier
-                .size(36.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(WalletCardBg)
-                .border(1.dp, WalletStroke, RoundedCornerShape(12.dp)),
+                .size(34.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .background(WalletSoftNeutral),
             contentAlignment = Alignment.Center
         ) {
-            GlyphIcon(glyph = glyph, color = WalletInk, size = 20.dp)
+            GlyphIcon(glyph = glyph, color = WalletInk, size = 19.dp)
         }
         if (showBadge) {
             Box(
@@ -361,66 +357,72 @@ fun TimeWalletBottomBar(
     isTimerRunning: Boolean,
     onSelectTab: (AppTab) -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(WalletCardBg)
-            .border(1.dp, WalletStroke, RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
-            .padding(horizontal = 6.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically
+    Surface(
+        color = WalletCardBg,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        shadowElevation = if (WalletIsDark) 0.dp else 8.dp,
+        modifier = Modifier.fillMaxWidth()
     ) {
-        AppTab.entries.forEach { tab ->
-            val selected = tab == currentTab
-            val tint = if (selected) WalletMint else WalletMuted
-            Column(
+        Column {
+            HorizontalDivider(thickness = 0.5.dp, color = WalletDivider)
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .heightIn(min = 48.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .semantics {
-                        contentDescription = "Tab ${tab.label}"
-                        role = Role.Tab
-                        this.selected = selected
-                    }
-                    .clickable { onSelectTab(tab) }
-                    .padding(horizontal = 2.dp, vertical = 3.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                    .fillMaxWidth()
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // Viên thuốc nền cho tab đang chọn; biểu tượng cùng kiểu nét, cùng kích thước.
-                Box(
-                    modifier = Modifier
-                        .width(56.dp)
-                        .height(30.dp)
-                        .clip(RoundedCornerShape(15.dp))
-                        .background(if (selected) WalletMintSoft else Color.Transparent),
-                    contentAlignment = Alignment.Center
-                ) {
-                    GlyphIcon(glyph = tab.glyph(), color = tint, size = 22.dp, filled = selected)
-                    if (tab == AppTab.FOCUS && isTimerRunning) {
+                AppTab.entries.forEach { tab ->
+                    val selected = tab == currentTab
+                    val tint = if (selected) WalletMintAccent else WalletMuted
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .semantics {
+                                contentDescription = "Tab ${tab.label}"
+                                role = Role.Tab
+                                this.selected = selected
+                            }
+                            .clickable { onSelectTab(tab) }
+                            .padding(horizontal = 2.dp, vertical = 3.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
                         Box(
                             modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(top = 3.dp, end = 12.dp)
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(WalletDangerText)
-                                .border(1.5.dp, Color.White, CircleShape)
+                                .width(56.dp)
+                                .height(30.dp)
+                                .clip(RoundedCornerShape(15.dp))
+                                .background(if (selected) WalletMintSoft else Color.Transparent),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            GlyphIcon(glyph = tab.glyph(), color = tint, size = 22.dp, filled = selected)
+                            if (tab == AppTab.FOCUS && isTimerRunning) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(top = 3.dp, end = 12.dp)
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(WalletDangerText)
+                                        .border(1.5.dp, WalletCardBg, CircleShape)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = tab.label,
+                            fontSize = cappedSp(11f, if (LocalConfiguration.current.screenWidthDp < 360) 1.0f else 1.1f),
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (selected) tint else WalletMuted,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = tab.label,
-                    // trên màn hẹp (<360dp) nhãn tab giữ đúng 11dp để "Tổng quan" không bị cắt dù cỡ chữ hệ thống lớn
-                    fontSize = cappedSp(11f, if (LocalConfiguration.current.screenWidthDp < 360) 1.0f else 1.1f),
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                    color = if (selected) tint else WalletMuted,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Ellipsis
-                )
             }
         }
     }
@@ -543,7 +545,8 @@ fun ActivityRecordRow(
     showEditAndDelete: Boolean = false,
     onConfirmActualClick: ((LedgerRecord) -> Unit)? = null,
     onEditClick: ((LedgerRecord) -> Unit)? = null,
-    onDeleteClick: ((LedgerRecord) -> Unit)? = null
+    onDeleteClick: ((LedgerRecord) -> Unit)? = null,
+    trailingMetaSlot: (@Composable () -> Unit)? = null
 ) {
     val categoryColor = Color(record.category.colorHex)
     val resolvedLayer = remember(record, nowEpochMs, todayDateLocal) {
@@ -605,7 +608,7 @@ fun ActivityRecordRow(
         !record.isCancelled &&
         (record.isNeedsReconciliation || resolvedLayer == TimeLayer.PLANNED || resolvedLayer == TimeLayer.ACTIVE)
 
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .then(
@@ -618,139 +621,190 @@ fun ActivityRecordRow(
                     Modifier
                 }
             )
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(9.dp)
+            .padding(vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        CategoryBadge(category = record.category, size = 40.dp)
-
-        Column(modifier = Modifier.weight(1f)) {
-            // Dòng 1 (v1.0.10+): TÊN chiếm toàn bộ chiều rộng còn lại (tối đa 2 dòng), thời lượng nằm bên phải rõ nét.
-            Row(
-                verticalAlignment = Alignment.Top,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+        // Hàng 1: Icon nhóm (36.dp) + Tên + Thời lượng dùng hết chiều ngang thẻ
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            CategoryBadge(category = record.category, size = 36.dp)
+            Text(
+                text = record.title,
+                fontSize = 14.sp,
+                lineHeight = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = WalletInk,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = durationText,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = if (resolvedLayer == TimeLayer.PLANNED) WalletMuted else WalletInk,
+                maxLines = 1,
+                softWrap = false
+            )
+        }
+        // Hàng 2 (full-width, không bị thụt dưới icon): nhãn trạng thái + mô tả thời gian bên trái; sửa/xóa bên phải.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            val rangeOnly = !record.isNeedsReconciliation &&
+                !record.isCancelled &&
+                (resolvedLayer == TimeLayer.MEASURED || resolvedLayer == TimeLayer.REPORTED_TIMED)
+            val shownWhen = when {
+                rangeOnly -> timeDescription.substringBefore(" · ")
+                resolvedLayer == TimeLayer.PLANNED && record.startedAt != null && record.endedAt != null && !record.isNeedsReconciliation ->
+                    timeDescription.substringBefore(" · ")
+                resolvedLayer == TimeLayer.REPORTED_UNTIMED && timeDescription.startsWith("Chưa gắn giờ · ") ->
+                    timeDescription.removePrefix("Chưa gắn giờ · ")
+                else -> timeDescription
+            }
+            FlowRow(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(badgeBg)
+                        .padding(horizontal = 7.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = badgeLabel,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = badgeTextColor,
+                        maxLines = 2
+                    )
+                }
                 Text(
-                    text = record.title,
-                    fontSize = 14.sp,
-                    lineHeight = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = WalletInk,
-                    maxLines = 2,
+                    text = shownWhen,
+                    fontSize = if (rangeOnly) cappedSp(12.5f) else 12.5.sp,
+                    color = WalletMuted,
+                    maxLines = if (rangeOnly) 1 else 2,
+                    softWrap = !rangeOnly,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    text = durationText,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = if (resolvedLayer == TimeLayer.PLANNED) WalletMuted else WalletInk,
-                    maxLines = 1,
-                    softWrap = false
+                    modifier = Modifier.padding(top = 3.dp)
                 )
             }
-            // Dòng 2: nhãn trạng thái + mô tả thời gian bên trái; sửa/xóa (>= 48dp) bên phải.
-            Row(
-                modifier = Modifier.padding(top = 3.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                // v1.0.11: nhãn trạng thái và mốc giờ nằm cùng một dòng (tự xuống dòng khi hẹp); nhãn đã nêu tầng dữ liệu nên bỏ phần lặp.
-                val rangeOnly = !record.isNeedsReconciliation &&
-                    !record.isCancelled &&
-                    (resolvedLayer == TimeLayer.MEASURED || resolvedLayer == TimeLayer.REPORTED_TIMED)
-                val shownWhen = when {
-                    rangeOnly -> timeDescription.substringBefore(" · ")
-                    resolvedLayer == TimeLayer.REPORTED_UNTIMED && timeDescription.startsWith("Chưa gắn giờ · ") ->
-                        timeDescription.removePrefix("Chưa gắn giờ · ")
-                    else -> timeDescription
+            trailingMetaSlot?.invoke()
+            if (showEditAndDelete && !canConfirmToActual) {
+                if (onEditClick != null) {
+                    Box(
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .clip(RoundedCornerShape(10.dp))
+                            .semantics { contentDescription = "Sửa ${record.title}"; role = Role.Button }
+                            .clickable { onEditClick(record) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        GlyphIcon(WalletGlyph.EDIT, color = WalletMintAccent, size = 20.dp)
+                    }
                 }
-                FlowRow(
-                    modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                if (onDeleteClick != null) {
+                    Box(
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .clip(RoundedCornerShape(10.dp))
+                            .semantics { contentDescription = "Xóa ${record.title}"; role = Role.Button }
+                            .clickable { onDeleteClick(record) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        GlyphIcon(WalletGlyph.DELETE, color = WalletDangerText, size = 19.dp)
+                    }
+                }
+            }
+        }
+        // Hàng 3 (tách bạch nút Xác nhận & Điều chỉnh dùng icon bút chì để không trùng và không tạo khoảng trống trên/dưới).
+        if (canConfirmToActual) {
+            val confirmBg = if (record.isNeedsReconciliation) Color(0xFFA24C18) else WalletMint
+            val (confirmGlyph, confirmLabel) = when {
+                record.isNeedsReconciliation -> WalletGlyph.WARNING to "Đối soát"
+                needsCompletionConfirm -> WalletGlyph.CONFIRM to "Xác nhận"
+                else -> WalletGlyph.CONFIRM to "Xác nhận"
+            }
+            CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 38.dp) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(7.dp))
-                            .background(badgeBg)
-                            .padding(horizontal = 7.dp, vertical = 3.dp)
+                            .weight(0.95f)
+                            .minimumInteractiveComponentSize()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(confirmBg)
+                            .semantics { contentDescription = "$confirmLabel ${record.title}"; role = Role.Button }
+                            .clickable { onConfirmActualClick?.invoke(record) }
+                            .padding(horizontal = 6.dp, vertical = 7.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = badgeLabel,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = badgeTextColor,
-                            maxLines = 2
-                        )
-                    }
-                    Text(
-                        text = shownWhen,
-                        // khoảng giờ giữ cỡ cố định theo dp (không phình theo cỡ chữ hệ thống) để luôn vừa một dòng cạnh nút sửa/xóa
-                        fontSize = if (rangeOnly) cappedSp(12.5f) else 12.5.sp,
-                        color = WalletMuted,
-                        // khoảng giờ là một khối không xuống dòng giữa chừng: nếu không vừa thì cả khối xuống dòng dưới nhãn
-                        maxLines = if (rangeOnly) 1 else 3,
-                        softWrap = !rangeOnly,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 3.dp)
-                    )
-                }
-                if (showEditAndDelete) {
-                    if (onEditClick != null) {
-                        Box(
-                            modifier = Modifier
-                                .minimumInteractiveComponentSize()
-                                .clip(RoundedCornerShape(10.dp))
-                                .semantics { contentDescription = "Sửa ${record.title}"; role = Role.Button }
-                                .clickable { onEditClick(record) },
-                            contentAlignment = Alignment.Center
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            GlyphIcon(WalletGlyph.EDIT, color = WalletMintAccent, size = 20.dp)
+                            GlyphIcon(confirmGlyph, color = Color.White, size = 12.dp)
+                            Text(
+                                text = confirmLabel,
+                                fontSize = cappedSp(11.5f),
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1,
+                                softWrap = false
+                            )
                         }
                     }
-                    if (onDeleteClick != null) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1.05f)
+                            .minimumInteractiveComponentSize()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(WalletSoftNeutral)
+                            .semantics { contentDescription = "Điều chỉnh ${record.title}"; role = Role.Button }
+                            .clickable {
+                                if (onEditClick != null) onEditClick(record) else onConfirmActualClick?.invoke(record)
+                            }
+                            .padding(horizontal = 6.dp, vertical = 7.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            GlyphIcon(WalletGlyph.EDIT, color = WalletMintAccent, size = 12.dp)
+                            Text(
+                                text = "Điều chỉnh",
+                                fontSize = cappedSp(11.5f),
+                                fontWeight = FontWeight.Bold,
+                                color = WalletInk,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
+                    if (showEditAndDelete && onDeleteClick != null) {
                         Box(
                             modifier = Modifier
                                 .minimumInteractiveComponentSize()
+                                .size(38.dp)
                                 .clip(RoundedCornerShape(10.dp))
+                                .background(WalletSoftNeutral)
                                 .semantics { contentDescription = "Xóa ${record.title}"; role = Role.Button }
                                 .clickable { onDeleteClick(record) },
                             contentAlignment = Alignment.Center
                         ) {
-                            GlyphIcon(WalletGlyph.DELETE, color = WalletDangerText, size = 19.dp)
+                            GlyphIcon(WalletGlyph.DELETE, color = WalletDangerText, size = 17.dp)
                         }
-                    }
-                }
-            }
-            // Dòng 3 (hiếm): nút xác nhận / điều chỉnh trạng thái hoặc đối soát chồng lấn.
-            if (canConfirmToActual) {
-                val actionBg = if (record.isNeedsReconciliation) Color(0xFFA24C18) else WalletMint
-                val (actionGlyph, actionLabel) = when {
-                    record.isNeedsReconciliation -> WalletGlyph.WARNING to "Đối soát chồng lấn"
-                    needsCompletionConfirm -> WalletGlyph.CONFIRM to "Xác nhận kết quả"
-                    else -> WalletGlyph.SETTINGS to "Xác nhận / Điều chỉnh"
-                }
-                Box(
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(actionBg)
-                        .semantics { contentDescription = "$actionLabel ${record.title}"; role = Role.Button }
-                        .clickable { onConfirmActualClick?.invoke(record) }
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        GlyphIcon(actionGlyph, color = Color.White, size = 13.dp)
-                        Text(
-                            text = actionLabel,
-                            fontSize = cappedSp(12f),
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
                     }
                 }
             }
@@ -1579,73 +1633,23 @@ fun AiSettingsDialog(
                         color = WalletInk,
                         modifier = Modifier.weight(1f)
                     )
-                    Switch(checked = optIn, onCheckedChange = { optIn = it })
+                    Switch(
+                        checked = optIn,
+                        onCheckedChange = { optIn = it },
+                        colors = walletSwitchColors(WalletMint)
+                    )
                 }
 
-                Text("Nhà cung cấp", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = WalletMuted)
-                CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 34.dp) {
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        AiProviderPreset.entries.forEach { preset ->
-                            val isSel = activeProvider == preset
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(100.dp))
-                                    .background(if (isSel) WalletMintDark else WalletSoftNeutral)
-                                    .border(
-                                        1.dp,
-                                        if (isSel) WalletMintDark else WalletStroke,
-                                        RoundedCornerShape(100.dp)
-                                    )
-                                    .semantics { selected = isSel }
-                                    .walletClickable(
-                                        onClickLabel = "Chọn nhà cung cấp ${preset.labelVi}",
-                                        role = Role.RadioButton
-                                    ) {
-                                        if (preset != AiProviderPreset.CUSTOM && preset.baseUrl.isNotEmpty()) {
-                                            val nextHost = AiPreferences.extractValidatedHttpsHost(preset.baseUrl)
-                                            if (nextHost != null && !nextHost.equals(initialHost, ignoreCase = true) && apiKey == initialPreferences.apiKey) {
-                                                apiKey = ""
-                                            }
-                                            baseUrl = preset.baseUrl
-                                            if (preset.suggestedModels.isNotEmpty() && modelName.trim() !in preset.suggestedModels) {
-                                                modelName = preset.suggestedModels.first()
-                                            }
-                                        }
-                                    }
-                                    .padding(horizontal = 10.dp, vertical = 5.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = preset.labelVi,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isSel) Color.White else WalletInk,
-                                    maxLines = 1
-                                )
-                            }
-                        }
-                    }
-                }
+                var showAdvanced by remember { mutableStateOf(false) }
 
-                OutlinedTextField(
-                    value = baseUrl,
-                    onValueChange = { nextUrl ->
-                        val nextHost = AiPreferences.extractValidatedHttpsHost(nextUrl)
-                        if (nextHost != null && !nextHost.equals(initialHost, ignoreCase = true) && apiKey == initialPreferences.apiKey) {
-                            // Không tự động giữ lại khóa API cũ khi người dùng đổi sang host mới
-                            apiKey = ""
-                        }
-                        baseUrl = nextUrl
-                    },
-                    label = { Text("Base URL (OpenAI-compatible https://)") },
-                    placeholder = { Text("https://api.openai.com/v1") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                if (activeProvider == AiProviderPreset.FOZA) {
+                    WallyModelModeSelector(
+                        currentModelName = modelName,
+                        onSelectPreset = { modelName = it.modelId },
+                        compact = false,
+                        showAutoFutureHint = false
+                    )
+                }
 
                 OutlinedTextField(
                     value = apiKey,
@@ -1679,89 +1683,177 @@ fun AiSettingsDialog(
                     )
                 }
 
-                OutlinedTextField(
-                    value = modelName,
-                    onValueChange = { modelName = it },
-                    label = { Text("Tên model (ID gửi API)") },
-                    placeholder = { Text(activeProvider.suggestedModels.firstOrNull() ?: AiPreferences.DEFAULT_AI_MODEL) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                if (modelChoices.isNotEmpty()) {
-                    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 34.dp) {
-                        FlowRow(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
-                            verticalArrangement = Arrangement.spacedBy(5.dp)
-                        ) {
-                            modelChoices.take(12).forEach { id ->
-                                val isSel = modelName.trim().equals(id, ignoreCase = true)
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (isSel) WalletMintSoft else WalletSoftNeutral)
-                                        .border(1.dp, if (isSel) WalletMint else WalletStroke, RoundedCornerShape(8.dp))
-                                        .semantics { selected = isSel }
-                                        .walletClickable(
-                                            onClickLabel = "Chọn model $id",
-                                            role = Role.RadioButton
-                                        ) { modelName = id }
-                                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = id,
-                                        fontSize = 10.sp,
-                                        fontWeight = if (isSel) FontWeight.ExtraBold else FontWeight.SemiBold,
-                                        color = if (isSel) WalletMintAccent else WalletInk,
-                                        maxLines = 1
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-                if (activeProvider == AiProviderPreset.FOZA) {
-                    WallyModelModeSelector(
-                        currentModelName = modelName,
-                        onSelectPreset = { modelName = it.modelId },
-                        compact = false,
-                        showAutoFutureHint = true
-                    )
-                }
-
                 // WALLY: kiểm tra kết nối bằng payload tổng hợp "ping"; không gửi nhật ký của bạn.
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     OutlinedButton(
-                        onClick = { onFetchModels(baseUrl, apiKey) },
-                        enabled = !modelsLoading && !connectionTesting && currentValidatedHost != null && apiKey.isNotBlank() && keyProblem == null,
-                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
-                    ) {
-                        Text(if (modelsLoading) "Đang tải…" else "Tải model", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                    }
-                    OutlinedButton(
                         onClick = { onTestConnection(baseUrl, apiKey, modelName) },
                         enabled = !connectionTesting && !modelsLoading && currentValidatedHost != null && apiKey.isNotBlank() && keyProblem == null,
-                        modifier = Modifier.weight(1.25f).heightIn(min = 48.dp)
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                     ) {
-                        Text(if (connectionTesting) "Đang kiểm tra…" else "Kiểm tra kết nối", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                        Text(if (connectionTesting) "Đang kiểm tra…" else "Kiểm tra kết nối", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                     }
                 }
                 if (!connectionTestMessage.isNullOrBlank()) {
                     Text(text = connectionTestMessage, fontSize = 11.sp, color = WalletInk, lineHeight = 15.sp)
                     if (connectionTestMessage.startsWith("✗") && (connectionTestMessage.contains("503") || connectionTestMessage.contains("5xx") || connectionTestMessage.contains("403") || connectionTestMessage.contains("404"))) {
                         Text(
-                            text = "Gợi ý: Kiểm tra lại Base URL, bấm Tải model hoặc đổi sang model khác rồi Kiểm tra lại.",
+                            text = "Gợi ý: Kiểm tra lại Base URL hoặc đổi model trong Cài đặt nâng cao rồi Thử lại.",
                             fontSize = 10.sp,
                             color = WalletWarningText,
                             lineHeight = 14.sp
                         )
                     }
                 }
-                if (diagnosticsText.isNotBlank()) {
+
+                // Mục Nâng cao: gom toàn bộ nhà cung cấp, Base URL, routing ID (`cinb/...`), Tải model & ghi chú kỹ thuật
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(WalletSoftNeutral)
+                        .walletClickable(onClickLabel = "Bật hoặc ẩn cài đặt AI nâng cao") { showAdvanced = !showAdvanced }
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Cài đặt nâng cao (Nhà cung cấp, URL, Model ID)",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = WalletInk,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = if (showAdvanced) "▴" else "▾",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = WalletMintAccent
+                    )
+                }
+
+                if (showAdvanced) {
+                    Text("Nhà cung cấp", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = WalletMuted)
+                    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 34.dp) {
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            AiProviderPreset.entries.forEach { preset ->
+                                val isSel = activeProvider == preset
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(100.dp))
+                                        .background(if (isSel) WalletMintDark else WalletSoftNeutral)
+                                        .border(
+                                            1.dp,
+                                            if (isSel) WalletMintDark else WalletStroke,
+                                            RoundedCornerShape(100.dp)
+                                        )
+                                        .semantics { selected = isSel }
+                                        .walletClickable(
+                                            onClickLabel = "Chọn nhà cung cấp ${preset.labelVi}",
+                                            role = Role.RadioButton
+                                        ) {
+                                            if (preset != AiProviderPreset.CUSTOM && preset.baseUrl.isNotEmpty()) {
+                                                val nextHost = AiPreferences.extractValidatedHttpsHost(preset.baseUrl)
+                                                if (nextHost != null && !nextHost.equals(initialHost, ignoreCase = true) && apiKey == initialPreferences.apiKey) {
+                                                    apiKey = ""
+                                                }
+                                                baseUrl = preset.baseUrl
+                                                if (preset.suggestedModels.isNotEmpty() && modelName.trim() !in preset.suggestedModels) {
+                                                    modelName = preset.suggestedModels.first()
+                                                }
+                                            }
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = preset.labelVi,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSel) Color.White else WalletInk,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = baseUrl,
+                        onValueChange = { nextUrl ->
+                            val nextHost = AiPreferences.extractValidatedHttpsHost(nextUrl)
+                            if (nextHost != null && !nextHost.equals(initialHost, ignoreCase = true) && apiKey == initialPreferences.apiKey) {
+                                // Không tự động giữ lại khóa API cũ khi người dùng đổi sang host mới
+                                apiKey = ""
+                            }
+                            baseUrl = nextUrl
+                        },
+                        label = { Text("Base URL (OpenAI-compatible https://)") },
+                        placeholder = { Text("https://api.openai.com/v1") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = modelName,
+                        onValueChange = { modelName = it },
+                        label = { Text("Tên model (ID gửi API)") },
+                        placeholder = { Text(activeProvider.suggestedModels.firstOrNull() ?: AiPreferences.DEFAULT_AI_MODEL) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (modelChoices.isNotEmpty()) {
+                        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 34.dp) {
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                verticalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                modelChoices.take(12).forEach { id ->
+                                    val isSel = modelName.trim().equals(id, ignoreCase = true)
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (isSel) WalletMintSoft else WalletSoftNeutral)
+                                            .border(1.dp, if (isSel) WalletMint else WalletStroke, RoundedCornerShape(8.dp))
+                                            .semantics { selected = isSel }
+                                            .walletClickable(
+                                                onClickLabel = "Chọn model $id",
+                                                role = Role.RadioButton
+                                            ) { modelName = id }
+                                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = id,
+                                            fontSize = 10.sp,
+                                            fontWeight = if (isSel) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                            color = if (isSel) WalletMintAccent else WalletInk,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = { onFetchModels(baseUrl, apiKey) },
+                        enabled = !modelsLoading && !connectionTesting && currentValidatedHost != null && apiKey.isNotBlank() && keyProblem == null,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    ) {
+                        Text(if (modelsLoading) "Đang tải…" else "Tải danh sách model từ host", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    }
+
+                    WallyAiDeveloperRoutingNote()
+                }
+                if (diagnosticsText.isNotBlank() && showAdvanced) {
                     Text("Chẩn đoán gần đây (không chứa khóa hay nội dung nhật ký)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = WalletMuted)
                     Text(text = diagnosticsText.take(1800), fontSize = 8.5.sp, color = WalletMicroText, lineHeight = 11.sp)
                     TextButton(onClick = {
@@ -2483,12 +2575,12 @@ fun UniversalQuickCaptureDialog(
         onDismissRequest = onDismiss,
         containerColor = WalletCardBg,
         title = {
-            Text("Thu thập nhanh (Offline)", fontWeight = FontWeight.ExtraBold, color = WalletInk)
+            Text("Ghi nhanh", fontWeight = FontWeight.ExtraBold, color = WalletInk)
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "Gõ tự nhiên: ví dụ \"Đọc báo cáo P1 45p\" (tự tách công việc / thời lượng / quy tắc nhóm).",
+                    text = "Gõ tự nhiên: ví dụ \"Đọc báo cáo P1 45p\" (tự nhận việc cần làm, khoảng giờ hoặc thời lượng).",
                     fontSize = 11.5.sp,
                     color = WalletMuted
                 )
@@ -2501,28 +2593,50 @@ fun UniversalQuickCaptureDialog(
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
+                val chipRows = listOf(
                     listOf(
                         null to "Tự động",
-                        CaptureIntentKind.TASK_INBOX to "Việc Inbox",
+                        CaptureIntentKind.TASK_INBOX to "Việc Inbox"
+                    ),
+                    listOf(
                         CaptureIntentKind.TIMED_EVENT to "Lên lịch có giờ",
                         CaptureIntentKind.DURATION_ONLY to "Ghi thời lượng"
-                    ).forEach { (kindVal, label) ->
-                        val selected = preferredKind == kindVal
-                        Text(
-                            text = label,
-                            fontSize = 11.5.sp,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                            color = if (selected) Color.White else WalletInk,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(100.dp))
-                                .background(if (selected) WalletMintDark else WalletMintTint)
-                                .walletClickable(onClickLabel = label) { preferredKind = kindVal }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                        )
+                    )
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    chipRows.forEach { rowItems ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            rowItems.forEach { (kindVal, label) ->
+                                val selected = preferredKind == kindVal
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(100.dp))
+                                        .background(if (selected) WalletMintDark else WalletMintTint)
+                                        .border(
+                                            1.dp,
+                                            if (selected) WalletMintDark else WalletStroke,
+                                            RoundedCornerShape(100.dp)
+                                        )
+                                        .walletClickable(onClickLabel = label) { preferredKind = kindVal }
+                                        .padding(horizontal = 8.dp, vertical = 7.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = label,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (selected) Color.White else WalletInk,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
                 if (preview != null) {

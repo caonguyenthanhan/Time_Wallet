@@ -290,5 +290,14 @@ class V210ScheduleInteractionTest {
 
         val vmSrc = File("src/main/java/com/timewallet/mvp/ui/TimeWalletViewModel.kt").readText()
         assertTrue(vmSrc.contains("fun placeUntimedRecordOnSlot("))
+
+        // Header Lịch trình hợp nhất 3 hàng trong panel xanh duy nhất (không còn thanh trên tách rời khi ở chế độ Lịch trình)
+        val historySrc = File("src/main/java/com/timewallet/mvp/ui/screens/HistoryScreen.kt").readText()
+        assertTrue(historySrc.contains("if (!activeCalendarMode)"))
+        assertTrue(historySrc.contains("recordedSummaryBadge = todaySummary24Text"))
+        assertTrue(historySrc.contains("onSwitchToTimelineMode = { setCalendarMode(false) }"))
+        assertTrue(scheduleSrc.contains("recordedSummaryBadge: String? = null"))
+        assertTrue(scheduleSrc.contains("onSwitchToTimelineMode: (() -> Unit)? = null"))
+        assertTrue(scheduleSrc.contains("LocalMinimumInteractiveComponentSize provides 28.dp"))
     }
 }

@@ -64,6 +64,7 @@ data class AiTodoProposal(
     val suggestedSubtasks: List<String> = emptyList(),
     val categoryKey: String = TimeCategory.WORK.key,
     val conflictWarningVi: String? = null,
+    val deadlineWarningVi: String? = null,
     val needsConfirmation: Boolean = true
 )
 
@@ -265,7 +266,8 @@ object AiTodoEngine {
         )
         val openGaps = dayModel.freeGaps
             .mapNotNull { g ->
-                val s = maxOf(g.startMinute, ((nowMinute + 14) / 15) * 15)
+                // Giữ đệm 5–19 phút trước mốc 15p kế tiếp để đề xuất không vừa hiện đã quá hạn khi bấm Áp dụng.
+                val s = maxOf(g.startMinute, ((nowMinute + 19) / 15) * 15)
                 val e = minOf(g.endMinute, 23 * 60)
                 if (e - s >= 15) ScheduleFreeGap(todayLocal, s, e) else null
             }
@@ -307,16 +309,29 @@ object AiTodoEngine {
                     val startMin = gap.startMinute
                     val endMin = minOf(gap.endMinute, startMin + need)
                     if (endMin - startMin >= 15) {
+                        val sHm = TimeRange.formatHm(startMin)
+                        val eHm = TimeRange.formatHm(endMin)
+                        val deadlineWarn = buildScheduleDeadlineNoteVi(
+                            task = task,
+                            targetDateLocal = todayLocal,
+                            startHm = sHm,
+                            endHm = eHm,
+                            todayLocal = todayLocal,
+                            nowEpochMs = nowEpochMs,
+                            zoneId = zoneId
+                        )
+                        val baseReason = "Phù hợp khung trống ${ScheduleGridEngine.formatHmWindow(startMin, endMin)} hôm nay (${task.priority.badgeText})"
                         proposals += AiTodoProposal(
                             id = "prop_sched_${task.id}",
                             kind = AiTodoProposalKind.SCHEDULE_INTO_GAP,
                             taskId = task.id,
                             taskTitle = task.title,
-                            reasonVi = "Phù hợp khung trống ${ScheduleGridEngine.formatHmWindow(startMin, endMin)} hôm nay (${task.priority.badgeText})",
+                            reasonVi = if (deadlineWarn != null) "$baseReason · $deadlineWarn" else baseReason,
                             targetDateLocal = todayLocal,
-                            startHm = TimeRange.formatHm(startMin),
-                            endHm = TimeRange.formatHm(endMin),
+                            startHm = sHm,
+                            endHm = eHm,
                             categoryKey = task.category.key,
+                            deadlineWarningVi = deadlineWarn,
                             needsConfirmation = true
                         )
                         if (endMin < gap.endMinute) {
@@ -330,12 +345,20 @@ object AiTodoEngine {
             }
             // 3. Nếu hết giờ trống hợp lý cho việc P2/P3 hôm nay -> đề xuất hoãn sang ngày mai
             if (task.dueDateLocal == todayLocal && task.priority != TaskPriority.P1 && openGaps.isEmpty()) {
+                val oldDueLabel = buildString {
+                    append(formatShortDateVi(task.dueDateLocal))
+                    if (!task.dueTimeLocal.isNullOrBlank()) append(" ${task.dueTimeLocal}")
+                }
+                val newDueLabel = buildString {
+                    append(formatShortDateVi(tomorrowStr))
+                    if (!task.dueTimeLocal.isNullOrBlank()) append(" ${task.dueTimeLocal}")
+                }
                 proposals += AiTodoProposal(
                     id = "prop_postpone_${task.id}",
                     kind = AiTodoProposalKind.POSTPONE_TO_TOMORROW,
                     taskId = task.id,
                     taskTitle = task.title,
-                    reasonVi = "Hết khoảng trống phù hợp hôm nay — dời sang ngày mai để giảm quá tải",
+                    reasonVi = "Hết khoảng trống phù hợp hôm nay — đổi hạn $oldDueLabel → $newDueLabel",
                     targetDateLocal = tomorrowStr,
                     categoryKey = task.category.key,
                     needsConfirmation = true
@@ -343,6 +366,53 @@ object AiTodoEngine {
             }
         }
         return proposals
+    }
+
+    /**
+     * Tạo cảnh báo minh bạch khi khung giờ xếp lịch nằm sau hạn công việc hoặc công việc đã quá hạn.
+     */
+    fun buildScheduleDeadlineNoteVi(
+        task: TaskItem,
+        targetDateLocal: String,
+        startHm: String,
+        endHm: String,
+        todayLocal: String,
+        nowEpochMs: Long,
+        zoneId: ZoneId = ZoneId.systemDefault()
+    ): String? {
+        val dueDateStr = task.dueDateLocal ?: return null
+        val dueDate = runCatching { LocalDate.parse(dueDateStr) }.getOrNull() ?: return null
+        val targetDate = runCatching { LocalDate.parse(targetDateLocal) }.getOrNull() ?: return null
+        val todayDate = runCatching { LocalDate.parse(todayLocal) }.getOrElse { LocalDate.now(zoneId) }
+        val startMin = TimeRange.parseMinuteOfDay(startHm) ?: return null
+        val endMin = TimeRange.parseMinuteOfDay(endHm) ?: return null
+        val nowMinute = Instant.ofEpochMilli(nowEpochMs).atZone(zoneId).let { it.hour * 60 + it.minute }
+        val dueMin = task.dueTimeLocal?.let { TimeRange.parseMinuteOfDay(it) }
+
+        val isOverdueNow = dueDate.isBefore(todayDate) ||
+            (dueDate == todayDate && dueMin != null && dueMin <= nowMinute)
+        val isSlotAfterDeadline = targetDate.isAfter(dueDate) ||
+            (targetDate == dueDate && dueMin != null && endMin > dueMin)
+
+        if (!isOverdueNow && !isSlotAfterDeadline) return null
+
+        val dueLabel = buildString {
+            append(if (dueDate == todayDate) "hôm nay" else formatShortDateVi(dueDateStr))
+            if (!task.dueTimeLocal.isNullOrBlank()) append(" ${task.dueTimeLocal}")
+        }
+        val overdueStatus = if (isOverdueNow) " (đã quá hạn)" else ""
+        val slotRelation = when {
+            targetDate.isAfter(dueDate) || (targetDate == dueDate && dueMin != null && startMin >= dueMin) ->
+                "khung $startHm–$endHm nằm sau hạn"
+            else ->
+                "khung $startHm–$endHm kết thúc sau hạn"
+        }
+        return "Hạn $dueLabel$overdueStatus — $slotRelation (hạn gốc vẫn giữ nguyên)."
+    }
+
+    private fun formatShortDateVi(dateLocal: String): String {
+        val parsed = runCatching { LocalDate.parse(dateLocal) }.getOrNull() ?: return dateLocal
+        return "${parsed.dayOfMonth.toString().padStart(2, '0')}/${parsed.monthValue.toString().padStart(2, '0')}"
     }
 
     /**
@@ -372,9 +442,19 @@ object AiTodoEngine {
                     ScheduleGridEngine.buildDayScheduleModel(d, records, activeTimer, nowEpochMs, zoneId).timedBlocks
                 }
                 val conflict = dayBlocks.firstOrNull { it.startMinute < endMin && startMin < it.endMinute }
+                val deadlineWarn = buildScheduleDeadlineNoteVi(
+                    task = task,
+                    targetDateLocal = prop.targetDateLocal,
+                    startHm = prop.startHm,
+                    endHm = prop.endHm,
+                    todayLocal = todayLocal,
+                    nowEpochMs = nowEpochMs,
+                    zoneId = zoneId
+                )
                 prop.copy(
                     taskTitle = task.title,
                     conflictWarningVi = conflict?.let { "Vừa phát sinh trùng lịch với \"${it.title}\"" },
+                    deadlineWarningVi = deadlineWarn,
                     needsConfirmation = true
                 )
             } else {
@@ -421,6 +501,7 @@ object AiTodoEngine {
                     .put("suggestedSubtasks", JSONArray(p.suggestedSubtasks))
                     .put("categoryKey", p.categoryKey)
                     .put("conflictWarningVi", p.conflictWarningVi ?: JSONObject.NULL)
+                    .put("deadlineWarningVi", p.deadlineWarningVi ?: JSONObject.NULL)
             )
         }
         obj.put("proposals", propArr)
@@ -478,6 +559,7 @@ object AiTodoEngine {
                             suggestedSubtasks = subs,
                             categoryKey = p.optString("categoryKey", TimeCategory.WORK.key),
                             conflictWarningVi = p.optString("conflictWarningVi", "").takeIf { it.isNotBlank() && it != "null" },
+                            deadlineWarningVi = p.optString("deadlineWarningVi", "").takeIf { it.isNotBlank() && it != "null" },
                             needsConfirmation = true
                         )
                     )
@@ -537,11 +619,12 @@ object AiTodoEngine {
 
     private fun parseExplicitWallTimeHm(raw: String): String? {
         val tokens = raw.split(' ', ',', ';')
-        val cuePrefixes = setOf("luc", "lúc", "tu", "từ", "den", "đến", "truoc", "trước", "vao", "vào", "gio", "giờ", "mai", "nay", "kia", "sang", "sáng", "trua", "trưa", "chieu", "chiều", "toi", "tối")
+        val cuePrefixes = setOf("luc", "lúc", "tu", "từ", "den", "đến", "truoc", "trước", "han", "hạn", "vao", "vào", "gio", "giờ", "mai", "nay", "kia", "sang", "sáng", "trua", "trưa", "chieu", "chiều", "toi", "tối")
         for (i in tokens.indices) {
             val tok = tokens[i].trim().lowercase()
             if (tok.isEmpty() || tok.endsWith("p") || tok.endsWith("m")) continue
             val prev = tokens.getOrNull(i - 1)?.trim()?.lowercase().orEmpty()
+            val next = tokens.getOrNull(i + 1)?.trim()?.lowercase().orEmpty()
             val hIdx = tok.indexOf('h')
             if (tok.contains(':')) {
                 val mins = TimeRange.parseMinuteOfDay(tok)
@@ -550,10 +633,15 @@ object AiTodoEngine {
                 val hPart = tok.substring(0, hIdx)
                 val mPart = tok.substring(hIdx + 1)
                 if (hPart.all(Char::isDigit) && mPart.all(Char::isDigit)) {
-                    val h = hPart.toIntOrNull()
+                    val rawH = hPart.toIntOrNull()
                     val m = if (mPart.isEmpty()) 0 else mPart.toIntOrNull()
-                    if (h != null && h in 0..23 && m != null && m in 0..59) {
-                        val hasCue = prev in cuePrefixes || h >= 7 || mPart.isNotEmpty()
+                    if (rawH != null && rawH in 0..23 && m != null && m in 0..59) {
+                        val h = when {
+                            rawH in 1..11 && (next == "chiều" || next == "chieu" || next == "tối" || next == "toi" || next == "đêm" || next == "dem") -> rawH + 12
+                            rawH == 12 && (next == "sáng" || next == "sang" || next == "đêm" || next == "dem") -> 0
+                            else -> rawH
+                        }
+                        val hasCue = prev in cuePrefixes || h >= 7 || mPart.isNotEmpty() || next in setOf("sáng", "sang", "trưa", "trua", "chiều", "chieu", "tối", "toi", "đêm", "dem")
                         if (hasCue) {
                             return TimeRange.formatHm(h * 60 + m)
                         }
@@ -624,17 +712,27 @@ object AiTodoEngine {
     }
 
     private fun cleanTaskTitle(quickClean: String, original: String): String {
-        val base = quickClean.ifBlank { original }
-        val dropPhrases = listOf("hôm nay", "ngày mai", "ngày kia", "cuối tuần", "hom nay", "ngay mai", "ngay kia")
-        var cleaned = base
-        for (p in dropPhrases) {
-            cleaned = cleaned.replace(p, " ", ignoreCase = true)
+        var cleaned = original.trim().ifBlank { quickClean }
+        // Gỡ cụm hạn/thời điểm, ngày, thời lượng, mức ưu tiên để giữ tên việc gọn sạch (vd: "Soạn báo cáo").
+        val patterns = listOf(
+            Rx.uni("""(?:^|[\s,;])(?:trước|truoc|hạn|han|lúc|luc|vào|vao|từ|tu|đến|den|tới|toi)?\s*\d{1,2}(?::\d{2}|h\d{0,2})(?:\s*(?:giờ\s*|gio\s*)?(?:sáng|sang|trưa|trua|chiều|chieu|tối|toi|đêm|dem))?(?=\s|$|[,.;:!?])""", RegexOption.IGNORE_CASE),
+            Rx.uni("""(?:^|[\s,;])(?:cần|can|khoảng|khoang|dự\s*kiến|du\s*kien|tầm|tam|mất|mat)?\s*(?:\d+\s*h\s*\d*\s*p?|\d+\s*(?:phút|phut|p|min|tiếng|tieng|giờ|gio))(?=\s|$|[,.;:!?])""", RegexOption.IGNORE_CASE),
+            Rx.uni("""(?:^|[\s,;])(?:ngày\s*hôm\s*nay|ngay\s*hom\s*nay|hôm\s*nay|hom\s*nay|ngày\s*mai|ngay\s*mai|ngày\s*kia|ngay\s*kia|cuối\s*tuần|cuoi\s*tuan|chủ\s*nhật|chu\s*nhat|thứ\s*[2-7]|thu\s*[2-7]|thứ\s*(?:hai|ba|tư|tu|năm|nam|sáu|sau|bảy|bay))(?=\s|$|[,.;:!?])""", RegexOption.IGNORE_CASE),
+            Rx.uni("""(?:^|[\s,;])\d{1,2}/\d{1,2}(?=\s|$|[,.;:!?])""", RegexOption.IGNORE_CASE),
+            Rx.uni("""(?:^|[\s,;])(?:ưu\s*tiên\s*cao|uu\s*tien\s*cao|ưu\s*tiên\s*thấp|uu\s*tien\s*thap|khẩn\s*cấp|khan\s*cap|rất\s*gấp|rat\s*gap|không\s*gấp|khong\s*gap|p1|p2|p3)(?=\s|$|[,.;:!?])""", RegexOption.IGNORE_CASE),
+            Rx.uni("""(?:^|\s)(?:mai|mốt|mot)(?=\s|$|[,.;:!?])""")
+        )
+        for (rx in patterns) {
+            cleaned = rx.replace(cleaned, " ")
         }
-        return collapseSpaces(cleaned).ifBlank { base }
+        // Dọn từ nối còn sót ở cuối câu sau khi bóc thời hạn/thời lượng
+        cleaned = Rx.uni("""(?:[\s,;]+(?:trước|truoc|hạn|han|lúc|luc|vào|vao|cần|can|dự\s*kiến|khoảng|tầm))+$""", RegexOption.IGNORE_CASE).replace(cleaned, "")
+        cleaned = collapseSpaces(cleaned.replace(Rx.uni("""\s*[,;]+\s*"""), ", ").trim(' ', ',', ';', '-', '–', ':'))
+        return cleaned.ifBlank { quickClean.ifBlank { original.trim() } }
     }
 
     private fun hasWord(haystack: String, word: String): Boolean =
-        haystack.split(' ').any { it == word }
+        haystack.split(' ', ',', ';', '.', '!', '?').any { it == word }
 
     private fun hasPhrase(haystack: String, phrase: String): Boolean =
         (" $haystack ").contains(" $phrase ")

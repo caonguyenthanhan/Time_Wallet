@@ -19,11 +19,15 @@ import android.view.MotionEvent
 import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.widget.FrameLayout
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,11 +51,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -63,12 +69,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -107,10 +118,13 @@ import com.timewallet.mvp.ui.theme.WalletCardBg
 import com.timewallet.mvp.ui.theme.WalletDangerText
 import com.timewallet.mvp.ui.theme.WalletDivider
 import com.timewallet.mvp.ui.theme.WalletInk
+import com.timewallet.mvp.ui.theme.WalletIsDark
 import com.timewallet.mvp.ui.theme.WalletMint
 import com.timewallet.mvp.ui.theme.WalletMintAccent
+import com.timewallet.mvp.ui.theme.WalletMintDark
 import com.timewallet.mvp.ui.theme.WalletMintSoft
 import com.timewallet.mvp.ui.theme.WalletMuted
+import com.timewallet.mvp.ui.theme.WalletSoftNeutral
 import com.timewallet.mvp.ui.theme.WalletStroke
 import com.timewallet.mvp.ui.theme.WalletWarningBg
 import com.timewallet.mvp.ui.theme.WalletWarningText
@@ -128,10 +142,11 @@ private enum class FloatingUiMode {
     CHAT
 }
 
-private enum class QuickPanelTab(val labelVi: String) {
-    TODO("To-do"),
-    SCHEDULE("Lịch trình"),
-    AI("Wally AI")
+private enum class QuickPanelDrawer {
+    OVERVIEW,
+    ADD_TODO,
+    SCHEDULE,
+    AI
 }
 
 private data class FloatingChatMsg(
@@ -278,7 +293,7 @@ class WallyFloatingService : Service() {
             windowParams.width = WindowManager.LayoutParams.WRAP_CONTENT
             windowParams.height = WindowManager.LayoutParams.WRAP_CONTENT
             windowParams.x = 0
-            windowParams.y = (56f * metrics.density).roundToInt()
+            windowParams.y = (22f * metrics.density).roundToInt()
             windowParams.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
         }
         runCatching {
@@ -567,26 +582,45 @@ private fun FloatingAssistantRootContent(
             FloatingUiMode.BUBBLE -> {
                 val isTimerRunning = snapshot?.current?.mode == CurrentWorkMode.ACTIVE_TIMER
                 val isPaused = snapshot?.current?.mode == CurrentWorkMode.PAUSED_TIMER
+                val ringTint = when {
+                    isTimerRunning -> WalletMintAccent
+                    isPaused -> WalletWarningText
+                    else -> WalletMint.copy(alpha = 0.45f)
+                }
                 Box(
                     modifier = Modifier
-                        .size(58.dp)
+                        .size(60.dp)
                         .semantics {
                             contentDescription = "Trợ lý Wally nổi"
                         },
                     contentAlignment = Alignment.Center
                 ) {
+                    if (isTimerRunning || isPaused) {
+                        Box(
+                            modifier = Modifier
+                                .size(60.dp)
+                                .clip(CircleShape)
+                                .background(ringTint.copy(alpha = 0.16f))
+                        )
+                    }
                     Surface(
-                        shape = CircleShape,
+                        shape = RoundedCornerShape(18.dp),
                         color = WalletCardBg,
-                        shadowElevation = 6.dp,
+                        shadowElevation = 8.dp,
                         border = BorderStroke(
-                            width = if (isTimerRunning) 2.5.dp else 1.5.dp,
-                            color = if (isTimerRunning) WalletMintAccent else if (isPaused) WalletWarningText else WalletStroke
+                            width = if (isTimerRunning) 2.dp else 1.2.dp,
+                            color = ringTint
                         ),
                         modifier = Modifier.size(54.dp)
                     ) {
                         Box(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.radialGradient(
+                                        listOf(WalletMintSoft.copy(alpha = 0.35f), WalletCardBg)
+                                    )
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Image(
@@ -594,7 +628,7 @@ private fun FloatingAssistantRootContent(
                                 contentDescription = "Trợ lý Wally nổi",
                                 modifier = Modifier
                                     .size(42.dp)
-                                    .clip(CircleShape)
+                                    .clip(RoundedCornerShape(12.dp))
                             )
                         }
                     }
@@ -605,8 +639,8 @@ private fun FloatingAssistantRootContent(
                                 .padding(2.dp)
                                 .size(12.dp)
                                 .clip(CircleShape)
-                                .background(if (isTimerRunning) WalletMintAccent else WalletWarningText)
-                                .border(1.5.dp, WalletCardBg, CircleShape)
+                                .background(ringTint)
+                                .border(2.dp, WalletCardBg, CircleShape)
                         )
                     }
                 }
@@ -650,67 +684,69 @@ private fun FloatingQuickPanelCard(
     onOpenMainApp: (tab: String, openChat: Boolean) -> Unit,
     onStopAssistant: () -> Unit
 ) {
-    var selectedTab by remember { mutableStateOf(QuickPanelTab.TODO) }
+    var activeDrawer by remember { mutableStateOf(QuickPanelDrawer.OVERVIEW) }
     var quickTodoText by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    val quickInputFocusRequester = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
+    val cfg = LocalConfiguration.current
+    val isNarrowScreen = cfg.screenWidthDp < 360
+    val panelMaxWidthDp = (cfg.screenWidthDp - 12).coerceIn(296, 348).dp
+    val panelMaxHeightDp = when {
+        activeDrawer == QuickPanelDrawer.ADD_TODO -> (cfg.screenHeightDp * 0.44f).coerceIn(240f, 300f).dp
+        else -> (cfg.screenHeightDp * 0.72f).coerceIn(320f, 450f).dp
+    }
 
     Surface(
         shape = RoundedCornerShape(22.dp),
         color = WalletCardBg,
-        shadowElevation = 10.dp,
-        border = BorderStroke(1.dp, WalletStroke),
+        shadowElevation = 12.dp,
+        border = BorderStroke(0.8.dp, WalletStroke),
         modifier = Modifier
-            .widthIn(min = 326.dp, max = 358.dp)
-            .heightIn(max = 530.dp)
+            .widthIn(min = 292.dp, max = panelMaxWidthDp)
+            .fillMaxWidth(0.95f)
+            .heightIn(max = panelMaxHeightDp)
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(horizontal = if (isNarrowScreen) 9.dp else 10.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
-            // Top bar
+            // Top bar siêu gọn 1 hàng — bảo toàn chữ "Wally" không bị cắt thành "Wall" ở 320dp
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(if (isNarrowScreen) 3.dp else 4.dp)
             ) {
                 Image(
                     painter = painterResource(id = R.drawable.ic_wally),
                     contentDescription = "Wally",
                     modifier = Modifier
-                        .size(26.dp)
+                        .size(if (isNarrowScreen) 20.dp else 22.dp)
                         .clip(CircleShape)
                 )
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Wally",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = WalletInk,
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    if (snapshot != null) {
-                        Text(
-                            text = "Thực tế ${TimeRange.formatDuration(snapshot.actualRecordedMinutes)} · Trống ${TimeRange.formatDuration(snapshot.freeRemainingMinutes)}",
-                            fontSize = 10.sp,
-                            color = WalletMuted,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
+                Text(
+                    text = "Wally",
+                    fontSize = if (isNarrowScreen) 12.5.sp else 13.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = WalletInk,
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier
+                        .weight(1f)
+                        .widthIn(min = 42.dp)
+                )
                 FloatingPillButton(label = "Chat", accent = true) {
                     onSwitchMode(FloatingUiMode.CHAT)
                 }
-                FloatingPillButton(label = "App") {
-                    onOpenMainApp("schedule", false)
-                }
-                FloatingPillButton(label = "—") {
+                FloatingPillButton(label = "Thu gọn", contentDescriptionLabel = "Thu gọn bảng nổi") {
                     onSwitchMode(FloatingUiMode.BUBBLE)
                 }
-                FloatingPillButton(label = "Tắt", danger = true, onClick = onStopAssistant)
+                FloatingPillButton(
+                    label = "Tắt nổi",
+                    danger = true,
+                    contentDescriptionLabel = "Tắt trợ lý nổi",
+                    onClick = onStopAssistant
+                )
             }
 
             if (!actionBanner.isNullOrBlank()) {
@@ -723,72 +759,80 @@ private fun FloatingQuickPanelCard(
                 )
             }
 
-            // Current + Upcoming card
+            // 1. Đang làm & 2. Sắp làm — thẻ hero phân tầng surface rõ ràng, đồng hồ lớn dễ đọc ngay lập tức
             Surface(
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(16.dp),
                 color = WalletMintSoft,
-                border = BorderStroke(1.dp, WalletStroke),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    modifier = Modifier.padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     val cur = snapshot?.current
+                    val titleDisplay = cur?.title ?: snapshot?.todoItems?.firstOrNull { !it.isDone }?.title ?: "Chưa có phiên đo"
+                    val stateTag = when (cur?.mode) {
+                        CurrentWorkMode.ACTIVE_TIMER -> "● Đang làm"
+                        CurrentWorkMode.PAUSED_TIMER -> "⏸ Tạm dừng"
+                        CurrentWorkMode.CURRENT_PLANNED -> "◷ Theo lịch"
+                        else -> "✓ Sẵn sàng"
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = when (cur?.mode) {
-                                CurrentWorkMode.ACTIVE_TIMER -> "● ĐANG LÀM"
-                                CurrentWorkMode.PAUSED_TIMER -> "⏸ TẠM DỪNG"
-                                CurrentWorkMode.CURRENT_PLANNED -> "◷ THEO LỊCH"
-                                else -> "✓ SẴN SÀNG"
-                            },
-                            fontSize = 10.sp,
+                            text = "$stateTag · $titleDisplay",
+                            fontSize = 12.5.sp,
                             fontWeight = FontWeight.Bold,
-                            color = WalletMintAccent
+                            color = WalletInk,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
-                        if (cur?.mode == CurrentWorkMode.ACTIVE_TIMER || cur?.mode == CurrentWorkMode.PAUSED_TIMER) {
+                        val rightMetric = when {
+                            cur?.mode == CurrentWorkMode.ACTIVE_TIMER || cur?.mode == CurrentWorkMode.PAUSED_TIMER ->
+                                formatHms(cur.elapsedSeconds)
+                            snapshot != null ->
+                                "Ghi ${TimeRange.formatDuration(snapshot.actualRecordedMinutes)}"
+                            else -> ""
+                        }
+                        if (rightMetric.isNotEmpty()) {
                             Text(
-                                text = formatHms(cur.elapsedSeconds),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = WalletInk
+                                text = rightMetric,
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontFamily = FontFamily.Monospace,
+                                color = WalletMintAccent,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                     }
-                    Text(
-                        text = cur?.title ?: snapshot?.todoItems?.firstOrNull { !it.isDone }?.title ?: "Chưa có phiên đo",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = WalletInk,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = cur?.subtitleVi ?: snapshot?.nextFreeWindowLabel?.let { "Khoảng trống kế: $it" } ?: "Chạm ▶ để đo ngay",
-                        fontSize = 11.sp,
-                        color = WalletMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        val primaryLabel = when (cur?.mode) {
-                            CurrentWorkMode.ACTIVE_TIMER -> "⏸ Tạm dừng"
-                            CurrentWorkMode.PAUSED_TIMER -> "▶ Tiếp tục"
-                            else -> "▶ Bắt đầu đo"
-                        }
-                        Button(
-                            onClick = {
-                                if (busy) return@Button
+
+                    if (activeDrawer != QuickPanelDrawer.ADD_TODO) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val primaryIcon = when (cur?.mode) {
+                                CurrentWorkMode.ACTIVE_TIMER -> "⏸"
+                                CurrentWorkMode.PAUSED_TIMER -> "▶"
+                                else -> "▶"
+                            }
+                            val primaryAria = when (cur?.mode) {
+                                CurrentWorkMode.ACTIVE_TIMER -> "⏸ Tạm dừng"
+                                CurrentWorkMode.PAUSED_TIMER -> "▶ Tiếp tục"
+                                else -> "▶ Đo ngay"
+                            }
+                            FloatingPillButton(
+                                label = primaryIcon,
+                                contentDescriptionLabel = primaryAria,
+                                accent = true
+                            ) {
+                                if (busy) return@FloatingPillButton
                                 busy = true
                                 scope.launch {
                                     val res = when (cur?.mode) {
@@ -810,126 +854,97 @@ private fun FloatingQuickPanelCard(
                                             }
                                         }
                                     }
-                                    if (res != null) onShowBanner(res.messageVi)
+                                    // Chỉ hiện banner khi bị chặn/lỗi; khi thành công thì thẻ trạng thái bên dưới đã phản ánh trực tiếp
+                                    onShowBanner(if (res is WallyActionController.ActionOutcome.Blocked) res.messageVi else null)
                                     onReload()
                                     busy = false
                                 }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            shape = RoundedCornerShape(999.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(primaryLabel, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                        if (cur?.mode == CurrentWorkMode.ACTIVE_TIMER || cur?.mode == CurrentWorkMode.PAUSED_TIMER) {
-                            OutlinedButton(
-                                onClick = {
-                                    if (busy) return@OutlinedButton
+                            }
+                            if (cur?.mode == CurrentWorkMode.ACTIVE_TIMER || cur?.mode == CurrentWorkMode.PAUSED_TIMER) {
+                                FloatingPillButton(
+                                    label = "⏹",
+                                    contentDescriptionLabel = "⏹ Lưu"
+                                ) {
+                                    if (busy) return@FloatingPillButton
                                     busy = true
                                     scope.launch {
                                         val res = WallyActionController.stopAndSaveActiveTimer(serviceContext)
-                                        onShowBanner(res.messageVi)
+                                        onShowBanner(if (res is WallyActionController.ActionOutcome.Blocked) res.messageVi else null)
                                         onReload()
                                         busy = false
                                     }
-                                },
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                shape = RoundedCornerShape(999.dp)
-                            ) {
-                                Text("⏹ Lưu", fontSize = 11.sp, color = WalletInk)
+                                }
                             }
-                        }
-                    }
-
-                    snapshot?.upcoming?.let { up ->
-                        HorizontalDivider(color = WalletDivider, modifier = Modifier.padding(top = 4.dp))
-                        Text(
-                            text = "Sắp làm: ${up.startHm} · ${up.title} (còn ${up.startsInMinutes}p)",
-                            fontSize = 11.sp,
-                            color = WalletInk,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-            }
-
-            // Tab selector
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                QuickPanelTab.entries.forEach { tab ->
-                    FloatingPillButton(
-                        label = tab.labelVi,
-                        accent = selectedTab == tab
-                    ) {
-                        selectedTab = tab
-                    }
-                }
-            }
-
-            // Tab Content
-            Column(
-                modifier = Modifier
-                    .weight(1f, fill = false)
-                    .heightIn(max = 240.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                when (selectedTab) {
-                    QuickPanelTab.TODO -> {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = quickTodoText,
-                                onValueChange = { quickTodoText = it },
-                                placeholder = { Text("Thêm To-do (vd: Soạn báo cáo mai 15h 45p)", fontSize = 11.sp) },
-                                singleLine = true,
+                            val nextCompact = snapshot?.upcoming?.let { up ->
+                                "Kế: ${up.startHm} ${up.title}"
+                            } ?: snapshot?.nextFreeWindowLabel?.let {
+                                "Trống: $it"
+                            } ?: "Trống ${TimeRange.formatDuration(snapshot?.freeRemainingMinutes ?: 0)}"
+                            Text(
+                                text = nextCompact,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = WalletInk.copy(alpha = 0.78f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f)
                             )
-                            Button(
-                                onClick = {
-                                    if (quickTodoText.isBlank() || busy) return@Button
-                                    val raw = quickTodoText
-                                    quickTodoText = ""
-                                    busy = true
-                                    scope.launch {
-                                        val res = WallyActionController.quickAddNaturalTask(serviceContext, raw)
-                                        onShowBanner(res.messageVi)
-                                        onReload()
-                                        busy = false
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-                                shape = RoundedCornerShape(12.dp)
+                        }
+                    }
+                }
+            }
+
+            // 3. Việc cần xử lý — chuyển đổi mượt giữa các drawer trên nền surface phân tầng không viền
+            AnimatedContent(
+                targetState = activeDrawer,
+                transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(140)) },
+                label = "floatingPanelDrawer",
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .heightIn(max = 228.dp)
+            ) { drawer ->
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                when (drawer) {
+                    QuickPanelDrawer.OVERVIEW -> {
+                        val todos = snapshot?.todoItems.orEmpty()
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (todos.isEmpty()) "Việc cần xử lý" else "Việc cần xử lý (${todos.size})",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = WalletMuted
+                            )
+                            FloatingPillButton(
+                                label = "＋",
+                                contentDescriptionLabel = "+ Thêm nhanh",
+                                accent = true
                             ) {
-                                Text("+", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                activeDrawer = QuickPanelDrawer.ADD_TODO
                             }
                         }
 
-                        val todos = snapshot?.todoItems.orEmpty()
                         if (todos.isEmpty()) {
                             Text(
                                 text = "Chưa có To-do nào đang mở.",
-                                fontSize = 12.sp,
+                                fontSize = 11.5.sp,
                                 color = WalletMuted,
-                                modifier = Modifier.padding(vertical = 8.dp)
+                                modifier = Modifier.padding(vertical = 2.dp)
                             )
                         } else {
-                            todos.take(8).forEach { item ->
+                            todos.take(4).forEach { item ->
                                 Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = WalletBg,
-                                    border = BorderStroke(1.dp, WalletStroke),
+                                    shape = RoundedCornerShape(13.dp),
+                                    color = WalletSoftNeutral,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Row(
@@ -937,12 +952,15 @@ private fun FloatingQuickPanelCard(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        FloatingPillButton(label = if (item.isDone) "✓" else "○") {
+                                        FloatingPillButton(
+                                            label = if (item.isDone) "✓" else "○",
+                                            contentDescriptionLabel = if (item.isDone) "✓" else "○"
+                                        ) {
                                             if (busy) return@FloatingPillButton
                                             busy = true
                                             scope.launch {
                                                 val res = WallyActionController.toggleTaskDone(serviceContext, item.id)
-                                                onShowBanner(res.messageVi)
+                                                onShowBanner(if (res is WallyActionController.ActionOutcome.Blocked) res.messageVi else null)
                                                 onReload()
                                                 busy = false
                                             }
@@ -983,7 +1001,7 @@ private fun FloatingQuickPanelCard(
                                                     taskId = item.id,
                                                     targetMinutes = item.estimatedMinutes
                                                 )
-                                                onShowBanner(res.messageVi)
+                                                onShowBanner(if (res is WallyActionController.ActionOutcome.Blocked) res.messageVi else null)
                                                 onReload()
                                                 busy = false
                                             }
@@ -992,13 +1010,123 @@ private fun FloatingQuickPanelCard(
                                 }
                             }
                         }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            FloatingPillButton(
+                                label = "Lịch hôm nay",
+                                modifier = Modifier.weight(1f),
+                                centerContent = true
+                            ) {
+                                activeDrawer = QuickPanelDrawer.SCHEDULE
+                            }
+                            FloatingPillButton(
+                                label = "✦ Gợi ý",
+                                modifier = Modifier.weight(1f),
+                                centerContent = true
+                            ) {
+                                activeDrawer = QuickPanelDrawer.AI
+                            }
+                            if (todos.size > 4) {
+                                FloatingPillButton(label = "Mở hết ↗") {
+                                    onOpenMainApp("tasks", false)
+                                }
+                            } else {
+                                FloatingPillButton(label = "Mở app ↗") {
+                                    onOpenMainApp("schedule", false)
+                                }
+                            }
+                        }
                     }
 
-                    QuickPanelTab.SCHEDULE -> {
+                    QuickPanelDrawer.ADD_TODO -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Start,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            FloatingPillButton(label = "← Việc cần làm") {
+                                activeDrawer = QuickPanelDrawer.OVERVIEW
+                            }
+                        }
+                        val hasInput = quickTodoText.isNotBlank()
+                        OutlinedTextField(
+                            value = quickTodoText,
+                            onValueChange = { quickTodoText = it },
+                            placeholder = { Text("Ví dụ: Soạn báo cáo mai 15h 45p P1", fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = WalletInk,
+                                unfocusedTextColor = WalletInk,
+                                focusedContainerColor = WalletSoftNeutral,
+                                unfocusedContainerColor = WalletSoftNeutral,
+                                focusedBorderColor = WalletMint,
+                                unfocusedBorderColor = WalletStroke
+                            ),
+                            trailingIcon = {
+                                Box(
+                                    modifier = Modifier
+                                        .padding(end = 4.dp)
+                                        .size(30.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (hasInput) WalletMint else WalletMintSoft)
+                                        .semantics { contentDescription = "+" }
+                                        .walletClickable(
+                                            onClickLabel = if (hasInput) "Thêm công việc" else "Bắt đầu nhập công việc"
+                                        ) {
+                                            if (busy) return@walletClickable
+                                            val raw = quickTodoText.trim()
+                                            if (raw.isEmpty()) {
+                                                runCatching { quickInputFocusRequester.requestFocus() }
+                                                return@walletClickable
+                                            }
+                                            quickTodoText = ""
+                                            busy = true
+                                            scope.launch {
+                                                val res = WallyActionController.quickAddNaturalTask(serviceContext, raw)
+                                                onShowBanner(if (res is WallyActionController.ActionOutcome.Blocked) res.messageVi else null)
+                                                onReload()
+                                                activeDrawer = QuickPanelDrawer.OVERVIEW
+                                                busy = false
+                                            }
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "+",
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = if (hasInput) Color.White else WalletMintAccent
+                                    )
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(quickInputFocusRequester)
+                        )
+                    }
+
+                    QuickPanelDrawer.SCHEDULE -> {
                         val timeline = snapshot?.todayTimeline.orEmpty()
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            FloatingPillButton(label = "← Việc cần làm") {
+                                activeDrawer = QuickPanelDrawer.OVERVIEW
+                            }
+                            FloatingPillButton(label = "Mở lịch ↗", accent = true) {
+                                onOpenMainApp("schedule", false)
+                            }
+                        }
                         Text(
-                            text = snapshot?.nextFreeWindowLabel?.let { "Khoảng trống sắp tới: $it" }
-                                ?: "Tổng trống còn lại hôm nay: ${TimeRange.formatDuration(snapshot?.freeRemainingMinutes ?: 0)}",
+                            text = snapshot?.nextFreeWindowLabel?.let { "Khoảng trống kế: $it" }
+                                ?: "Trống còn lại hôm nay: ${TimeRange.formatDuration(snapshot?.freeRemainingMinutes ?: 0)}",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = WalletMintAccent
@@ -1012,9 +1140,8 @@ private fun FloatingQuickPanelCard(
                         } else {
                             timeline.forEach { blk ->
                                 Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = if (blk.isPlanned) WalletWarningBg else WalletBg,
-                                    border = BorderStroke(1.dp, WalletStroke),
+                                    shape = RoundedCornerShape(11.dp),
+                                    color = if (blk.isPlanned) WalletWarningBg else WalletSoftNeutral,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .walletClickable("Mở lịch trình") {
@@ -1047,11 +1174,13 @@ private fun FloatingQuickPanelCard(
                         }
                     }
 
-                    QuickPanelTab.AI -> {
+                    QuickPanelDrawer.AI -> {
+                        FloatingPillButton(label = "← Việc cần làm") {
+                            activeDrawer = QuickPanelDrawer.OVERVIEW
+                        }
                         Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = WalletBg,
-                            border = BorderStroke(1.dp, WalletStroke),
+                            shape = RoundedCornerShape(14.dp),
+                            color = WalletSoftNeutral,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(
@@ -1076,7 +1205,7 @@ private fun FloatingQuickPanelCard(
                                     FloatingPillButton(label = "💬 Chat Wally", accent = true) {
                                         onSwitchMode(FloatingUiMode.CHAT)
                                     }
-                                    FloatingPillButton(label = "Mở kế hoạch AI To-do") {
+                                    FloatingPillButton(label = "Mở AI To-do") {
                                         onOpenMainApp("tasks", false)
                                     }
                                 }
@@ -1084,6 +1213,7 @@ private fun FloatingQuickPanelCard(
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -1130,7 +1260,7 @@ private fun FloatingChatCard(
                 optInEnabled = aiPrefs.optInEnabled,
                 baseUrl = aiPrefs.baseUrl,
                 apiKey = aiPrefs.apiKey,
-                modelName = aiPrefs.actualModelDisplay(),
+                modelName = aiPrefs.modelName,
                 trustedHost = aiPrefs.trustedHost
             )
             val replyText = when {
@@ -1152,53 +1282,63 @@ private fun FloatingChatCard(
         }
     }
 
+    val cfg = LocalConfiguration.current
+    val chatMaxWidthDp = (cfg.screenWidthDp - 20).coerceIn(288, 342).dp
+    val chatMaxHeightDp = (cfg.screenHeightDp * 0.50f).coerceIn(300f, 390f).dp
+
     Surface(
         shape = RoundedCornerShape(22.dp),
         color = WalletCardBg,
-        shadowElevation = 10.dp,
-        border = BorderStroke(1.dp, WalletStroke),
+        shadowElevation = 12.dp,
+        border = BorderStroke(0.8.dp, WalletStroke),
         modifier = Modifier
-            .widthIn(min = 310.dp, max = 342.dp)
-            .heightIn(max = 460.dp)
+            .widthIn(min = 280.dp, max = chatMaxWidthDp)
+            .fillMaxWidth(0.94f)
+            .heightIn(max = chatMaxHeightDp)
     ) {
         Column(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Image(
-                    painter = painterResource(id = R.drawable.ic_wally),
-                    contentDescription = "Wally",
-                    modifier = Modifier
-                        .size(26.dp)
-                        .clip(CircleShape)
-                )
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Chat nhanh · Wally",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = WalletInk
+            CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 34.dp) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.ic_wally),
+                        contentDescription = "Wally",
+                        modifier = Modifier
+                            .size(26.dp)
+                            .clip(CircleShape)
                     )
-                    if (snapshot?.current != null) {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "${snapshot.current.title} · Trống ${TimeRange.formatDuration(snapshot.freeRemainingMinutes)}",
-                            fontSize = 10.sp,
-                            color = WalletMuted,
+                            text = "Chat Wally",
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = WalletInk,
                             maxLines = 1,
+                            softWrap = false,
                             overflow = TextOverflow.Ellipsis
                         )
+                        if (snapshot?.current != null) {
+                            Text(
+                                text = "${snapshot.current.title} · Trống ${TimeRange.formatDuration(snapshot.freeRemainingMinutes)}",
+                                fontSize = 10.sp,
+                                color = WalletMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
-                }
-                FloatingPillButton(label = "Bảng nhanh") {
-                    onSwitchMode(FloatingUiMode.QUICK_PANEL)
-                }
-                FloatingPillButton(label = "—") {
-                    onSwitchMode(FloatingUiMode.BUBBLE)
+                    FloatingPillButton(label = "Bảng nhanh") {
+                        onSwitchMode(FloatingUiMode.QUICK_PANEL)
+                    }
+                    FloatingPillButton(label = "—") {
+                        onSwitchMode(FloatingUiMode.BUBBLE)
+                    }
                 }
             }
 
@@ -1216,15 +1356,14 @@ private fun FloatingChatCard(
             Column(
                 modifier = Modifier
                     .weight(1f, fill = false)
-                    .heightIn(min = 120.dp, max = 210.dp)
+                    .heightIn(min = 52.dp, max = 140.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 messages.forEach { m ->
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (m.isUser) WalletMintSoft else WalletBg,
-                        border = BorderStroke(1.dp, WalletStroke),
+                        shape = RoundedCornerShape(13.dp),
+                        color = if (m.isUser) WalletMintSoft else WalletSoftNeutral,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(8.dp)) {
@@ -1321,6 +1460,14 @@ private fun FloatingChatCard(
                     onValueChange = { inputText = it },
                     placeholder = { Text("Nhắn Wally...", fontSize = 11.sp) },
                     singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = WalletInk,
+                        unfocusedTextColor = WalletInk,
+                        focusedContainerColor = WalletSoftNeutral,
+                        unfocusedContainerColor = WalletSoftNeutral,
+                        focusedBorderColor = WalletMint,
+                        unfocusedBorderColor = WalletStroke
+                    ),
                     modifier = Modifier.weight(1f)
                 )
                 Button(
@@ -1357,33 +1504,40 @@ private fun FloatingPillButton(
     label: String,
     accent: Boolean = false,
     danger: Boolean = false,
+    modifier: Modifier = Modifier,
+    centerContent: Boolean = false,
+    contentDescriptionLabel: String = label,
     onClick: () -> Unit
 ) {
+    val isNarrow = LocalConfiguration.current.screenWidthDp < 360
     Surface(
         shape = RoundedCornerShape(999.dp),
         color = when {
             accent -> WalletMintSoft
             danger -> WalletWarningBg
-            else -> WalletBg
+            else -> WalletSoftNeutral
         },
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (accent) WalletMintAccent else WalletStroke
-        ),
-        modifier = Modifier.walletClickable(label, onClick = onClick)
+        border = if (accent) BorderStroke(1.dp, WalletMintAccent.copy(alpha = 0.5f)) else null,
+        modifier = modifier
+            .semantics { contentDescription = contentDescriptionLabel }
+            .walletClickable(contentDescriptionLabel, onClick = onClick)
     ) {
-        Text(
-            text = label,
-            fontSize = 11.sp,
-            fontWeight = if (accent || danger) FontWeight.Bold else FontWeight.Medium,
-            color = when {
-                danger -> WalletDangerText
-                accent -> WalletMintAccent
-                else -> WalletInk
-            },
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-            maxLines = 1
-        )
+        Box(
+            contentAlignment = if (centerContent) Alignment.Center else Alignment.CenterStart,
+            modifier = Modifier.padding(horizontal = if (isNarrow) 7.dp else 9.dp, vertical = 5.dp)
+        ) {
+            Text(
+                text = label,
+                fontSize = 11.sp,
+                fontWeight = if (accent || danger) FontWeight.Bold else FontWeight.Medium,
+                color = when {
+                    danger -> WalletDangerText
+                    accent -> WalletMintAccent
+                    else -> WalletInk
+                },
+                maxLines = 1
+            )
+        }
     }
 }
 

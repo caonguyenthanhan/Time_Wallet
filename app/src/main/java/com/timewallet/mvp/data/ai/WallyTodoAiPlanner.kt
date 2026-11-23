@@ -160,7 +160,7 @@ object WallyTodoAiPlanner {
                 }
               ]
             }
-            QUY TẮC: Chỉ dùng đúng id từ danh sách; chỉ chọn khoảng giờ trống nằm trong freeGaps; tối đa 5 proposals; mọi thay đổi chỉ là ĐỀ XUẤT chờ người dùng duyệt.
+            QUY TẮC: Chỉ dùng đúng id từ danh sách; chỉ chọn khoảng giờ trống nằm trong freeGaps; tối đa 5 proposals; mọi thay đổi chỉ là ĐỀ XUẤT chờ người dùng duyệt. Tuyệt đối KHÔNG sửa deadline (dueDate/dueTime) của việc khi gợi ý SCHEDULE_INTO_GAP; nếu khung giờ đề xuất nằm sau hạn hoặc việc đã quá hạn thì phải ghi rõ hạn hiện tại, trạng thái quá hạn và việc khung đề xuất nằm sau hạn trong reason.
         """.trimIndent()
 
         val requestId = AiDiagnostics.newRequestId()

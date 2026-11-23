@@ -151,10 +151,10 @@ class V1011UiPolishContractTest {
     }
 
     @Test
-    fun `toasts appear at the top and never cover the bottom actions`() {
+    fun `toasts appear near the bottom navigation bar and never cover top headers or tabs`() {
         val m = main()
-        assertTrue(m.contains(".align(Alignment.TopCenter)") && m.contains("padding(top = 64.dp"))
-        assertFalse(m.contains(".align(Alignment.BottomCenter)"))
+        assertTrue(m.contains(".align(Alignment.BottomCenter)") && m.contains("toastBottomPad"))
+        assertFalse(m.contains(".align(Alignment.TopCenter)"))
     }
 
     @Test
