@@ -4,11 +4,26 @@ import com.timewallet.mvp.domain.model.ActiveTimerSession
 import com.timewallet.mvp.domain.model.ConfirmationState
 import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.model.OverlapResolution
+import com.timewallet.mvp.domain.model.TaskItem
 import com.timewallet.mvp.domain.model.TimeLayer
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlin.math.max
+
+data class DeleteConfirmationCopy(
+    val titleVi: String,
+    val messageVi: String,
+    val confirmLabelVi: String = "Xóa",
+    val cancelLabelVi: String = "Hủy"
+)
+
+data class LinkedTaskDisplay(
+    val labelVi: String,
+    val detailVi: String?,
+    val isMissingTask: Boolean
+)
 
 sealed class ConfirmationActionResult {
     data class Applied(
@@ -437,6 +452,84 @@ object ConfirmationEngine {
         }
     }
 
+    /**
+     * Dịch khung giờ cho bản ghi Dự kiến ([TimeLayer.PLANNED]) theo bước ± phút mà vẫn giữ nguyên thời lượng.
+     * Tuyệt đối KHÔNG sửa bản ghi thực tế đã ghi nhận hay bản ghi Đã hủy.
+     */
+    fun shiftPlannedRecord(
+        existing: LedgerRecord,
+        deltaMinutes: Int,
+        nowEpochMs: Long,
+        zoneId: ZoneId
+    ): ConfirmationActionResult {
+        if (deltaMinutes == 0) {
+            return ConfirmationActionResult.Applied(listOf(existing), "Khung giờ không đổi.")
+        }
+        val isPlannedRecord = (existing.layer == TimeLayer.PLANNED ||
+            existing.status.equals("PLANNED", ignoreCase = true)) && !existing.isCancelled
+        if (!isPlannedRecord) {
+            return ConfirmationActionResult.Invalid("Chỉ dùng nút dịch khung giờ cho hoạt động Dự kiến.")
+        }
+        val oldStart = existing.startedAt
+        val oldEnd = existing.endedAt
+        if (oldStart == null || oldEnd == null || oldEnd <= oldStart) {
+            return ConfirmationActionResult.Invalid("Mục này chưa có mốc giờ cố định để dịch; hãy bấm Điều chỉnh.")
+        }
+        val deltaMs = deltaMinutes.toLong() * 60_000L
+        val newStart = oldStart + deltaMs
+        val newEnd = oldEnd + deltaMs
+        val newDateLocal = Instant.ofEpochMilli(newStart).atZone(zoneId).toLocalDate().toString()
+        val durSecs = ((newEnd - newStart) / 1000L).coerceIn(60L, 86_400L)
+        val built = LedgerValidator.validateAndBuildRecord(
+            id = existing.id,
+            source = existing.source,
+            rawTitle = existing.title,
+            rawCategory = existing.category.key,
+            dateLocal = newDateLocal,
+            inputDurationMinutes = null,
+            startedAt = newStart,
+            endedAt = newEnd,
+            existingRecords = emptyList(),
+            activeTimer = null,
+            nowEpochMs = nowEpochMs,
+            zoneId = zoneId,
+            idempotencyKey = existing.idempotencyKey,
+            excludeRecordId = existing.id,
+            convertFutureToPlanned = true,
+            tagId = existing.tagId,
+            plannedStartedAt = newStart,
+            plannedEndedAt = newEnd,
+            plannedDurationSeconds = durSecs,
+            taskId = existing.taskId,
+            habitId = existing.habitId
+        )
+        return when (built) {
+            is ValidationResult.Invalid -> ConfirmationActionResult.Invalid(built.message)
+            is ValidationResult.Valid -> {
+                val updated = built.record.copy(
+                    layer = TimeLayer.PLANNED,
+                    status = "PLANNED",
+                    createdAt = existing.createdAt,
+                    confirmationStateRaw = ConfirmationState.PLANNED.name,
+                    plannedStartedAt = newStart,
+                    plannedEndedAt = newEnd,
+                    plannedDurationSeconds = durSecs,
+                    taskId = existing.taskId,
+                    habitId = existing.habitId
+                )
+                val formatter = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+                val startHm = formatter.format(Instant.ofEpochMilli(newStart).atZone(zoneId))
+                val endHm = formatter.format(Instant.ofEpochMilli(newEnd).atZone(zoneId))
+                ConfirmationActionResult.Applied(
+                    updatedRecords = listOf(updated),
+                    messageVi = "Đã dịch khung giờ \"${updated.title}\" sang ${startHm}–${endHm} (giữ nguyên ${
+                        LedgerAnalyticsCalculator.formatCompactDurationSeconds(durSecs)
+                    })."
+                )
+            }
+        }
+    }
+
     /** Hủy hoạt động (CANCELLED): 0s thực tế, không chiếm overlap, giữ bản ghi cho AI Coach phân tích. */
     fun cancelRecord(
         existing: LedgerRecord,
@@ -545,6 +638,103 @@ object ConfirmationEngine {
             activeTimer = activeTimer,
             nowEpochMs = nowEpochMs,
             zoneId = zoneId
+        )
+    }
+
+    /** Tạo nội dung xác nhận xóa công việc, luôn nêu rõ tên việc và tác động tới các bước con. */
+    fun buildTaskDeleteCopy(task: TaskItem): DeleteConfirmationCopy {
+        val subtaskNotice = if (task.subtasks.isNotEmpty()) {
+            "Toàn bộ ${task.subtasks.size} bước con của công việc này cũng sẽ bị xóa vĩnh viễn."
+        } else {
+            "Mọi bước con (nếu có) của công việc này cũng sẽ bị xóa vĩnh viễn."
+        }
+        return DeleteConfirmationCopy(
+            titleVi = "Xóa công việc?",
+            messageVi = "Bạn có chắc chắn muốn xóa công việc \"${task.title}\"? $subtaskNotice Các phiên thực tế đã đo hoặc đã ghi trên Lịch vẫn được giữ nguyên."
+        )
+    }
+
+    /** Tạo nội dung xác nhận xóa bản ghi Sổ cái, phân biệt rõ Lịch dự kiến vs Bản ghi thực tế và tác động tới tổng giờ đã ghi. */
+    fun buildRecordDeleteCopy(
+        record: LedgerRecord,
+        nowEpochMs: Long,
+        todayDateLocal: String,
+        zoneId: ZoneId
+    ): DeleteConfirmationCopy {
+        val resolvedLayer = record.resolveLayerAt(nowEpochMs, todayDateLocal)
+        val recZone = runCatching { ZoneId.of(record.timezone) }.getOrDefault(zoneId)
+        val hmFmt = DateTimeFormatter.ofPattern("HH:mm")
+        val windowSuffix = if (record.startedAt != null && record.endedAt != null) {
+            val s = Instant.ofEpochMilli(record.startedAt).atZone(recZone).format(hmFmt)
+            val e = Instant.ofEpochMilli(record.endedAt).atZone(recZone).format(hmFmt)
+            " ($s–$e)"
+        } else {
+            ""
+        }
+        val durText = LedgerAnalyticsCalculator.formatCompactDurationSeconds(record.durationSeconds)
+        val actualSecs = record.actualElapsedSecondsAt(nowEpochMs, todayDateLocal)
+        val actualText = LedgerAnalyticsCalculator.formatCompactDurationSeconds(actualSecs)
+
+        return when {
+            resolvedLayer == TimeLayer.PLANNED || record.isCancelled -> DeleteConfirmationCopy(
+                titleVi = "Xóa lịch dự kiến?",
+                messageVi = "Bạn có chắc chắn muốn xóa lịch dự kiến \"${record.title}\"$windowSuffix ($durText)? Mục này chưa tính vào giờ thực tế, nên tổng giờ đã ghi (kể cả các phiên đã đo) vẫn được giữ nguyên."
+            )
+            resolvedLayer == TimeLayer.ACTIVE -> DeleteConfirmationCopy(
+                titleVi = "Xóa hoạt động đang diễn ra?",
+                messageVi = if (actualSecs > 0L) {
+                    "Bạn có chắc chắn muốn xóa hoạt động đang diễn ra \"${record.title}\"$windowSuffix? Phần đã tính thực tế ($actualText) sẽ bị trừ khỏi tổng giờ đã ghi của ngày ${record.date}."
+                } else {
+                    "Bạn có chắc chắn muốn xóa hoạt động \"${record.title}\"$windowSuffix? Mục này chưa cộng vào tổng giờ đã ghi nên tổng giờ thực tế không đổi."
+                }
+            )
+            record.isNeedsReconciliation -> DeleteConfirmationCopy(
+                titleVi = "Xóa bản ghi chờ đối soát?",
+                messageVi = "Bạn có chắc chắn muốn xóa bản ghi \"${record.title}\"$windowSuffix ($durText)? Mục này đang chờ đối soát (chưa tính vào tổng giờ đã ghi) nên tổng giờ đã ghi không đổi."
+            )
+            else -> {
+                val kindVi = when (resolvedLayer) {
+                    TimeLayer.MEASURED -> "đã đo"
+                    TimeLayer.REPORTED_TIMED -> "đã ghi có giờ"
+                    else -> "chưa gắn giờ"
+                }
+                val impactVi = if (resolvedLayer == TimeLayer.REPORTED_UNTIMED) {
+                    "Thời lượng $durText này sẽ bị trừ khỏi tổng giờ đã ghi của ngày ${record.date}."
+                } else {
+                    "Phần thực tế $actualText này sẽ bị trừ khỏi tổng giờ đã ghi của ngày ${record.date}."
+                }
+                DeleteConfirmationCopy(
+                    titleVi = "Xóa bản ghi thực tế?",
+                    messageVi = "Bạn có chắc chắn muốn xóa bản ghi thực tế ($kindVi) \"${record.title}\"$windowSuffix ($durText)? $impactVi"
+                )
+            }
+        }
+    }
+
+    /** Dựng thông tin hiển thị việc gốc khi mở lại lịch hoặc bản ghi có gắn taskId. */
+    fun buildLinkedTaskDisplay(
+        record: LedgerRecord,
+        linkedTask: TaskItem?
+    ): LinkedTaskDisplay? {
+        if (record.taskId.isNullOrBlank()) return null
+        if (linkedTask == null) {
+            return LinkedTaskDisplay(
+                labelVi = "Thuộc công việc: (việc gốc đã bị xóa)",
+                detailVi = null,
+                isMissingTask = true
+            )
+        }
+        val detailParts = buildList {
+            linkedTask.dueDateLocal?.takeIf { it.isNotBlank() }?.let { d ->
+                val shortDate = if (d.length >= 10) d.substring(5) else d
+                add(if (!linkedTask.dueTimeLocal.isNullOrBlank()) "Hạn $shortDate ${linkedTask.dueTimeLocal}" else "Hạn $shortDate")
+            }
+            if (linkedTask.isDone) add("Đã hoàn thành")
+        }.joinToString(" · ").takeIf { it.isNotBlank() }
+        return LinkedTaskDisplay(
+            labelVi = "Thuộc công việc: ${linkedTask.title}",
+            detailVi = detailParts,
+            isMissingTask = false
         )
     }
 }

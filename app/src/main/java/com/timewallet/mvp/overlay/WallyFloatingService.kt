@@ -18,6 +18,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import android.view.WindowManager
+import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
@@ -48,6 +49,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -84,6 +87,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -201,6 +205,7 @@ class WallyFloatingService : Service() {
 
     private val uiModeState = mutableStateOf(FloatingUiMode.BUBBLE)
     private val refreshTick = mutableIntStateOf(0)
+    private var mainAppInForeground = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -222,16 +227,45 @@ class WallyFloatingService : Service() {
                 return START_NOT_STICKY
             }
 
-            ACTION_OPEN_QUICK_PANEL -> {
+            ACTION_MAIN_APP_FOREGROUND -> {
+                mainAppInForeground = true
+                rootContainer?.let { container ->
+                    runCatching {
+                        val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
+                        imm?.hideSoftInputFromWindow(container.windowToken, 0)
+                    }
+                    container.clearFocus()
+                }
+                if (uiModeState.value != FloatingUiMode.BUBBLE) {
+                    switchMode(FloatingUiMode.BUBBLE)
+                }
+                rootContainer?.visibility = android.view.View.GONE
+                return START_STICKY
+            }
+
+            ACTION_MAIN_APP_BACKGROUND -> {
+                mainAppInForeground = false
                 if (Settings.canDrawOverlays(this)) {
                     ensureOverlayAttached()
+                    rootContainer?.visibility = android.view.View.VISIBLE
+                    switchMode(FloatingUiMode.BUBBLE)
+                }
+            }
+
+            ACTION_OPEN_QUICK_PANEL -> {
+                if (Settings.canDrawOverlays(this)) {
+                    mainAppInForeground = false
+                    ensureOverlayAttached()
+                    rootContainer?.visibility = android.view.View.VISIBLE
                     switchMode(FloatingUiMode.QUICK_PANEL)
                 }
             }
 
             ACTION_OPEN_CHAT -> {
                 if (Settings.canDrawOverlays(this)) {
+                    mainAppInForeground = false
                     ensureOverlayAttached()
+                    rootContainer?.visibility = android.view.View.VISIBLE
                     switchMode(FloatingUiMode.CHAT)
                 }
             }
@@ -452,13 +486,18 @@ class WallyFloatingService : Service() {
             }
         }
         container.addView(composeView)
+        if (mainAppInForeground) {
+            container.visibility = android.view.View.GONE
+        }
         rootContainer = container
+        isAttached = true
         runCatching {
             windowManager.addView(container, windowParams)
         }
     }
 
     private fun removeOverlay() {
+        isAttached = false
         val container = rootContainer ?: return
         rootContainer = null
         runCatching { windowManager.removeViewImmediate(container) }
@@ -531,6 +570,34 @@ class WallyFloatingService : Service() {
         const val ACTION_OPEN_QUICK_PANEL = "com.timewallet.mvp.overlay.ACTION_OPEN_QUICK_PANEL"
         const val ACTION_OPEN_CHAT = "com.timewallet.mvp.overlay.ACTION_OPEN_CHAT"
         const val ACTION_COLLAPSE = "com.timewallet.mvp.overlay.ACTION_COLLAPSE"
+        const val ACTION_MAIN_APP_FOREGROUND = "com.timewallet.mvp.overlay.ACTION_MAIN_APP_FOREGROUND"
+        const val ACTION_MAIN_APP_BACKGROUND = "com.timewallet.mvp.overlay.ACTION_MAIN_APP_BACKGROUND"
+
+        @Volatile
+        var isAttached: Boolean = false
+            private set
+
+        fun onMainAppResumed(context: Context) {
+            if (!isAttached) return
+            runCatching {
+                context.startService(Intent(context, WallyFloatingService::class.java).apply {
+                    action = ACTION_MAIN_APP_FOREGROUND
+                })
+            }
+        }
+
+        fun onMainAppBackgrounded(context: Context) {
+            val enabled = runCatching {
+                TimerAndSettingsStore(context.applicationContext).loadFloatingAssistantPrefs().enabled
+            }.getOrDefault(false)
+            if (!enabled || !Settings.canDrawOverlays(context)) return
+            if (!isAttached) return
+            runCatching {
+                context.startService(Intent(context, WallyFloatingService::class.java).apply {
+                    action = ACTION_MAIN_APP_BACKGROUND
+                })
+            }
+        }
 
         fun start(context: Context, initialAction: String? = null) {
             if (!Settings.canDrawOverlays(context)) return
@@ -1086,11 +1153,31 @@ private fun FloatingQuickPanelCard(
                             }
                         }
                         val hasInput = quickTodoText.isNotBlank()
+                        val submitQuickTodo = {
+                            if (!busy) {
+                                val raw = quickTodoText.trim()
+                                if (raw.isEmpty()) {
+                                    runCatching { quickInputFocusRequester.requestFocus() }
+                                } else {
+                                    quickTodoText = ""
+                                    busy = true
+                                    scope.launch {
+                                        val res = WallyActionController.quickAddNaturalTask(serviceContext, raw)
+                                        onShowBanner(if (res is WallyActionController.ActionOutcome.Blocked) res.messageVi else null)
+                                        onReload()
+                                        activeDrawer = QuickPanelDrawer.OVERVIEW
+                                        busy = false
+                                    }
+                                }
+                            }
+                        }
                         OutlinedTextField(
                             value = quickTodoText,
                             onValueChange = { quickTodoText = it },
                             placeholder = { Text("Ví dụ: Soạn báo cáo mai 15h 45p P1", fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { submitQuickTodo() }),
                             shape = RoundedCornerShape(12.dp),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = WalletInk,
@@ -1111,21 +1198,7 @@ private fun FloatingQuickPanelCard(
                                         .walletClickable(
                                             onClickLabel = if (hasInput) "Thêm công việc" else "Bắt đầu nhập công việc"
                                         ) {
-                                            if (busy) return@walletClickable
-                                            val raw = quickTodoText.trim()
-                                            if (raw.isEmpty()) {
-                                                runCatching { quickInputFocusRequester.requestFocus() }
-                                                return@walletClickable
-                                            }
-                                            quickTodoText = ""
-                                            busy = true
-                                            scope.launch {
-                                                val res = WallyActionController.quickAddNaturalTask(serviceContext, raw)
-                                                onShowBanner(if (res is WallyActionController.ActionOutcome.Blocked) res.messageVi else null)
-                                                onReload()
-                                                activeDrawer = QuickPanelDrawer.OVERVIEW
-                                                busy = false
-                                            }
+                                            submitQuickTodo()
                                         },
                                     contentAlignment = Alignment.Center
                                 ) {

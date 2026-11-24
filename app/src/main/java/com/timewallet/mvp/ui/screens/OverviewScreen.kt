@@ -79,13 +79,17 @@ fun Compact24hWalletCard(
     todayDateLocal: String,
     todayStats: DayLedgerStats,
     inboxTaskCount: Int = 0,
+    overnightCarryoverSeconds: Long = 0L,
+    plannedTodaySeconds: Long = todayStats.plannedSeconds,
     onOpenDailyReview: () -> Unit = {},
     onOpenTasksInbox: () -> Unit = {}
 ) {
     val summary = remember(todayStats) { DashboardSummary.from(todayStats) }
     val fmt = LedgerAnalyticsCalculator::formatHoursMinutesFromSeconds
+    val fmtCompact = LedgerAnalyticsCalculator::formatCompactDurationSeconds
     val recordedFormatted = fmt(summary.recordedSeconds)
     val totalDayHoursLabel = "${todayStats.calendarDaySeconds / 3600L}h"
+    val inDayRecordedSeconds = (summary.recordedSeconds - overnightCarryoverSeconds).coerceAtLeast(0L)
     val totalDaySecs = todayStats.calendarDaySeconds.coerceAtLeast(1L).toFloat()
     var expanded by rememberSaveable(todayDateLocal) { mutableStateOf(false) }
 
@@ -98,21 +102,30 @@ fun Compact24hWalletCard(
             .walletClickable(
                 onClickLabel = if (expanded) "Thu gọn ví 24 giờ" else "Mở rộng chi tiết ví 24 giờ"
             ) { expanded = !expanded }
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .padding(horizontal = 10.dp, vertical = 7.dp),
         verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Text(
+                    text = "Đã ghi",
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = WalletMuted,
+                    modifier = Modifier.padding(bottom = 1.dp),
+                    maxLines = 1,
+                    softWrap = false
+                )
+                Text(
                     text = recordedFormatted,
-                    fontSize = 15.5.sp,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = WalletMintAccent,
                     maxLines = 1,
@@ -120,7 +133,7 @@ fun Compact24hWalletCard(
                 )
                 Text(
                     text = "/ $totalDayHoursLabel",
-                    fontSize = 12.sp,
+                    fontSize = 11.5.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = WalletMuted,
                     modifier = Modifier.padding(bottom = 0.5.dp),
@@ -134,7 +147,7 @@ fun Compact24hWalletCard(
                     .height(7.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(WalletUntrackedBar)
-                    .describe("Ví 24h hôm nay ($todayDateLocal): đã ghi nhận $recordedFormatted"),
+                    .describe("Ví 24h hôm nay ($todayDateLocal): đã ghi $recordedFormatted"),
                 horizontalArrangement = Arrangement.spacedBy(1.dp)
             ) {
                 if (todayStats.timedSeconds > 0L) {
@@ -167,12 +180,12 @@ fun Compact24hWalletCard(
                     onClickLabel = "Mở hộp việc Inbox",
                     containerColor = WalletMintSoft,
                     borderColor = WalletStroke,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 3.dp),
+                    contentPadding = PaddingValues(horizontal = 7.dp, vertical = 2.dp),
                     onClick = onOpenTasksInbox
                 ) {
                     Text(
                         text = "Inbox ($inboxTaskCount)",
-                        fontSize = 10.5.sp,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         color = WalletMintAccent,
                         maxLines = 1,
@@ -187,6 +200,44 @@ fun Compact24hWalletCard(
                 color = WalletMintAccent
             )
         }
+        if (overnightCarryoverSeconds > 0L || plannedTodaySeconds > 0L || summary.untimedSeconds > 0L) {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                if (overnightCarryoverSeconds > 0L) {
+                    Text(
+                        text = "Trong ngày ${fmtCompact(inDayRecordedSeconds)} · +${fmtCompact(overnightCarryoverSeconds)} qua đêm",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = WalletInk,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+                if (plannedTodaySeconds > 0L) {
+                    Text(
+                        text = "Dự kiến ${fmtCompact(plannedTodaySeconds)}",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = WalletMintAccent,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+                if (summary.untimedSeconds > 0L) {
+                    Text(
+                        text = "Chưa gắn giờ ${fmtCompact(summary.untimedSeconds)}",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = WalletMuted,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+        }
         AnimatedVisibility(visible = expanded) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 FlowRow(
@@ -194,9 +245,12 @@ fun Compact24hWalletCard(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text("Có giờ ${fmt(todayStats.timedSeconds)}", fontSize = 12.sp, color = WalletInk, maxLines = 1, softWrap = false)
+                    Text("Đã ghi có giờ ${fmt(todayStats.timedSeconds)}", fontSize = 12.sp, color = WalletInk, maxLines = 1, softWrap = false)
                     Text("Chưa ghi ${fmt(todayStats.untrackedPastSeconds)}", fontSize = 12.sp, color = WalletMuted, maxLines = 1, softWrap = false)
                     Text("Còn lại ${fmt(todayStats.remainingDaySeconds)}", fontSize = 12.sp, color = WalletMintAccent, maxLines = 1, softWrap = false)
+                    if (plannedTodaySeconds > 0L) {
+                        Text("Dự kiến riêng ${fmt(plannedTodaySeconds)}", fontSize = 12.sp, color = WalletMintAccent, maxLines = 1, softWrap = false)
+                    }
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),

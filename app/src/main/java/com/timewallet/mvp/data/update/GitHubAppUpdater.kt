@@ -401,9 +401,9 @@ class AndroidApkVerifier(private val context: Context) : LocalApkVerifier {
                 @Suppress("DEPRECATION")
                 pm.getPackageInfo(context.packageName, 0)
             }
-            (info.versionName.orEmpty().ifBlank { "2.2.1" }) to PackageInfoCompat.getLongVersionCode(info)
+            (info.versionName.orEmpty().ifBlank { "2.2.2" }) to PackageInfoCompat.getLongVersionCode(info)
         } catch (_: Throwable) {
-            "2.2.1" to 24L
+            "2.2.2" to 25L
         }
     }
 

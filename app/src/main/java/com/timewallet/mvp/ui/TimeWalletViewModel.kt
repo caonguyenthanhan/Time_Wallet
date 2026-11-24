@@ -2337,13 +2337,21 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
 
     fun deleteRecord(recordId: String) {
         viewModelScope.launch(safeHandler) {
+            val zone = ZoneId.systemDefault()
+            val nowMs = System.currentTimeMillis()
+            val todayStr = LocalDate.now(zone).toString()
+            val existing = ledgerDao.getAllRecordsSnapshot()
+                .firstOrNull { it.id == recordId }
+                ?.toDomain()
+            val isPlanOrCancelled = existing != null &&
+                (existing.isCancelled || existing.resolveLayerAt(nowMs, todayStr) == TimeLayer.PLANNED)
             reminderScheduler.cancelReminder(recordId)
             // WALLY: bản ghi và ghi chú liên quan cùng bị xóa hoặc cùng hoàn tác (một giao dịch Room).
             database.withTransaction {
                 ledgerDao.deleteById(recordId)
                 dailyReviewDao.deleteActivityNoteByRecordId(recordId)
             }
-            showToast("Đã xóa bản ghi.")
+            showToast(if (isPlanOrCancelled) "Đã xóa lịch dự kiến." else "Đã xóa bản ghi thực tế.")
         }
     }
 
@@ -2357,6 +2365,25 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 ?.toDomain()
                 ?: return@launch
             val result = ConfirmationEngine.resizePlannedRecord(
+                existing = existing,
+                deltaMinutes = deltaMinutes,
+                nowEpochMs = nowMs,
+                zoneId = zone
+            )
+            applyConfirmationAction(result = result, closeEditOnSuccess = false)
+        }
+    }
+
+    fun shiftPlannedRecord(recordId: String, deltaMinutes: Int) {
+        if (deltaMinutes == 0) return
+        val zone = ZoneId.systemDefault()
+        val nowMs = System.currentTimeMillis()
+        viewModelScope.launch(safeHandler) {
+            val existing = ledgerDao.getAllRecordsSnapshot()
+                .firstOrNull { it.id == recordId }
+                ?.toDomain()
+                ?: return@launch
+            val result = ConfirmationEngine.shiftPlannedRecord(
                 existing = existing,
                 deltaMinutes = deltaMinutes,
                 nowEpochMs = nowMs,

@@ -159,8 +159,8 @@ fun TimerScreen(
     val tinyViewport = cfg.screenHeightDp < 640 || cfg.screenWidthDp < 360
     val compactOrb = LocalDensity.current.fontScale > 1.15f || cfg.screenHeightDp < 720
     val orbSize = when {
-        tinyViewport -> 106.dp
-        compactOrb -> 150.dp
+        tinyViewport -> 92.dp
+        compactOrb -> 146.dp
         else -> 170.dp
     }
     val clockDp = when {
@@ -645,19 +645,30 @@ fun TimerScreen(
             }
         }
 
-        // Ghim thông báo tập trung: phân cấp bề mặt sạch không viền dày; khi chưa đo gợi ý tối đa 2 việc ưu tiên.
+        // Ghim thông báo tập trung: công tắc đặt ở bên trái + cho phép chạm cả hàng để tránh bị bóng chat góc dưới phải che trên màn 320dp.
         Surface(
             shape = RoundedCornerShape(16.dp),
             color = if (focusPinEnabled) WalletMintSoft else WalletCardBg,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .walletClickable(
+                    onClickLabel = if (focusPinEnabled) "Tắt ghim thông báo tập trung" else "Bật ghim thông báo tập trung",
+                    role = Role.Switch
+                ) { onToggleFocusPin(!focusPinEnabled) }
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                Switch(
+                    checked = focusPinEnabled,
+                    onCheckedChange = onToggleFocusPin,
+                    colors = walletSwitchColors(WalletMint)
+                )
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                     Text(
                         text = if (focusPinEnabled) "Đang ghim tập trung" else "Ghim thông báo tập trung",
@@ -696,11 +707,6 @@ fun TimerScreen(
                         )
                     }
                 }
-                Switch(
-                    checked = focusPinEnabled,
-                    onCheckedChange = onToggleFocusPin,
-                    colors = walletSwitchColors(WalletMint)
-                )
             }
         }
 

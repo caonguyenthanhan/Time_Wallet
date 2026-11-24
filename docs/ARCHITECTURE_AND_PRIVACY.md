@@ -1,6 +1,6 @@
-# Kiến trúc, Quyền riêng tư & Kiểm chứng kỹ thuật — Time Wallet `v2.2.1`
+# Kiến trúc, Quyền riêng tư & Kiểm chứng kỹ thuật — Time Wallet `v2.2.2`
 
-Tài liệu kỹ thuật chuyên sâu cho **Time Wallet (`Wally`)** `v2.2.1` (`versionCode = 24`), tách khỏi `README.md` để trang chính giữ vai trò giới thiệu sản phẩm.
+Tài liệu kỹ thuật chuyên sâu cho **Time Wallet (`Wally`)** `v2.2.2` (`versionCode = 25`), tách khỏi `README.md` để trang chính giữ vai trò giới thiệu sản phẩm.
 
 ---
 
@@ -24,8 +24,8 @@ app/src/main/java/com/timewallet/mvp/
 ├── domain/
 │   ├── model/         # LedgerRecord, TaskItem, Habit, Goal, Proposal, UpdateContract
 │   └── usecase/       # WallyDataStoryEngine, LedgerAnalyticsCalculator, TaskHabitEngine,
-│                      # ConfirmationEngine, AiTodoEngine, WallyHubSnapshotEngine,
-│                      # ScheduleGridEngine, AdaptiveContextRouter, AppUpdateContract
+│                      # ConfirmationEngine, TimelineFeedEngine, AiTodoEngine,
+│                      # WallyHubSnapshotEngine, ScheduleGridEngine, AdaptiveContextRouter, AppUpdateContract
 ├── data/
 │   ├── local/         # Room Database v8 (MIGRATION_4_5..7_8), DAO, Android Keystore prefs,
 │   │                  # WallyActionController (SSOT cho App + Widget + Floating Assistant)
@@ -58,17 +58,18 @@ app/src/main/java/com/timewallet/mvp/
 
 ---
 
-## 4. Kết quả kiểm chứng bản `v2.2.1` (`versionCode 24`)
+## 4. Kết quả kiểm chứng bản `v2.2.2` (`versionCode 25`)
 
 | Hạng mục | Kết quả | Chi tiết đo trực tiếp |
 |---|---|---|
-| Unit & Contract Tests (`:app:testDebugUnitTest`) | **PASS (690 / 690 chạy offline)** | `694` test cases (`690 passed, 0 failures, 0 errors, 4 skipped` — 4 test Live AI / live-eval bỏ qua khi không có API key live). |
-| Compose Screenshot Validation (`:app:validateDebugScreenshotTest`) | **PASS (15 / 15)** | `15 passed, 0 failures, 0 errors, 0 skipped` (gồm các preview `Thống kê`, `Lịch`, `Dòng thời gian`, `Tập trung` và thẻ `Tasks 320dp` Light & Dark). |
+| Unit & Contract Tests (`:app:testDebugUnitTest`) | **PASS (700 / 700 chạy offline)** | `704` test cases (`700 passed, 0 failures, 0 errors, 4 skipped` — 4 test Live AI / live-eval bỏ qua khi không có API key live; gồm test mới trong `TimelineFeedEngineTest` cho `LinkedTaskDisplay` / dịch khung giờ / đổi thời lượng & sao chép xóa phân biệt việc vs lịch dự kiến). |
+| Compose Screenshot Validation (`:app:validateDebugScreenshotTest`) | **PASS (15 / 15)** | `15 passed, 0 failures, 0 errors, 0 skipped` (gồm các preview `Thống kê`, `Lịch`, `Dòng thời gian` 320dp/390dp, `Tập trung` và thẻ `Tasks 320dp` Light & Dark). |
 | Android Lint (`:app:lintDebug` & `:app:lintRelease`) | **PASS (0 errors)** | `lintDebug`: `0 errors, 117 warnings` · `lintRelease`: `0 errors, 105 warnings`. |
-| Release APK & chữ ký (`apksigner`) | **PASS** | `TimeWallet-MVP-v2.2.1-release.apk`: **`9,474,023` bytes** · `SHA-256`: `1E9A0508AE21BD80E6B2342FD4A9AC9787579BC4FAD3B1E92B551C4DCD784F36` · ký bằng chứng thư `39f5712d…`. |
-| Debug APK | **PASS** | `TimeWallet-MVP-v2.2.1-debug.apk`: **`15,731,025` bytes** · `SHA-256`: `936FE940C21297BC351B8A9F58CD33B2F8893C93CFEB78C3081DCBA766AF2783`. |
-| QA giao diện trên `WallyQA` (`index 1`, Android 9) | **PASS (`NO_FATAL_EXCEPTION`)** | Kiểm tra nâng cấp `v2.2.0 → v2.2.1` trên `WallyQA` giữ lại dữ liệu To-do; xác minh **Wally kể từ dữ liệu** (ẩn lời kể khi tuần rỗng `0` bản ghi/`0` mục tiêu), đồng bộ mốc giờ Dòng thời gian & Lịch ngày (`13:03–13:04`, `13:04–13:05` `Đã đo`), kéo dời lịch giữ `taskId` + `Hạn` trọn vẹn ở `320dp`, banner **`⚠ 1 quá hạn`** (tách bạch quá hạn/gần hạn), chặn kéo vùng trống không phủ phiên đã đo + kéo mép trên giữ thanh `+`/`✕` ở `320dp` + tạo bản ghi `Có giờ`, Bảng nổi `⚠ Quá hạn` `320dp`, Chat nổi gọn (`maxHeight = 286dp`) nhập/gửi & hiển thị tin nhắn rõ nét. |
-| Phạm vi chưa chạy trên phần cứng thật (`NOT_TESTED`) | — | Nâng cấp qua toàn bộ dải phiên bản `v2.0.0–v2.1.0` và kiểm thử giữ API key sau nâng cấp; xem trước ghim Home Widget trực tiếp trên launcher chuẩn Google/Samsung (`isRequestPinAppWidgetSupported == false` trên launcher LDPlayer); bàn phím ảo vẽ đồ họa đầy đủ ở `320dp` (trên `WallyQA`, `com.android.inputmethod.pinyin/.InputService` tạo cửa sổ `InputMethod` kích thước `Requested w=640 h=0`); gọi Cloud AI live trên bản `v2.2.1`; AVD Android 16 và thiết bị thật. |
+| Release APK & chữ ký (`apksigner`) | **PASS** | `TimeWallet-MVP-v2.2.2-release.apk`: **`9,523,168` bytes** · `SHA-256`: `36A46F2E72019C1EA0D855FA7E031A1302A86B8B6A5309C9F5D797D87CED5297` · ký bằng chứng thư `39f5712d139124e05d550458180e69a1919ade5a331d2eadbb9de47da79cdcd0`. |
+| Debug APK | **PASS** | `TimeWallet-MVP-v2.2.2-debug.apk`: **`14,261,295` bytes** · `SHA-256`: `8DF370C9A480BD2C9AAA2D0BE4353950F0A1B021200DF881D40E1418774E2877`. |
+| QA tiền nhiệm ở `320dp` (`WallyQA`, APK `751B65AE…`) | **PASS một phần (trước khi vá `LinkedTaskDisplay`)** | Xác minh trên `WallyQA` (`320dp`, `out/wally_evidence_v221/crud_delete_overlay_320dp_run1/`): tạo/mở lại/xóa lịch dự kiến giữ nguyên `2p` thực tế, Hủy xóa giữ nguyên dữ liệu, hộp thoại xóa To-do nêu tên việc & `2` bước con, 1 lần gửi từ Bảng nổi tạo đúng 1 To-do, quay về từ Chat nổi chạm được ngay tab `Công việc`, thứ tự Dòng thời gian `Sắp diễn ra` / `Bây giờ` / `Hôm nay` (mới trước). |
+| QA giao diện bản `v2.2.2` (`36A46F2E…`) trên `WallyQA` | **BLOCKED (`NOT_RUN`, chờ host LDPlayer)** | Chưa hoàn tất chạy E2E trên `WallyQA` (`index 1`) do dịch vụ host LDPlayer bị treo trong phiên kiểm thử (`task-882`: VM treo trước khi `127.0.0.1:5557` ADB sẵn sàng; `task-890`: `vbox_pid = -1` dưới `Ld9BoxSVC`). Theo quy tắc an toàn dự án, không tự khởi động lại tiến trình `Ld9BoxSVC` dùng chung. |
+| Phạm vi chưa chạy trên bản `v2.2.2` (`NOT_TESTED` / chờ `WallyQA`) | — | Kiểm chứng trực tiếp trên APK `36A46F2E…` cho hộp thoại mở lại lịch hiển thị `"Thuộc công việc: …"` + hạn gốc, cặp thao tác dịch `+15p` (`09:15–09:45`) vs tăng thời lượng `+15p` (`09:00–09:45`) qua đóng/mở lại app, ca nhiều ngày đồng thời có phiên qua đêm chia phút từng ngày và ma trận đầy đủ ở `320dp` có bong bóng nổi; ghim Home Widget trên launcher chuẩn Google/Samsung; bàn phím ảo đồ họa ở `320dp`; Cloud AI live; AVD Android 16 (tắt theo Rule 14) và thiết bị thật. |
 
 ---
 

@@ -89,6 +89,7 @@ fun ManualEntrySheet(
     state: ManualEntryState,
     suggestions: List<Tag>,
     allActiveTags: List<Tag>,
+    linkedTaskTitle: String? = null,
     onChange: ((ManualEntryState) -> ManualEntryState) -> Unit,
     onSelectTag: (String?) -> Unit,
     onCreateTag: () -> Unit,
@@ -162,6 +163,23 @@ fun ManualEntrySheet(
                         "Tự động lưu nháp",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
+                        color = WalletMintAccent
+                    )
+                }
+            }
+
+            if (!linkedTaskTitle.isNullOrBlank()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(WalletMintSoft)
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "Thuộc công việc: $linkedTaskTitle",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
                         color = WalletMintAccent
                     )
                 }

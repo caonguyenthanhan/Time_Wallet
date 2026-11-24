@@ -9,11 +9,11 @@
 **Trợ lý thời gian cá nhân giúp sinh viên và người đi làm học tập, làm việc có chủ đích hơn — không phải chỉ bận rộn hơn.**
 
 [![Android](https://img.shields.io/badge/Android-8.0%2B-1F6B4E?style=flat-square&logo=android&logoColor=white)](https://github.com/caonguyenthanhan/Time_Wallet/releases/latest)
-[![Version](https://img.shields.io/badge/Release-v2.2.1-2E7D5B?style=flat-square)](https://github.com/caonguyenthanhan/Time_Wallet/releases/tag/v2.2.1)
+[![Version](https://img.shields.io/badge/Release-v2.2.2-2E7D5B?style=flat-square)](https://github.com/caonguyenthanhan/Time_Wallet/releases/tag/v2.2.2)
 [![AI Assistant](https://img.shields.io/badge/Wally%20AI-Xác%20nhận%20trước%20khi%20lưu-0F5132?style=flat-square)](#-wally-ai-làm-được-gì)
 [![Privacy](https://img.shields.io/badge/Privacy--first-Dữ%20liệu%20trên%20máy-163829?style=flat-square)](#-quyền-riêng-tư--tài-liệu-kỹ-thuật)
 
-[**Tải APK v2.2.1**](https://github.com/caonguyenthanhan/Time_Wallet/releases/tag/v2.2.1) · [**Xem giao diện**](#-trải-nghiệm-thực-tế) · [**Một ngày cùng Wally**](#-một-ngày-cùng-wally) · [**Tài liệu kỹ thuật**](docs/ARCHITECTURE_AND_PRIVACY.md)
+[**Tải APK v2.2.2**](https://github.com/caonguyenthanhan/Time_Wallet/releases/tag/v2.2.2) · [**Xem giao diện**](#-trải-nghiệm-thực-tế) · [**Một ngày cùng Wally**](#-một-ngày-cùng-wally) · [**Tài liệu kỹ thuật**](docs/ARCHITECTURE_AND_PRIVACY.md)
 
 </div>
 
@@ -110,10 +110,10 @@
 
 ## Tải và cài đặt
 
-1. Tải tệp **`TimeWallet-MVP-v2.2.1-release.apk`** từ trang **[GitHub Releases v2.2.1](https://github.com/caonguyenthanhan/Time_Wallet/releases/tag/v2.2.1)** (`Android 8.0+`).
+1. Tải tệp **`TimeWallet-MVP-v2.2.2-release.apk`** từ trang **[GitHub Releases v2.2.2](https://github.com/caonguyenthanhan/Time_Wallet/releases/tag/v2.2.2)** (`Android 8.0+`).
 2. Mở tệp `.apk` vừa tải và cho phép cài đặt từ trình duyệt / trình quản lý tệp.
    *(Nếu lần đầu cài APK ngoài Play Store và Android / Play Protect hỏi xác nhận, chọn **"Vẫn cài đặt"** hoặc xem mã `SHA-256` kèm theo trên trang Release để tự đối chiếu.)*
-3. Nếu đang dùng bản phát hành trước đó (`v2.2.0`), bạn có thể cài đè trực tiếp (`WallyQA` đã kiểm tra giữ lại dữ liệu To-do khi nâng cấp từ `v2.2.0` lên `v2.2.1`); nên sao lưu JSON trước trong **⚙ Hồ sơ & Cài đặt** nếu nâng cấp từ các bản cũ hơn (`v2.0.0–v2.1.0`) hoặc khi muốn lưu riêng cấu hình API key.
+3. Nếu đang dùng bản phát hành trước đó (`v2.2.0–v2.2.1`), bạn có thể cài đè trực tiếp; nên sao lưu JSON trước trong **⚙ Hồ sơ & Cài đặt** nếu nâng cấp từ các bản cũ hơn (`v2.0.0–v2.1.0`) hoặc khi muốn lưu riêng cấu hình API key.
 
 > **Muốn dùng AI Cloud:** vào **⚙ Hồ sơ & Cài đặt › Cấu hình Wally AI** để nhập API key riêng của bạn (hỗ trợ OpenAI-compatible, Gemini, Claude, Groq, Ollama...). Toàn bộ tính năng Lịch trình, Tập trung, To-do, Widget và Trợ lý nổi vẫn dùng bình thường ngay cả khi ngoại tuyến.
 
@@ -129,7 +129,7 @@
 <details>
 <summary><strong>Dành cho nhà phát triển & Tài liệu chuyên sâu</strong></summary>
 
-- **[Kiến trúc, Quyền riêng tư & Kết quả kiểm chứng v2.2.1](docs/ARCHITECTURE_AND_PRIVACY.md)** — Mô tả chi tiết 4 tầng dữ liệu, Room Database, quy chế bảo mật khóa API, kết quả test/lint/QA và hướng dẫn build Gradle.
+- **[Kiến trúc, Quyền riêng tư & Kết quả kiểm chứng v2.2.2](docs/ARCHITECTURE_AND_PRIVACY.md)** — Mô tả chi tiết 4 tầng dữ liệu, Room Database, quy chế bảo mật khóa API, kết quả test/lint/QA và hướng dẫn build Gradle.
 - **[Đặc tả sản phẩm Time Wallet & Wally](SPEC_TIME_WALLET_WALLY.md)** — Triết lý thiết kế và các bất biến nghiệp vụ cốt lõi.
 - **[Thư viện ảnh giao diện ui-preview](docs/screenshots/ui-preview/README.md)** — Toàn bộ ảnh chụp kiểm chứng thực tế qua từng phiên bản.
 

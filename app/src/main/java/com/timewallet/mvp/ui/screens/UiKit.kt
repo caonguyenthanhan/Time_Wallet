@@ -823,9 +823,12 @@ fun Modifier.timelineRail(
     isLast: Boolean,
     isInProgress: Boolean = false,
     isPlanned: Boolean = false,
-    railCenterX: Dp = 11.dp
+    railCenterX: Dp = 11.dp,
+    dotTopDp: Dp = 20.dp,
+    hasGapBelow: Boolean = false
 ): Modifier {
     val reduceMotion = com.timewallet.mvp.ui.theme.WalletReduceMotion
+    val isDark = WalletIsDark
     val spinDeg = if (isInProgress && !reduceMotion) {
         val transition = rememberInfiniteTransition(label = "timelineSpinner")
         val angle by transition.animateFloat(
@@ -844,24 +847,55 @@ fun Modifier.timelineRail(
 
     return this.drawBehind {
         val cx = railCenterX.toPx()
-        val dotY = 26.dp.toPx()
+        val dotY = dotTopDp.toPx().coerceIn(8.dp.toPx(), (size.height - 8.dp.toPx()).coerceAtLeast(8.dp.toPx()))
         val lineW = 2.dp.toPx()
-        val haloR = 8.dp.toPx()
-        val dotR = 5.5.dp.toPx()
-        val connectorColor = Color(0xFFCADDD0)
+        val haloR = 7.5.dp.toPx()
+        val dotR = 5.dp.toPx()
+        val connectorColor = if (isDark) Color(0xFF33493F) else Color(0xFFCADDD0)
+        val haloColor = if (isDark) Color(0xFF0E1713) else Color(0xFFF6FAF7)
+        val dashLen = 4.dp.toPx()
+        val dashStep = 7.5.dp.toPx()
+
+        fun drawSegment(yStart: Float, yEnd: Float, dashed: Boolean, segColor: Color) {
+            if (yEnd <= yStart) return
+            if (!dashed) {
+                drawLine(segColor, Offset(cx, yStart), Offset(cx, yEnd), strokeWidth = lineW)
+            } else {
+                var y = yStart
+                while (y < yEnd) {
+                    val segEnd = (y + dashLen).coerceAtMost(yEnd)
+                    drawLine(segColor, Offset(cx, y), Offset(cx, segEnd), strokeWidth = lineW, cap = StrokeCap.Round)
+                    y += dashStep
+                }
+            }
+        }
 
         if (!isFirst) {
-            drawLine(connectorColor, Offset(cx, 0f), Offset(cx, (dotY - haloR).coerceAtLeast(0f)), strokeWidth = lineW)
+            drawSegment(
+                yStart = 0f,
+                yEnd = (dotY - haloR).coerceAtLeast(0f),
+                dashed = isPlanned,
+                segColor = if (isPlanned) color.copy(alpha = 0.50f) else connectorColor
+            )
         }
         if (!isLast) {
-            drawLine(connectorColor, Offset(cx, (dotY + haloR).coerceAtMost(size.height)), Offset(cx, size.height), strokeWidth = lineW)
+            drawSegment(
+                yStart = (dotY + haloR).coerceAtMost(size.height),
+                yEnd = size.height,
+                dashed = isPlanned || hasGapBelow,
+                segColor = when {
+                    isPlanned -> color.copy(alpha = 0.50f)
+                    hasGapBelow -> color.copy(alpha = 0.35f)
+                    else -> connectorColor
+                }
+            )
         }
 
-        drawCircle(Color.White, radius = haloR, center = Offset(cx, dotY))
+        drawCircle(haloColor, radius = haloR, center = Offset(cx, dotY))
         when {
             isInProgress -> {
-                val ringR = 7.dp.toPx()
-                val ringStroke = 2.5.dp.toPx()
+                val ringR = 6.5.dp.toPx()
+                val ringStroke = 2.2.dp.toPx()
                 drawCircle(color = color.copy(alpha = 0.22f), radius = ringR, center = Offset(cx, dotY), style = Stroke(width = ringStroke))
                 drawArc(
                     color = color,
@@ -872,11 +906,11 @@ fun Modifier.timelineRail(
                     size = Size(ringR * 2f, ringR * 2f),
                     style = Stroke(width = ringStroke, cap = StrokeCap.Round)
                 )
-                drawCircle(color, radius = 3.2.dp.toPx(), center = Offset(cx, dotY))
+                drawCircle(color, radius = 3.dp.toPx(), center = Offset(cx, dotY))
             }
             isPlanned -> {
-                drawCircle(color = color.copy(alpha = 0.16f), radius = dotR, center = Offset(cx, dotY))
-                drawCircle(color = color, radius = dotR, center = Offset(cx, dotY), style = Stroke(width = 2.dp.toPx()))
+                drawCircle(color = color.copy(alpha = 0.14f), radius = dotR, center = Offset(cx, dotY))
+                drawCircle(color = color, radius = dotR, center = Offset(cx, dotY), style = Stroke(width = 1.8.dp.toPx()))
             }
             else -> {
                 drawCircle(color, radius = dotR, center = Offset(cx, dotY))

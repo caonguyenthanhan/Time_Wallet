@@ -89,12 +89,16 @@ import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.model.LocalCategoryRule
 import com.timewallet.mvp.domain.model.OverlapResolution
 import com.timewallet.mvp.domain.model.Tag
+import com.timewallet.mvp.domain.model.TaskItem
 import com.timewallet.mvp.domain.model.TimeBudgetProgress
 import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.model.TimeLayer
 import com.timewallet.mvp.domain.usecase.ApiKeyHygiene
 import com.timewallet.mvp.domain.usecase.CaptureIntentKind
+import com.timewallet.mvp.domain.usecase.ConfirmationEngine
+import com.timewallet.mvp.domain.usecase.DeleteConfirmationCopy
 import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
+import com.timewallet.mvp.domain.usecase.LinkedTaskDisplay
 import com.timewallet.mvp.domain.usecase.TaskHabitEngine
 import com.timewallet.mvp.ui.AppTab
 import com.timewallet.mvp.ui.ImportBackupUiState
@@ -925,6 +929,46 @@ fun CategorySelectorGrid(
 }
 
 @Composable
+private fun LinkedTaskBadgeCard(info: LinkedTaskDisplay) {
+    val bg = if (info.isMissingTask) WalletSoftNeutral else WalletMintSoft
+    val tint = if (info.isMissingTask) WalletMuted else WalletMintAccent
+    val desc = if (info.detailVi != null) "${info.labelVi}. ${info.detailVi}" else info.labelVi
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(11.dp))
+            .background(bg)
+            .border(1.dp, if (info.isMissingTask) WalletStroke else tint.copy(alpha = 0.25f), RoundedCornerShape(11.dp))
+            .semantics(mergeDescendants = true) { contentDescription = desc }
+            .padding(horizontal = 11.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        GlyphIcon(WalletGlyph.CONFIRM, color = tint, size = 16.dp)
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = info.labelVi,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (info.isMissingTask) WalletMuted else WalletInk,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            info.detailVi?.let { detail ->
+                Text(
+                    text = detail,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = WalletMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun EditRecordDialog(
     record: LedgerRecord,
     onDismiss: () -> Unit,
@@ -939,7 +983,10 @@ fun EditRecordDialog(
         isMarkedWaste: Boolean
     ) -> Unit,
     onDelete: (() -> Unit)? = null,
-    onOpenConfirmation: (() -> Unit)? = null
+    onOpenConfirmation: (() -> Unit)? = null,
+    todayDateLocal: String = LocalDate.now().toString(),
+    nowEpochMs: Long = System.currentTimeMillis(),
+    linkedTask: TaskItem? = null
 ) {
     val zone = remember(record.timezone) {
         try {
@@ -1053,6 +1100,13 @@ fun EditRecordDialog(
                             color = WalletMicroText,
                             lineHeight = 17.sp
                         )
+                    }
+
+                    val linkedTaskInfo = remember(record.taskId, linkedTask) {
+                        ConfirmationEngine.buildLinkedTaskDisplay(record, linkedTask)
+                    }
+                    if (linkedTaskInfo != null) {
+                        LinkedTaskBadgeCard(info = linkedTaskInfo)
                     }
 
                     if (canConfirm && onOpenConfirmation != null) {
@@ -1210,36 +1264,92 @@ fun EditRecordDialog(
     }
 
     if (confirmDelete && onDelete != null) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            containerColor = WalletCardBg,
-            title = { Text("Xóa hoạt động này?", fontWeight = FontWeight.ExtraBold, color = WalletInk) },
-            text = {
-                Text(
-                    "Bạn có chắc chắn muốn xóa \"${record.title}\" khỏi lịch và sổ cái thời gian?",
-                    fontSize = 12.5.sp,
-                    color = WalletMuted
-                )
+        RecordDeleteConfirmationDialog(
+            record = record,
+            todayDateLocal = todayDateLocal,
+            nowEpochMs = nowEpochMs,
+            onConfirmDelete = {
+                confirmDelete = false
+                onDismiss()
+                onDelete()
             },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        confirmDelete = false
-                        onDismiss()
-                        onDelete()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = WalletDangerSolid, contentColor = Color.White)
-                ) {
-                    Text("Xóa", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) {
-                    Text("Giữ lại", color = WalletMuted)
-                }
-            }
+            onDismiss = { confirmDelete = false }
         )
     }
+}
+
+@Composable
+fun RecordDeleteConfirmationDialog(
+    record: LedgerRecord,
+    todayDateLocal: String,
+    nowEpochMs: Long = System.currentTimeMillis(),
+    onConfirmDelete: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val zone = remember { ZoneId.systemDefault() }
+    val copy = remember(record, todayDateLocal, nowEpochMs, zone) {
+        ConfirmationEngine.buildRecordDeleteCopy(
+            record = record,
+            nowEpochMs = nowEpochMs,
+            todayDateLocal = todayDateLocal,
+            zoneId = zone
+        )
+    }
+    WalletDeleteConfirmDialog(
+        copy = copy,
+        onConfirmDelete = onConfirmDelete,
+        onDismiss = onDismiss
+    )
+}
+
+@Composable
+fun TaskDeleteConfirmationDialog(
+    task: TaskItem,
+    onConfirmDelete: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val copy = remember(task) { ConfirmationEngine.buildTaskDeleteCopy(task) }
+    WalletDeleteConfirmDialog(
+        copy = copy,
+        onConfirmDelete = onConfirmDelete,
+        onDismiss = onDismiss
+    )
+}
+
+@Composable
+private fun WalletDeleteConfirmDialog(
+    copy: DeleteConfirmationCopy,
+    onConfirmDelete: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = WalletCardBg,
+        title = {
+            Text(copy.titleVi, fontWeight = FontWeight.ExtraBold, color = WalletInk)
+        },
+        text = {
+            Text(
+                text = copy.messageVi,
+                fontSize = 12.5.sp,
+                lineHeight = 18.sp,
+                color = WalletMuted
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirmDelete,
+                colors = ButtonDefaults.buttonColors(containerColor = WalletDangerSolid, contentColor = Color.White)
+            ) {
+                Text(copy.confirmLabelVi, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(copy.cancelLabelVi, color = WalletMuted)
+            }
+        }
+    )
 }
 
 @Composable

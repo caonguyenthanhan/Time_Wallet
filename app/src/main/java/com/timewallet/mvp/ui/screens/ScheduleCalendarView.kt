@@ -35,7 +35,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -48,7 +47,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -96,8 +94,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import com.timewallet.mvp.domain.model.ActiveTimerSession
 import com.timewallet.mvp.domain.model.LedgerRecord
+import com.timewallet.mvp.domain.model.TaskItem
 import com.timewallet.mvp.domain.model.TimeCategory
+import com.timewallet.mvp.domain.usecase.ConfirmationEngine
 import com.timewallet.mvp.domain.usecase.DayScheduleModel
+import com.timewallet.mvp.domain.usecase.LinkedTaskDisplay
 import com.timewallet.mvp.domain.usecase.MonthDayCell
 import com.timewallet.mvp.domain.usecase.ScheduleBlockVisualState
 import com.timewallet.mvp.domain.usecase.ScheduleConflictCheck
@@ -110,7 +111,6 @@ import com.timewallet.mvp.domain.usecase.TimeRange
 import com.timewallet.mvp.ui.theme.WalletBg
 import com.timewallet.mvp.ui.theme.WalletCardBg
 import com.timewallet.mvp.ui.theme.WalletDangerBg
-import com.timewallet.mvp.ui.theme.WalletDangerSolid
 import com.timewallet.mvp.ui.theme.WalletDangerText
 import com.timewallet.mvp.ui.theme.WalletDivider
 import com.timewallet.mvp.ui.theme.WalletInfoBg
@@ -202,8 +202,10 @@ fun ScheduleCalendarView(
     recordedSummaryBadge: String? = null,
     onRecordedSummaryClick: (() -> Unit)? = null,
     onSwitchToTimelineMode: (() -> Unit)? = null,
-    nowEpochMs: Long = System.currentTimeMillis()
+    nowEpochMs: Long = System.currentTimeMillis(),
+    tasks: List<TaskItem> = emptyList()
 ) {
+    val tasksById = remember(tasks) { tasks.associateBy { it.id } }
     val zone = remember { ZoneId.systemDefault() }
     val today = remember(todayDateLocal) { runCatching { LocalDate.parse(todayDateLocal) }.getOrDefault(LocalDate.now(zone)) }
     val selectedDate = remember(selectedDateLocal, today) { runCatching { LocalDate.parse(selectedDateLocal) }.getOrDefault(today) }
@@ -1187,8 +1189,14 @@ fun ScheduleCalendarView(
                     }
                     is ScheduleInteractionState.BlockSelected -> {
                         val blk = active.block
+                        val linkedTaskInfo = remember(blk.record?.taskId, tasksById) {
+                            blk.record?.let { rec ->
+                                ConfirmationEngine.buildLinkedTaskDisplay(rec, rec.taskId?.let(tasksById::get))
+                            }
+                        }
                         SelectedBlockActionBar(
                             block = blk,
+                            linkedTaskInfo = linkedTaskInfo,
                             onEdit = {
                                 interactionState = ScheduleInteractionState.Idle
                                 if (blk.isActiveTimer) onNavigateToTimer()
@@ -1269,37 +1277,17 @@ fun ScheduleCalendarView(
     }
 
     blockPendingDelete?.let { target ->
-        AlertDialog(
-            onDismissRequest = { blockPendingDelete = null },
-            containerColor = WalletCardBg,
-            title = {
-                Text("Xóa hoạt động?", fontWeight = FontWeight.ExtraBold, color = WalletInk)
+        RecordDeleteConfirmationDialog(
+            record = target,
+            todayDateLocal = todayDateLocal,
+            nowEpochMs = nowMs,
+            onConfirmDelete = {
+                val id = target.id
+                blockPendingDelete = null
+                interactionState = ScheduleInteractionState.Idle
+                onDeleteRecord(id)
             },
-            text = {
-                Text(
-                    "Bạn có chắc chắn muốn xóa \"${target.title}\" khỏi sổ cái thời gian?",
-                    fontSize = 12.5.sp,
-                    color = WalletMuted
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val id = target.id
-                        blockPendingDelete = null
-                        interactionState = ScheduleInteractionState.Idle
-                        onDeleteRecord(id)
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = WalletDangerSolid, contentColor = Color.White)
-                ) {
-                    Text("Xóa", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { blockPendingDelete = null }) {
-                    Text("Hủy", color = WalletMuted)
-                }
-            }
+            onDismiss = { blockPendingDelete = null }
         )
     }
 }
@@ -1482,6 +1470,7 @@ private fun SelectedSlotsActionBar(
 @Composable
 private fun SelectedBlockActionBar(
     block: ScheduleGridBlock,
+    linkedTaskInfo: LinkedTaskDisplay? = null,
     onEdit: () -> Unit,
     onNudgeEarlier: () -> Unit,
     onNudgeLater: () -> Unit,
@@ -1526,6 +1515,17 @@ private fun SelectedBlockActionBar(
                     ) {
                         Text("✕", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = WalletMuted)
                     }
+                }
+                if (linkedTaskInfo != null) {
+                    val linkedLine = linkedTaskInfo.detailVi?.let { "${linkedTaskInfo.labelVi} · $it" } ?: linkedTaskInfo.labelVi
+                    Text(
+                        text = linkedLine,
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (linkedTaskInfo.isMissingTask) WalletMuted else WalletMintAccent,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
                 Row(
                     modifier = Modifier
@@ -1987,23 +1987,30 @@ private fun DayTimelineGrid(
                 }
 
                 // 2. Gợi ý khoảng trống nổi bật ban ngày khi chưa chọn
+                // Tránh đặt nhãn ngay tại gap.startMinute nếu 1–2 phiên ngắn ngay phía trên đã kẹp chiều cao tối thiểu 28.dp.
                 if (interactionState == ScheduleInteractionState.Idle && liveEmptyDragRange == null) {
+                    val minBlockVisualMinutes = (28f / hourHeight.value.coerceAtLeast(1f)) * 60f
                     dayModel.freeGaps
                         .filter { it.durationMinutes >= 60 && it.endMinute > 6 * 60 && it.startMinute < 22 * 60 }
                         .forEach { gap ->
                             val visStart = max(gap.startMinute, 6 * 60)
                             val visEnd = min(gap.endMinute, 22 * 60)
                             if (visEnd - visStart >= 60) {
-                                val topDp = (visStart / 60f) * hourHeight.value
-                                val heightDp = ((visEnd - visStart) / 60f) * hourHeight.value
-                                if (heightDp >= 52f) {
+                                val visualBottomPrecedingMin = dayModel.timedBlocks
+                                    .filter { b -> b.startMinute < visEnd && b.endMinute <= visStart }
+                                    .maxOfOrNull { b -> max(b.endMinute.toFloat(), b.startMinute + minBlockVisualMinutes) }
+                                    ?: visStart.toFloat()
+                                val labelStartMin = max(visStart.toFloat(), visualBottomPrecedingMin + 3f)
+                                val topDp = (labelStartMin / 60f) * hourHeight.value
+                                val clearHeightDp = ((visEnd - labelStartMin) / 60f) * hourHeight.value
+                                if (clearHeightDp >= 24f) {
                                     Box(
                                         modifier = Modifier
-                                            .offset(x = 4.dp, y = (topDp + 2f).dp)
+                                            .offset(x = 4.dp, y = topDp.dp)
                                             .width(canvasWidthDp - 8.dp)
-                                            .height(44.dp)
-                                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                                        contentAlignment = Alignment.CenterStart
+                                            .height(minOf(24f, clearHeightDp).dp)
+                                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                                        contentAlignment = Alignment.TopStart
                                     ) {
                                         Text(
                                             text = "Trống ${TimeRange.formatHm(visStart)}–${TimeRange.formatHm(visEnd)}",

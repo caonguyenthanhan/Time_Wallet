@@ -227,8 +227,12 @@ fun TimeWalletAppRoot(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> viewModel.checkUpdatesOnForeground()
-                Lifecycle.Event.ON_RESUME -> viewModel.onAppResumed()
+                Lifecycle.Event.ON_RESUME -> {
+                    com.timewallet.mvp.overlay.WallyFloatingService.onMainAppResumed(context)
+                    viewModel.onAppResumed()
+                }
                 Lifecycle.Event.ON_PAUSE -> viewModel.onAppPaused()
+                Lifecycle.Event.ON_STOP -> com.timewallet.mvp.overlay.WallyFloatingService.onMainAppBackgrounded(context)
                 else -> {}
             }
         }
@@ -474,6 +478,7 @@ fun TimeWalletAppRoot(
                                 onDeleteRecord = viewModel::deleteRecord,
                                 onAddManual = { viewModel.openManualEntry() },
                                 onResizePlannedRecord = viewModel::resizePlannedRecord,
+                                onShiftPlannedRecord = viewModel::shiftPlannedRecord,
                                 activeTimer = state.activeTimer,
                                 selectedScheduleDate = state.scheduleFocusDateLocal ?: state.todayDateLocal,
                                 scheduleViewMode = state.scheduleViewMode,
@@ -490,6 +495,7 @@ fun TimeWalletAppRoot(
                                 onShowCalendarModeChange = { journalCalendarMode = it },
                                 todayStats = state.todayStats,
                                 inboxTasks = inboxTasks,
+                                tasks = state.tasks,
                                 onScheduleTaskOnDate = { task, date -> viewModel.scheduleTaskOnCalendar(task, date) },
                                 onOpenDailyReview = { viewModel.openDailyReview(state.todayDateLocal) },
                                 onOpenTasksTab = { viewModel.selectTab(AppTab.TASKS) },
@@ -648,7 +654,7 @@ fun TimeWalletAppRoot(
                         state.scheduleViewMode != ScheduleViewMode.MONTH
                     val bottomSpacer = when {
                         inTimelineGridMode -> 2.dp
-                        state.customization.enableAiAssistant && !state.showScheduleWorkspace -> 104.dp
+                        state.customization.enableAiAssistant && !state.showScheduleWorkspace -> 124.dp
                         else -> 24.dp
                     }
                     Spacer(modifier = Modifier.height(bottomSpacer))
@@ -685,6 +691,7 @@ fun TimeWalletAppRoot(
                     },
                     showBackButton = true,
                     onBackClick = viewModel::closeScheduleWorkspace,
+                    tasks = state.tasks,
                     embeddedInScrollContainer = false
                 )
             }
@@ -777,8 +784,12 @@ fun TimeWalletAppRoot(
 
     // Dialogs
     state.editingRecord?.let { record ->
+        val linkedTask = remember(record.taskId, state.tasks) {
+            record.taskId?.let { tid -> state.tasks.firstOrNull { it.id == tid } }
+        }
         EditRecordDialog(
             record = record,
+            linkedTask = linkedTask,
             onDismiss = viewModel::closeEditRecord,
             onSave = { title, catKey, dateLocal, durationMinsText, startHm, endHm, allowPlanned, markedWaste ->
                 viewModel.saveEditedRecord(
@@ -794,7 +805,8 @@ fun TimeWalletAppRoot(
                 )
             },
             onDelete = { viewModel.deleteRecord(record.id) },
-            onOpenConfirmation = { viewModel.confirmPlannedOrActiveRecord(record) }
+            onOpenConfirmation = { viewModel.confirmPlannedOrActiveRecord(record) },
+            todayDateLocal = state.todayDateLocal
         )
     }
 
@@ -841,10 +853,14 @@ fun TimeWalletAppRoot(
     }
 
     state.manualEntry?.let { form ->
+        val manualLinkedTaskTitle = remember(form.taskId, state.tasks) {
+            form.taskId?.let { tid -> state.tasks.firstOrNull { it.id == tid }?.title }
+        }
         ManualEntrySheet(
             state = form,
             suggestions = tagSuggestions,
             allActiveTags = activeTags,
+            linkedTaskTitle = manualLinkedTaskTitle,
             onChange = viewModel::updateManualEntry,
             onSelectTag = viewModel::selectManualTag,
             onCreateTag = viewModel::createTagFromManualEntry,

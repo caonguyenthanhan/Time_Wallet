@@ -180,6 +180,7 @@ fun TasksHabitsScreen(
 
     var showCreateTaskDialog by remember { mutableStateOf(false) }
     var editingTask by remember { mutableStateOf<TaskItem?>(null) }
+    var taskPendingDelete by remember { mutableStateOf<TaskItem?>(null) }
     var naturalTodoText by remember { mutableStateOf("") }
     var showCreateHabitDialog by remember { mutableStateOf(false) }
 
@@ -643,7 +644,7 @@ fun TasksHabitsScreen(
                             onBreakDown = { onBreakDownTaskWithWally(task) },
                             onEdit = { editingTask = task },
                             onPostpone = { plusDays -> onPostponeTask(task, plusDays) },
-                            onDelete = { onDeleteTask(task.id) }
+                            onDelete = { taskPendingDelete = task }
                         )
                     }
                 }
@@ -1171,6 +1172,17 @@ fun TasksHabitsScreen(
                 editingTask = null
             },
             onDismiss = { editingTask = null }
+        )
+    }
+
+    taskPendingDelete?.let { targetTask ->
+        TaskDeleteConfirmationDialog(
+            task = targetTask,
+            onConfirmDelete = {
+                onDeleteTask(targetTask.id)
+                taskPendingDelete = null
+            },
+            onDismiss = { taskPendingDelete = null }
         )
     }
 
