@@ -268,6 +268,7 @@ fun HistoryScreen(
                     onNavigateToTimer = onNavigateToTimer,
                     showBackButton = false,
                     embeddedInScrollContainer = true,
+                    embeddedGridChromeReserveDp = 320,
                     onAddForSlots = onAddForSlots,
                     recordedSummaryBadge = todaySummary24Text,
                     onRecordedSummaryClick = if (todayStats != null) ({ showWalletStatsModal = true }) else null,

@@ -10,7 +10,14 @@ import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.model.TimeLayer
 import com.timewallet.mvp.domain.usecase.AiTodoEngine
 import com.timewallet.mvp.domain.usecase.AiTodoProposalKind
+import com.timewallet.mvp.domain.usecase.ScheduleBlockVisualState
+import com.timewallet.mvp.domain.usecase.ScheduleGridBlock
+import com.timewallet.mvp.domain.usecase.ScheduleGridEngine
 import com.timewallet.mvp.domain.usecase.TaskHabitEngine
+import com.timewallet.mvp.domain.usecase.TodoRiskAlert
+import com.timewallet.mvp.domain.usecase.TodoRiskKind
+import com.timewallet.mvp.ui.screens.buildTodoSummaryBannerState
+import com.timewallet.mvp.ui.screens.computeEmbeddedGridHeightDp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -637,5 +644,129 @@ class V221UiUxSpecTest {
             nowEpochMs = ts(today, 9, 0)
         )
         assertEquals(null, eff.wallyStory)
+    }
+
+    @Test
+    fun `r5 closure empty gap drag and bottom resize stop at measured blocks instead of overlapping`() {
+        val day = LocalDate.of(2026, 11, 24)
+        val occupied = listOf(
+            ScheduleGridBlock(
+                recordId = "r5_seg1",
+                record = null,
+                isActiveTimer = false,
+                dateLocal = day.toString(),
+                startMinute = 281, // 04:41
+                endMinute = 282,   // 04:42
+                totalDurationMinutes = 1,
+                title = "Ôn thi hệ thống",
+                category = TimeCategory.LEARN,
+                visualState = ScheduleBlockVisualState.COMPLETED
+            ),
+            ScheduleGridBlock(
+                recordId = "r5_seg2",
+                record = null,
+                isActiveTimer = false,
+                dateLocal = day.toString(),
+                startMinute = 282, // 04:42
+                endMinute = 283,   // 04:43
+                totalDurationMinutes = 1,
+                title = "Ôn thi hệ thống",
+                category = TimeCategory.LEARN,
+                visualState = ScheduleBlockVisualState.COMPLETED
+            )
+        )
+
+        // Kéo xuống từ 03:45 (225) qua 05:30 (330): phải dừng tại 04:41 (281), không phủ 04:41–04:43
+        val dragDown = ScheduleGridEngine.snapEmptyDragRangeInGaps(
+            anchorMinute = 225,
+            currentMinute = 330,
+            occupiedBlocks = occupied
+        )
+        assertEquals(225 to 281, dragDown)
+
+        // Kéo mép dưới của vùng đã chọn 03:45–04:41 xuống thêm 60p: giữ trần tại 04:41 (281)
+        val resizeDown = ScheduleGridEngine.snapEmptyResizeEndInGap(
+            origStartMin = 225,
+            origEndMin = 281,
+            deltaEndMinutes = 60,
+            occupiedBlocks = occupied
+        )
+        assertEquals(225 to 281, resizeDown)
+
+        // Kéo mép trên lên mép trên 00:00: mở rộng mượt về 00:00–04:41
+        val resizeUp = ScheduleGridEngine.snapEmptyResizeStartInGap(
+            origStartMin = 225,
+            origEndMin = 281,
+            deltaStartMinutes = -240,
+            occupiedBlocks = occupied
+        )
+        assertEquals(0 to 281, resizeUp)
+
+        // Nếu phía trên có khối 01:00–01:30, kéo mép trên lên mạnh phải dừng tại 01:30 (90)
+        val earlierBlock = ScheduleGridBlock(
+            recordId = "earlier",
+            record = null,
+            isActiveTimer = false,
+            dateLocal = day.toString(),
+            startMinute = 60,
+            endMinute = 90,
+            totalDurationMinutes = 30,
+            title = "Khối trước đó",
+            category = TimeCategory.WORK,
+            visualState = ScheduleBlockVisualState.COMPLETED
+        )
+        val resizeUpBlocked = ScheduleGridEngine.snapEmptyResizeStartInGap(
+            origStartMin = 225,
+            origEndMin = 281,
+            deltaStartMinutes = -200,
+            occupiedBlocks = listOf(earlierBlock) + occupied
+        )
+        assertEquals(90 to 281, resizeUpBlocked)
+    }
+
+    @Test
+    fun `r5 closure empty slot defaults future windows to planned and past today slots to reported timed`() {
+        val today = "2026-11-24"
+        val nowMin = 4 * 60 + 48 // 04:48
+        assertFalse(ScheduleGridEngine.shouldDefaultEmptySlotAsPlanned(today, 3 * 60 + 45, today, nowMin))
+        assertTrue(ScheduleGridEngine.shouldDefaultEmptySlotAsPlanned(today, 5 * 60 + 50, today, nowMin))
+        assertTrue(ScheduleGridEngine.shouldDefaultEmptySlotAsPlanned("2026-11-25", 0, today, nowMin))
+    }
+
+    @Test
+    fun `r5 closure tasks summary banner separates overdue alerts from due soon`() {
+        val overdueOnly = buildTodoSummaryBannerState(
+            todoRiskAlerts = listOf(
+                TodoRiskAlert(
+                    taskId = "t1",
+                    taskTitle = "Ôn thi hệ thống",
+                    kind = TodoRiskKind.OVERDUE,
+                    severityHigh = true,
+                    detailVi = "Quá hạn 00:10"
+                )
+            ),
+            proposalCount = 0,
+            inboxCount = 0
+        )
+        assertEquals("⚠ 1 quá hạn (Ôn thi hệ thống)", overdueOnly.label)
+        assertTrue(overdueOnly.hasOverdue)
+
+        val mixed = buildTodoSummaryBannerState(
+            todoRiskAlerts = listOf(
+                TodoRiskAlert("t1", "Ôn thi hệ thống", TodoRiskKind.OVERDUE, true, "Quá hạn"),
+                TodoRiskAlert("t2", "Soạn báo cáo", TodoRiskKind.DUE_TODAY_SOON, true, "Gần hạn")
+            ),
+            proposalCount = 1,
+            inboxCount = 2
+        )
+        assertEquals("✦ 1 gợi ý xếp lịch · ⚠ 1 quá hạn · 1 gần hạn · 2 Inbox", mixed.label)
+        assertTrue(mixed.hasOverdue)
+    }
+
+    @Test
+    fun `r5 closure embedded schedule grid height fits 320dp viewport cleanly above bottom nav`() {
+        assertEquals(248, computeEmbeddedGridHeightDp(screenHeightDp = 568, chromeReserveDp = 320))
+        assertEquals(524, computeEmbeddedGridHeightDp(screenHeightDp = 844, chromeReserveDp = 320))
+        assertEquals(322, computeEmbeddedGridHeightDp(screenHeightDp = 568, chromeReserveDp = 246))
     }
 }

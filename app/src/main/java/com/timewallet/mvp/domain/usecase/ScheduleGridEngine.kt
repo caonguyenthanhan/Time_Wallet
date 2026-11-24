@@ -564,6 +564,94 @@ object ScheduleGridEngine {
         return snappedStart to snappedEnd
     }
 
+    private fun containingFreeGapForRange(
+        startMinute: Int,
+        endMinute: Int,
+        occupiedBlocks: List<ScheduleGridBlock>
+    ): ScheduleFreeGap? {
+        if (occupiedBlocks.isEmpty()) return ScheduleFreeGap("", 0, 1440)
+        val gaps = computeFreeGaps("", occupiedBlocks, minGapMinutes = 1)
+        val mid = ((startMinute + endMinute) / 2).coerceIn(0, 1439)
+        return gaps.firstOrNull { startMinute >= it.startMinute && endMinute <= it.endMinute }
+            ?: gaps.firstOrNull { mid in it.startMinute until it.endMinute }
+            ?: gaps.firstOrNull { startMinute in it.startMinute..it.endMinute }
+    }
+
+    /** Kéo chọn trên khoảng trống nhưng luôn chặn trong ranh giới khoảng trống hiện hữu (không trùm lên phiên đã ghi). */
+    fun snapEmptyDragRangeInGaps(
+        anchorMinute: Int,
+        currentMinute: Int,
+        occupiedBlocks: List<ScheduleGridBlock>,
+        snapMinutes: Int = 15
+    ): Pair<Int, Int> {
+        val anchor = anchorMinute.coerceIn(0, 1439)
+        val gaps = computeFreeGaps("", occupiedBlocks, minGapMinutes = 1)
+        val gap = gaps.firstOrNull { anchor in it.startMinute until it.endMinute }
+            ?: gaps.firstOrNull { anchor in it.startMinute..it.endMinute }
+            ?: if (occupiedBlocks.isEmpty()) ScheduleFreeGap("", 0, 1440)
+            else gaps.minByOrNull { g ->
+                when {
+                    anchor < g.startMinute -> g.startMinute - anchor
+                    anchor > g.endMinute -> anchor - g.endMinute
+                    else -> 0
+                }
+            }
+            ?: return snapEmptyDragRange(anchorMinute, currentMinute, snapMinutes)
+        val minBound = gap.startMinute
+        val maxBound = gap.endMinute
+        if (maxBound - minBound < snapMinutes) return minBound to maxBound
+        val clampedCur = currentMinute.coerceIn(minBound, maxBound)
+        val rawMin = min(anchor, clampedCur).coerceIn(minBound, maxBound - snapMinutes)
+        val rawMax = max(anchor, clampedCur).coerceIn(rawMin + snapMinutes, maxBound)
+        val snappedStart = ((rawMin / snapMinutes) * snapMinutes).coerceAtLeast(minBound)
+        val rawSnappedEnd = ((rawMax + snapMinutes - 1) / snapMinutes) * snapMinutes
+        val snappedEnd = min(rawSnappedEnd, maxBound).coerceIn((snappedStart + 1).coerceAtMost(maxBound), maxBound)
+        return snappedStart to snappedEnd
+    }
+
+    /** Mặc định "Dự kiến" khi tạo từ ô trống còn ở tương lai; ô trống đã qua trong hôm nay giữ "Có giờ" thực tế. */
+    fun shouldDefaultEmptySlotAsPlanned(
+        dateLocal: String,
+        startMinute: Int,
+        todayLocal: String,
+        nowMinute: Int
+    ): Boolean = dateLocal > todayLocal || (dateLocal == todayLocal && startMinute >= nowMinute)
+
+    /** Kéo mép TRÊN của ô trống đã chọn, chặn tại ranh giới khối đã có ngay phía trên để không đè lên dữ liệu thực tế. */
+    fun snapEmptyResizeStartInGap(
+        origStartMin: Int,
+        origEndMin: Int,
+        deltaStartMinutes: Int,
+        occupiedBlocks: List<ScheduleGridBlock>,
+        snapMinutes: Int = 15
+    ): Pair<Int, Int> {
+        val gap = containingFreeGapForRange(origStartMin, origEndMin, occupiedBlocks)
+        val minBound = gap?.startMinute ?: 0
+        val minSpan = min(snapMinutes, (origEndMin - origStartMin).coerceAtLeast(1))
+        val raw = origStartMin + deltaStartMinutes
+        val half = snapMinutes / 2
+        val snapped = if (raw <= minBound) minBound else ((raw + half) / snapMinutes) * snapMinutes
+        val maxAllowedStart = (origEndMin - minSpan).coerceAtLeast(minBound)
+        return snapped.coerceIn(minBound, maxAllowedStart) to origEndMin
+    }
+
+    /** Kéo mép DƯỚI của ô trống đã chọn, chặn tại ranh giới khối đã có ngay phía dưới để không trùm qua phiên đã đo. */
+    fun snapEmptyResizeEndInGap(
+        origStartMin: Int,
+        origEndMin: Int,
+        deltaEndMinutes: Int,
+        occupiedBlocks: List<ScheduleGridBlock>,
+        snapMinutes: Int = 15
+    ): Pair<Int, Int> {
+        val gap = containingFreeGapForRange(origStartMin, origEndMin, occupiedBlocks)
+        val maxBound = gap?.endMinute ?: 1440
+        val minSpan = min(snapMinutes, (origEndMin - origStartMin).coerceAtLeast(1))
+        val raw = origEndMin + deltaEndMinutes
+        val snapped = if (raw >= maxBound) maxBound else ((raw + snapMinutes / 2) / snapMinutes) * snapMinutes
+        val minAllowedEnd = (origStartMin + minSpan).coerceAtMost(maxBound)
+        return origStartMin to snapped.coerceIn(minAllowedEnd, maxBound)
+    }
+
     /** Định vị một hoạt động chưa gắn giờ vào khung giờ đã chọn nhưng giữ nguyên thời lượng (nằm gọn trong ngày). */
     fun buildUntimedPlacementWindow(
         tappedMinute: Int,

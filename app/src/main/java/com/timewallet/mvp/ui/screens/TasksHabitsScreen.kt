@@ -87,6 +87,7 @@ import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
 import com.timewallet.mvp.domain.usecase.TaskHabitEngine
 import com.timewallet.mvp.domain.usecase.TaskSmartFilter
 import com.timewallet.mvp.domain.usecase.TodoRiskAlert
+import com.timewallet.mvp.domain.usecase.TodoRiskKind
 import com.timewallet.mvp.ui.theme.WalletBg
 import com.timewallet.mvp.ui.theme.WalletCardBg
 import com.timewallet.mvp.ui.theme.WalletDangerBg
@@ -385,28 +386,34 @@ fun TasksHabitsScreen(
                     )
                 }
 
-                // 3. Dải tóm tắt gọn (1 dòng) cho Cảnh báo / Đề xuất AI / Inbox; bấm để bung chi tiết khi cần
+                // 3. Dải tóm tắt gọn (1 dòng) cho Cảnh báo / Đề xuất AI / Inbox; phân biệt rõ Quá hạn vs Gần hạn
                 val hasSummaryBanner = todoRiskAlerts.isNotEmpty() || hasAiSummary || inboxCount > 0
                 if (hasSummaryBanner && !aiPanelExpanded) {
-                    val summaryLabel = buildList {
-                        if (hasActiveProposals) add("✦ ${todoAiReport!!.proposals.size} gợi ý xếp lịch")
-                        if (todoRiskAlerts.isNotEmpty()) add("⚠ ${todoRiskAlerts.size} gần hạn")
-                        if (inboxCount > 0) add("$inboxCount Inbox")
-                    }.joinToString(" · ")
+                    val bannerState = buildTodoSummaryBannerState(
+                        todoRiskAlerts = todoRiskAlerts,
+                        proposalCount = if (hasActiveProposals) todoAiReport!!.proposals.size else 0,
+                        inboxCount = inboxCount
+                    )
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .background(if (todoRiskAlerts.any { it.severityHigh } && !hasActiveProposals) WalletWarningBg else WalletSoftNeutral)
+                            .background(
+                                when {
+                                    bannerState.hasOverdue && !hasActiveProposals -> WalletDangerBg
+                                    bannerState.hasHighSeverity && !hasActiveProposals -> WalletWarningBg
+                                    else -> WalletSoftNeutral
+                                }
+                            )
                             .padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = summaryLabel,
+                            text = bannerState.label,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = WalletInk,
+                            color = if (bannerState.hasOverdue && !hasActiveProposals) WalletDangerText else WalletInk,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
@@ -1877,5 +1884,50 @@ private fun EditTaskDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Hủy", color = WalletMuted) }
         }
+    )
+}
+
+internal data class TodoSummaryBannerState(
+    val label: String,
+    val hasOverdue: Boolean,
+    val hasHighSeverity: Boolean
+)
+
+/** Tóm tắt dải cảnh báo To-do trên màn Công việc, tách bạch rõ Quá hạn với Gần hạn. */
+internal fun buildTodoSummaryBannerState(
+    todoRiskAlerts: List<TodoRiskAlert>,
+    proposalCount: Int,
+    inboxCount: Int
+): TodoSummaryBannerState {
+    val overdueAlerts = todoRiskAlerts.filter { it.kind == TodoRiskKind.OVERDUE }
+    val soonAlerts = todoRiskAlerts.filter { it.kind == TodoRiskKind.DUE_TODAY_SOON }
+    val otherAlerts = todoRiskAlerts.filter {
+        it.kind != TodoRiskKind.OVERDUE && it.kind != TodoRiskKind.DUE_TODAY_SOON
+    }
+    val label = buildList {
+        if (proposalCount > 0) add("✦ $proposalCount gợi ý xếp lịch")
+        if (overdueAlerts.isNotEmpty()) {
+            val who = if (overdueAlerts.size == 1 && soonAlerts.isEmpty() && otherAlerts.isEmpty()) {
+                " (${overdueAlerts.first().taskTitle})"
+            } else ""
+            add("⚠ ${overdueAlerts.size} quá hạn$who")
+        }
+        if (soonAlerts.isNotEmpty()) {
+            val prefix = if (overdueAlerts.isEmpty()) "⚠ " else ""
+            val who = if (soonAlerts.size == 1 && overdueAlerts.isEmpty() && otherAlerts.isEmpty()) {
+                " (${soonAlerts.first().taskTitle})"
+            } else ""
+            add("$prefix${soonAlerts.size} gần hạn$who")
+        }
+        if (otherAlerts.isNotEmpty()) {
+            val prefix = if (overdueAlerts.isEmpty() && soonAlerts.isEmpty()) "⚠ " else ""
+            add("$prefix${otherAlerts.size} lưu ý")
+        }
+        if (inboxCount > 0) add("$inboxCount Inbox")
+    }.joinToString(" · ")
+    return TodoSummaryBannerState(
+        label = label,
+        hasOverdue = overdueAlerts.isNotEmpty(),
+        hasHighSeverity = todoRiskAlerts.any { it.severityHigh }
     )
 }

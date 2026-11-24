@@ -113,7 +113,7 @@
 1. Tải tệp **`TimeWallet-MVP-v2.2.1-release.apk`** từ trang **[GitHub Releases v2.2.1](https://github.com/caonguyenthanhan/Time_Wallet/releases/tag/v2.2.1)** (`Android 8.0+`).
 2. Mở tệp `.apk` vừa tải và cho phép cài đặt từ trình duyệt / trình quản lý tệp.
    *(Nếu lần đầu cài APK ngoài Play Store và Android / Play Protect hỏi xác nhận, chọn **"Vẫn cài đặt"** hoặc xem mã `SHA-256` kèm theo trên trang Release để tự đối chiếu.)*
-3. Nếu đã cài các bản Release trước (`v2.0.0` – `v2.2.0`), bạn có thể cài đè trực tiếp hoặc cập nhật ngay bên trong **⚙ Hồ sơ & Cài đặt** mà không mất dữ liệu lịch, To-do hay khóa AI đã lưu.
+3. Nếu đang dùng bản phát hành trước đó (`v2.2.0`), bạn có thể cài đè trực tiếp (`WallyQA` đã kiểm tra giữ lại dữ liệu To-do khi nâng cấp từ `v2.2.0` lên `v2.2.1`); nên sao lưu JSON trước trong **⚙ Hồ sơ & Cài đặt** nếu nâng cấp từ các bản cũ hơn (`v2.0.0–v2.1.0`) hoặc khi muốn lưu riêng cấu hình API key.
 
 > **Muốn dùng AI Cloud:** vào **⚙ Hồ sơ & Cài đặt › Cấu hình Wally AI** để nhập API key riêng của bạn (hỗ trợ OpenAI-compatible, Gemini, Claude, Groq, Ollama...). Toàn bộ tính năng Lịch trình, Tập trung, To-do, Widget và Trợ lý nổi vẫn dùng bình thường ngay cả khi ngoại tuyến.
 

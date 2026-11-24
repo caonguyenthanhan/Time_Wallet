@@ -189,6 +189,7 @@ fun ScheduleCalendarView(
     showBackButton: Boolean = false,
     onBackClick: () -> Unit = {},
     embeddedInScrollContainer: Boolean = false,
+    embeddedGridChromeReserveDp: Int = 246,
     onAddForSlots: (List<SelectedSlotGroup>) -> Unit = { groups ->
         groups.firstOrNull()?.let { g ->
             val todayCheck = runCatching { LocalDate.parse(todayDateLocal) }.getOrDefault(LocalDate.now())
@@ -859,7 +860,10 @@ fun ScheduleCalendarView(
 
         // 2. Timeline là trung tâm — thích ứng theo chiều cao màn hình để không tạo dải trống đáy ở 390dp hay tràn lồng cuộn ở 320dp
         val screenHeightDp = LocalConfiguration.current.screenHeightDp
-        val embeddedGridHeight = (screenHeightDp - 246).coerceIn(320, 620).dp
+        val embeddedGridHeight = computeEmbeddedGridHeightDp(
+            screenHeightDp = screenHeightDp,
+            chromeReserveDp = embeddedGridChromeReserveDp
+        ).dp
         val gridModifier = if (embeddedInScrollContainer) {
             Modifier.fillMaxWidth().height(embeddedGridHeight)
         } else {
@@ -1809,6 +1813,7 @@ private fun DayTimelineGrid(
     val latestOnDragSelectEmptyRange by rememberUpdatedState(onDragSelectEmptyRange)
     val latestOnResizeSelectedEmptySlot by rememberUpdatedState(onResizeSelectedEmptySlot)
     val latestOnDraftBlockChanged by rememberUpdatedState(onDraftBlockChanged)
+    val latestDayModel by rememberUpdatedState(dayModel)
 
     val selectedEmptyOnDay = remember(interactionState, dayModel.dateLocal) {
         val slots = (interactionState as? ScheduleInteractionState.EmptySlotsSelected)?.slots.orEmpty()
@@ -1909,7 +1914,11 @@ private fun DayTimelineGrid(
                                     } else {
                                         startOffset.y - scrollState.value
                                     }
-                                    val (s, e) = ScheduleGridEngine.snapEmptyDragRange(startMin, startMin + 30)
+                                    val (s, e) = ScheduleGridEngine.snapEmptyDragRangeInGaps(
+                                        anchorMinute = startMin,
+                                        currentMinute = startMin + 30,
+                                        occupiedBlocks = latestDayModel.timedBlocks
+                                    )
                                     liveEmptyDragRange = s to e
                                     activeAutoScrollTick = {
                                         val gcTopInVp = if (vc != null && gc != null && vc.isAttached && gc.isAttached) {
@@ -1919,7 +1928,11 @@ private fun DayTimelineGrid(
                                         }
                                         val docY = localDragViewportY - gcTopInVp
                                         val curMin = (docY / minuteHeightPx).roundToInt().coerceIn(0, 1440)
-                                        liveEmptyDragRange = ScheduleGridEngine.snapEmptyDragRange(emptyDragAnchorMin, curMin)
+                                        liveEmptyDragRange = ScheduleGridEngine.snapEmptyDragRangeInGaps(
+                                            anchorMinute = emptyDragAnchorMin,
+                                            currentMinute = curMin,
+                                            occupiedBlocks = latestDayModel.timedBlocks
+                                        )
                                     }
                                     activeDragKind = "empty_range"
                                 },
@@ -2088,7 +2101,12 @@ private fun DayTimelineGrid(
                                     }
                                     val curDocY = localDragViewportY - gcTopInVp
                                     val dMin = ((curDocY - slotTopStartDocY) / minuteHeightPx).roundToInt()
-                                    val (s, e) = ScheduleGridEngine.snapResizeStartRange(slotOrigStart, slotOrigEnd, dMin)
+                                    val (s, e) = ScheduleGridEngine.snapEmptyResizeStartInGap(
+                                        origStartMin = slotOrigStart,
+                                        origEndMin = slotOrigEnd,
+                                        deltaStartMinutes = dMin,
+                                        occupiedBlocks = latestDayModel.timedBlocks
+                                    )
                                     latestOnResizeSelectedEmptySlot(s, e)
                                 }
                                 activeDragKind = "empty_top_${dayModel.dateLocal}_$idx"
@@ -2135,7 +2153,12 @@ private fun DayTimelineGrid(
                                     }
                                     val curDocY = localDragViewportY - gcTopInVp
                                     val dMin = ((curDocY - slotBotStartDocY) / minuteHeightPx).roundToInt()
-                                    val (s, e) = ScheduleGridEngine.snapResizeRange(slotOrigStart, slotOrigEnd, dMin)
+                                    val (s, e) = ScheduleGridEngine.snapEmptyResizeEndInGap(
+                                        origStartMin = slotOrigStart,
+                                        origEndMin = slotOrigEnd,
+                                        deltaEndMinutes = dMin,
+                                        occupiedBlocks = latestDayModel.timedBlocks
+                                    )
                                     latestOnResizeSelectedEmptySlot(s, e)
                                 }
                                 activeDragKind = "empty_bot_${dayModel.dateLocal}_$idx"
@@ -3107,11 +3130,19 @@ private fun MultiDayTimelineGrid(
                                                     localDragViewportY = if (vc != null && cc != null && vc.isAttached && cc.isAttached) {
                                                         vc.localPositionOf(cc, pos).y
                                                     } else pos.y - vScrollState.value
-                                                    liveEmptyRange = ScheduleGridEngine.snapEmptyDragRange(s, s + 30)
+                                                    liveEmptyRange = ScheduleGridEngine.snapEmptyDragRangeInGaps(
+                                                        anchorMinute = s,
+                                                        currentMinute = s + 30,
+                                                        occupiedBlocks = latestDay.timedBlocks
+                                                    )
                                                     activeAutoScrollTick = {
                                                         val docY = localDragViewportY + vScrollState.value
                                                         val c = (docY / minutePx).roundToInt().coerceIn(0, 1440)
-                                                        liveEmptyRange = ScheduleGridEngine.snapEmptyDragRange(emptyDragAnchorMin, c)
+                                                        liveEmptyRange = ScheduleGridEngine.snapEmptyDragRangeInGaps(
+                                                            anchorMinute = emptyDragAnchorMin,
+                                                            currentMinute = c,
+                                                            occupiedBlocks = latestDay.timedBlocks
+                                                        )
                                                     }
                                                     activeDragKind = "m_empty_${day.dateLocal}"
                                                 },
@@ -3973,4 +4004,13 @@ private fun formatScheduleRangeHeading(
             selectedDate.format(DateTimeFormatter.ofPattern("'Tháng' MM/yyyy", Locale("vi", "VN")))
         }
     }
+}
+
+/** Tính chiều cao lưới lịch nhúng trong MainScreen mà không tràn xuống sau thanh điều hướng đáy ở màn 320dp. */
+internal fun computeEmbeddedGridHeightDp(
+    screenHeightDp: Int,
+    chromeReserveDp: Int = 246
+): Int {
+    val minHeight = if (chromeReserveDp > 260) 220 else 320
+    return (screenHeightDp - chromeReserveDp).coerceIn(minHeight, 620)
 }

@@ -2872,13 +2872,20 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
     fun openManualFormForSlots(groups: List<SelectedSlotGroup>) {
         if (groups.isEmpty() || _uiState.value.manualEntry != null) return
         val todayStr = LocalDate.now().toString()
+        val nowZoned = java.time.ZonedDateTime.now()
+        val nowMin = nowZoned.hour * 60 + nowZoned.minute
         if (groups.size == 1) {
             val g = groups.single()
             openManualFormForSlot(
                 dateLocal = g.dateLocal,
                 startHm = g.startHm,
                 endHm = g.endHm,
-                saveAsPlanned = g.dateLocal > todayStr
+                saveAsPlanned = ScheduleGridEngine.shouldDefaultEmptySlotAsPlanned(
+                    dateLocal = g.dateLocal,
+                    startMinute = g.startMinute,
+                    todayLocal = todayStr,
+                    nowMinute = nowMin
+                )
             )
             return
         }
@@ -2886,7 +2893,14 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             categoryKey = null,
             dateLocal = groups.first().dateLocal,
             mode = ManualMode.RANGE,
-            saveAsPlanned = groups.all { it.dateLocal > todayStr },
+            saveAsPlanned = groups.all {
+                ScheduleGridEngine.shouldDefaultEmptySlotAsPlanned(
+                    dateLocal = it.dateLocal,
+                    startMinute = it.startMinute,
+                    todayLocal = todayStr,
+                    nowMinute = nowMin
+                )
+            },
             batchSlots = groups
         )
         _uiState.update { it.copy(manualEntry = form) }

@@ -297,7 +297,11 @@ class WallyFloatingService : Service() {
             windowParams.width = WindowManager.LayoutParams.WRAP_CONTENT
             windowParams.height = WindowManager.LayoutParams.WRAP_CONTENT
             windowParams.x = 0
-            windowParams.y = (22f * metrics.density).roundToInt()
+            windowParams.y = if (mode == FloatingUiMode.CHAT) {
+                (8f * metrics.density).roundToInt()
+            } else {
+                (22f * metrics.density).roundToInt()
+            }
             windowParams.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
         }
         runCatching {
@@ -1312,8 +1316,13 @@ private fun FloatingChatCard(
     }
 
     val cfg = LocalConfiguration.current
+    val isShortViewport = cfg.screenHeightDp <= 600
     val chatMaxWidthDp = (cfg.screenWidthDp - 20).coerceIn(288, 342).dp
-    val chatMaxHeightDp = (cfg.screenHeightDp * 0.56f).coerceIn(330f, 430f).dp
+    val chatMaxHeightDp = if (isShortViewport) {
+        286.dp
+    } else {
+        (cfg.screenHeightDp * 0.44f).coerceIn(270f, 360f).dp
+    }
     val chatListScroll = rememberScrollState()
     LaunchedEffect(messages.size, pendingProposals.size) {
         chatListScroll.animateScrollTo(chatListScroll.maxValue)
@@ -1330,8 +1339,8 @@ private fun FloatingChatCard(
             .heightIn(max = chatMaxHeightDp)
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(if (isShortViewport) 9.dp else 12.dp),
+            verticalArrangement = Arrangement.spacedBy(if (isShortViewport) 5.dp else 8.dp)
         ) {
             CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 34.dp) {
                 Row(
@@ -1356,7 +1365,7 @@ private fun FloatingChatCard(
                             softWrap = false,
                             overflow = TextOverflow.Ellipsis
                         )
-                        if (snapshot?.current != null) {
+                        if (snapshot?.current != null && !isShortViewport) {
                             Text(
                                 text = "${snapshot.current.title} · Trống ${TimeRange.formatDuration(snapshot.freeRemainingMinutes)}",
                                 fontSize = 10.sp,
@@ -1392,7 +1401,7 @@ private fun FloatingChatCard(
             Column(
                 modifier = Modifier
                     .weight(1f, fill = false)
-                    .heightIn(min = 96.dp, max = 180.dp)
+                    .heightIn(min = if (isShortViewport) 68.dp else 96.dp, max = if (isShortViewport) 108.dp else 170.dp)
                     .verticalScroll(chatListScroll),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
