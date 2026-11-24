@@ -222,7 +222,8 @@ data class SavedProposalDraft(
     val isFuturePlanned: Boolean,
     val idempotencyKey: String,
     val tagId: String? = null,
-    val isMarkedWaste: Boolean = false
+    val isMarkedWaste: Boolean = false,
+    val taskId: String? = null
 )
 
 /** Bản nháp form Nhập giờ thủ công (lưu cục bộ ngoài sổ cái, không tạo bản ghi và không ảnh hưởng thống kê). */
@@ -241,11 +242,13 @@ data class ManualEntryDraft(
     val endIsNow: Boolean = false,
     val saveAsPlanned: Boolean = false,
     val updatedAtEpochMs: Long = 0L,
-    val isMarkedWaste: Boolean = false
+    val isMarkedWaste: Boolean = false,
+    val taskId: String? = null
 ) {
     fun hasUserData(todayLocal: String): Boolean =
         categoryKey != null ||
             tagId != null ||
+            taskId != null ||
             tagQuery.isNotBlank() ||
             hoursText.isNotBlank() ||
             minutesText.isNotBlank() ||
@@ -617,6 +620,7 @@ class TimerAndSettingsStore(
                 put("endIsNow", draft.endIsNow)
                 put("saveAsPlanned", draft.saveAsPlanned)
                 put("isMarkedWaste", draft.isMarkedWaste)
+                put("taskId", draft.taskId ?: JSONObject.NULL)
                 put("updatedAtEpochMs", draft.updatedAtEpochMs)
             }.toString()
             edit.putString(KEY_MANUAL_DRAFT_JSON, json)
@@ -634,6 +638,7 @@ class TimerAndSettingsStore(
             if (sessionId.isEmpty() || dateLocal.isEmpty()) return null
             val catRaw = if (obj.isNull("categoryKey")) null else obj.optString("categoryKey", "").takeIf { it.isNotBlank() }
             val tagRaw = if (obj.isNull("tagId")) null else obj.optString("tagId", "").takeIf { it.isNotBlank() }
+            val taskRaw = if (obj.isNull("taskId")) null else obj.optString("taskId", "").takeIf { it.isNotBlank() }
             ManualEntryDraft(
                 sessionId = sessionId,
                 categoryKey = catRaw,
@@ -649,7 +654,8 @@ class TimerAndSettingsStore(
                 endIsNow = obj.optBoolean("endIsNow", false),
                 saveAsPlanned = obj.optBoolean("saveAsPlanned", false),
                 updatedAtEpochMs = obj.optLong("updatedAtEpochMs", 0L),
-                isMarkedWaste = obj.optBoolean("isMarkedWaste", false)
+                isMarkedWaste = obj.optBoolean("isMarkedWaste", false),
+                taskId = taskRaw
             )
         } catch (_: Exception) {
             null
@@ -762,6 +768,7 @@ class TimerAndSettingsStore(
                         put("idempotencyKey", d.idempotencyKey)
                         put("tagId", d.tagId ?: JSONObject.NULL)
                         put("isMarkedWaste", d.isMarkedWaste)
+                        put("taskId", d.taskId ?: JSONObject.NULL)
                     }
                 )
             }
@@ -792,7 +799,8 @@ class TimerAndSettingsStore(
                             isFuturePlanned = o.optBoolean("isFuturePlanned", false),
                             idempotencyKey = o.optString("idempotencyKey", id),
                             tagId = if (o.isNull("tagId")) null else o.optString("tagId").takeIf { it.isNotBlank() },
-                            isMarkedWaste = o.optBoolean("isMarkedWaste", false)
+                            isMarkedWaste = o.optBoolean("isMarkedWaste", false),
+                            taskId = if (o.isNull("taskId")) null else o.optString("taskId", "").takeIf { it.isNotBlank() }
                         )
                     )
                 }

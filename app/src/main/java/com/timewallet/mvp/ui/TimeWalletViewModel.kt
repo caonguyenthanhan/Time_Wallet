@@ -99,6 +99,7 @@ import com.timewallet.mvp.domain.usecase.ChatPhase
 import com.timewallet.mvp.domain.usecase.ChatPhaseMachine
 import com.timewallet.mvp.domain.usecase.OutcomeSource
 import com.timewallet.mvp.domain.usecase.BudgetPolicy
+import com.timewallet.mvp.domain.usecase.DashboardSummary
 import com.timewallet.mvp.domain.usecase.DerivedStatsCalculator
 import com.timewallet.mvp.domain.usecase.CancelArming
 import com.timewallet.mvp.domain.usecase.CancelCommandParser
@@ -271,6 +272,7 @@ data class ManualEntryState(
             endIsNow ||
             saveAsPlanned ||
             isMarkedWaste ||
+            taskId != null ||
             note.isNotBlank() ||
             dateLocal != todayLocal
 
@@ -292,7 +294,8 @@ data class ManualEntryState(
         endIsNow = endIsNow,
         saveAsPlanned = saveAsPlanned,
         updatedAtEpochMs = nowMs,
-        isMarkedWaste = isMarkedWaste
+        isMarkedWaste = isMarkedWaste,
+        taskId = taskId
     )
 }
 
@@ -833,7 +836,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         isFuturePlanned = isFuturePlanned,
         idempotencyKey = idempotencyKey,
         tagId = tagId,
-        isMarkedWaste = isMarkedWaste
+        isMarkedWaste = isMarkedWaste,
+        taskId = taskId
     )
 
     private fun SavedProposalDraft.toEditableDraft(): EditableProposalDraft = EditableProposalDraft(
@@ -849,7 +853,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         isFuturePlanned = isFuturePlanned,
         idempotencyKey = idempotencyKey,
         tagId = tagId,
-        isMarkedWaste = isMarkedWaste
+        isMarkedWaste = isMarkedWaste,
+        taskId = taskId
     )
 
     private var recomputeJob: Job? = null
@@ -1097,9 +1102,10 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             }
             return
         }
+        val nowMs = System.currentTimeMillis()
         val currentBootCount = TimerAndSettingsStore.readDeviceBootCount(getApplication())
         val snapshot = session.computeElapsedSeconds(
-            nowEpochMs = System.currentTimeMillis(),
+            nowEpochMs = nowMs,
             nowElapsedRealtimeMs = SystemClock.elapsedRealtime(),
             currentBootCount = currentBootCount
         )
@@ -1108,6 +1114,29 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             clockSkewDetected = snapshot.clockSkewDetected,
             breakNudgeVisible = snapshot.elapsedSeconds >= 90L * 60L
         )
+        val zone = ZoneId.systemDefault()
+        val effectiveNowMs = snapshot.effectiveEndEpochMs
+        val todayStr = Instant.ofEpochMilli(effectiveNowMs).atZone(zone).toLocalDate().toString()
+        val state = _uiState.value
+        val fastDayStats = LedgerAnalyticsCalculator.computeDayStats(
+            dateLocal = todayStr,
+            records = state.records,
+            zoneId = zone,
+            nowEpochMs = effectiveNowMs,
+            activeTimer = session
+        )
+        val prevRecordedMin = (DashboardSummary.from(state.todayStats).recordedSeconds + 30L) / 60L
+        val nextRecordedMin = (DashboardSummary.from(fastDayStats).recordedSeconds + 30L) / 60L
+        if (state.todayDateLocal != todayStr || prevRecordedMin != nextRecordedMin) {
+            _uiState.update { cur ->
+                if (cur.activeTimer == session) {
+                    cur.copy(todayDateLocal = todayStr, todayStats = fastDayStats)
+                } else {
+                    cur
+                }
+            }
+            WallyActionController.notifyAllWidgets(getApplication())
+        }
     }
 
     fun selectTab(tab: AppTab) {
@@ -4059,21 +4088,26 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
     fun openManualLogFromCompletedTask(prompt: TaskCompletionPrompt) {
         val t = prompt.task
         val mins = prompt.suggestedMinutes
+        val completedLogForm = ManualEntryState(
+            categoryKey = t.category.key,
+            hoursText = (mins / 60).takeIf { h -> h > 0 }?.toString().orEmpty(),
+            minutesText = (mins % 60).takeIf { m -> m > 0 || mins < 60 }?.toString().orEmpty(),
+            dateLocal = _uiState.value.todayDateLocal,
+            note = t.title,
+            mode = ManualMode.DURATION,
+            tagId = t.tagId,
+            taskId = t.id
+        )
         _uiState.update {
             it.copy(
                 pendingTaskLogPrompt = null,
-                manualEntry = ManualEntryState(
-                    categoryKey = t.category.key,
-                    hoursText = (mins / 60).takeIf { h -> h > 0 }?.toString().orEmpty(),
-                    minutesText = (mins % 60).takeIf { m -> m > 0 || mins < 60 }?.toString().orEmpty(),
-                    dateLocal = it.todayDateLocal,
-                    note = t.title,
-                    mode = ManualMode.DURATION,
-                    tagId = t.tagId,
-                    taskId = t.id
-                )
+                manualEntry = completedLogForm.copy(dateLocal = it.todayDateLocal)
             )
         }
+        syncManualDraftPersistence(
+            completedLogForm.copy(dateLocal = _uiState.value.todayDateLocal),
+            immediate = true
+        )
     }
 
     fun updateTaskStatus(task: TaskItem, newStatus: TaskStatus) {
@@ -4280,21 +4314,19 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         val endMin = (startMin + mins).coerceAtMost(gap?.endMinute ?: (startMin + mins)).coerceAtLeast(startMin + 15)
         val sHm = TimeRange.formatHm(startMin.coerceIn(0, 1425))
         val eHm = if (endMin >= 1440) "23:59" else TimeRange.formatHm(endMin)
-        _uiState.update {
-            it.copy(
-                manualEntry = ManualEntryState(
-                    categoryKey = task.category.key,
-                    dateLocal = targetDate,
-                    note = task.title,
-                    mode = ManualMode.RANGE,
-                    tagId = task.tagId,
-                    startText = sHm.filter(Char::isDigit),
-                    endText = eHm.filter(Char::isDigit),
-                    saveAsPlanned = true,
-                    taskId = task.id
-                )
-            )
-        }
+        val scheduledForm = ManualEntryState(
+            categoryKey = task.category.key,
+            dateLocal = targetDate,
+            note = task.title,
+            mode = ManualMode.RANGE,
+            tagId = task.tagId,
+            startText = sHm.filter(Char::isDigit),
+            endText = eHm.filter(Char::isDigit),
+            saveAsPlanned = true,
+            taskId = task.id
+        )
+        _uiState.update { it.copy(manualEntry = scheduledForm) }
+        syncManualDraftPersistence(scheduledForm, immediate = true)
     }
 
     /**

@@ -8,12 +8,18 @@ import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.model.PausedTimerContinuation
 import com.timewallet.mvp.domain.model.TaskItem
 import com.timewallet.mvp.domain.model.TaskPriority
+import com.timewallet.mvp.domain.model.TaskStatus
 import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.model.TimeLayer
 import com.timewallet.mvp.domain.usecase.AiTodoAnalysisReport
 import com.timewallet.mvp.domain.usecase.AiTodoEngine
 import com.timewallet.mvp.domain.usecase.AiTodoProposalKind
 import com.timewallet.mvp.domain.usecase.CurrentWorkMode
+import com.timewallet.mvp.domain.usecase.DashboardSummary
+import com.timewallet.mvp.domain.usecase.DerivedStatsCalculator
+import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
+import com.timewallet.mvp.domain.usecase.ScheduleGridEngine
+import com.timewallet.mvp.domain.usecase.TimeRange
 import com.timewallet.mvp.domain.usecase.TodoRiskKind
 import com.timewallet.mvp.domain.usecase.WallyHubSnapshotEngine
 import com.timewallet.mvp.domain.usecase.fingerprint
@@ -21,6 +27,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -403,5 +410,324 @@ class V220FloatingWidgetAndAiTodoTest {
         val schedSrc = projectFile("app/src/main/java/com/timewallet/mvp/ui/screens/ScheduleCalendarView.kt").readText()
         assertTrue(schedSrc.contains("Về giờ hiện tại"))
         assertTrue(schedSrc.contains("Tới hoạt động kế tiếp"))
+    }
+
+    @Test
+    fun `overnight 2300 to 0030 splits 60m yesterday and 30m today consistently across 24h wallet, floating panel and widget`() {
+        val zone = ZoneId.of("Asia/Ho_Chi_Minh")
+        val yesterday = LocalDate.of(2026, 11, 24)
+        val today = LocalDate.of(2026, 11, 25)
+        val startMs = ZonedDateTime.of(yesterday, LocalTime.of(23, 0), zone).toInstant().toEpochMilli()
+        val endMs = ZonedDateTime.of(today, LocalTime.of(0, 30), zone).toInstant().toEpochMilli()
+        val checkTodayMs = ZonedDateTime.of(today, LocalTime.of(9, 0), zone).toInstant().toEpochMilli()
+
+        val overnightRecord = LedgerRecord(
+            id = "ov_2300_0030",
+            source = "timer",
+            layer = TimeLayer.MEASURED,
+            createdAt = endMs,
+            userConfirmedAt = endMs,
+            category = TimeCategory.WORK,
+            title = "Phiên xuyên đêm",
+            date = yesterday.toString(),
+            durationSeconds = 5400L,
+            startedAt = startMs,
+            endedAt = endMs,
+            timezone = zone.id,
+            status = "CONFIRMED",
+            idempotencyKey = "ov_2300_0030"
+        )
+
+        val yesterdayStats = LedgerAnalyticsCalculator.computeDayStats(
+            dateLocal = yesterday.toString(),
+            records = listOf(overnightRecord),
+            zoneId = zone,
+            nowEpochMs = checkTodayMs,
+            activeTimer = null
+        )
+        val todayStats = LedgerAnalyticsCalculator.computeDayStats(
+            dateLocal = today.toString(),
+            records = listOf(overnightRecord),
+            zoneId = zone,
+            nowEpochMs = checkTodayMs,
+            activeTimer = null
+        )
+        val todaySnapshot = WallyHubSnapshotEngine.build(
+            records = listOf(overnightRecord),
+            tasks = emptyList(),
+            activeTimer = null,
+            pausedTimer = null,
+            nowEpochMs = checkTodayMs,
+            zoneId = zone
+        )
+
+        assertEquals(3600L, DashboardSummary.from(yesterdayStats).recordedSeconds)
+        assertEquals(1800L, DashboardSummary.from(todayStats).recordedSeconds)
+        assertEquals("1h 00", LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(3600L))
+        assertEquals("0h 30", LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(1800L))
+        assertEquals("1h", LedgerAnalyticsCalculator.formatCompactDurationSeconds(3600L))
+        assertEquals("30p", LedgerAnalyticsCalculator.formatCompactDurationSeconds(1800L))
+        assertEquals(30, todaySnapshot.actualRecordedMinutes)
+        assertEquals("30p", TimeRange.formatDuration(todaySnapshot.actualRecordedMinutes))
+
+        // Đồng hồ đang chạy xuyên qua 00:00 (23:00 hôm trước -> 00:30 hôm sau):
+        val runningTimer = ActiveTimerSession(
+            title = "Đo xuyên đêm",
+            categoryKey = TimeCategory.WORK.key,
+            startedAtEpochMs = startMs,
+            startedElapsedRealtimeMs = 1_000L,
+            timezone = zone.id
+        )
+        val runningYesterdayStats = LedgerAnalyticsCalculator.computeDayStats(
+            dateLocal = yesterday.toString(),
+            records = emptyList(),
+            zoneId = zone,
+            nowEpochMs = endMs,
+            activeTimer = runningTimer
+        )
+        val runningTodayStats = DerivedStatsCalculator.compute(
+            records = emptyList(),
+            budgets = emptyList(),
+            dailyReviews = emptyList(),
+            activityNotes = emptyList(),
+            reviewDateOverride = null,
+            selectedReviewDate = today.toString(),
+            activeTimer = runningTimer,
+            preferredFocusCategory = TimeCategory.WORK,
+            consecutiveBreakRolls = 0,
+            zone = zone,
+            nowMs = endMs
+        ).dayStats
+        val runningSnapshot = WallyHubSnapshotEngine.build(
+            records = emptyList(),
+            tasks = emptyList(),
+            activeTimer = runningTimer,
+            pausedTimer = null,
+            nowEpochMs = endMs,
+            nowElapsedRealtimeMs = 1_000L + 5_400_000L,
+            zoneId = zone
+        )
+
+        assertEquals(3600L, DashboardSummary.from(runningYesterdayStats).recordedSeconds)
+        assertEquals(1800L, DashboardSummary.from(runningTodayStats).recordedSeconds)
+        assertEquals(30, runningSnapshot.actualRecordedMinutes)
+    }
+
+    @Test
+    fun `active timer synchronizes exact total minutes across 24h wallet, floating panel and widget data`() {
+        val zone = ZoneId.of("Asia/Ho_Chi_Minh")
+        val today = LocalDate.of(2026, 11, 25)
+        val morningStart = ZonedDateTime.of(today, LocalTime.of(8, 0), zone).toInstant().toEpochMilli()
+        val morningEnd = ZonedDateTime.of(today, LocalTime.of(8, 20), zone).toInstant().toEpochMilli()
+        val timerStart = ZonedDateTime.of(today, LocalTime.of(9, 0, 0), zone).toInstant().toEpochMilli()
+        val nowMs = ZonedDateTime.of(today, LocalTime.of(9, 15, 35), zone).toInstant().toEpochMilli()
+        val planStart = ZonedDateTime.of(today, LocalTime.of(14, 0), zone).toInstant().toEpochMilli()
+        val planEnd = ZonedDateTime.of(today, LocalTime.of(15, 0), zone).toInstant().toEpochMilli()
+
+        val morningRecord = LedgerRecord(
+            id = "morning_20p",
+            source = "manual",
+            layer = TimeLayer.MEASURED,
+            createdAt = morningEnd,
+            userConfirmedAt = morningEnd,
+            category = TimeCategory.WORK,
+            title = "Ghi buổi sáng",
+            date = today.toString(),
+            durationSeconds = 1200L,
+            startedAt = morningStart,
+            endedAt = morningEnd,
+            timezone = zone.id,
+            status = "CONFIRMED",
+            idempotencyKey = "morning_20p"
+        )
+        val futurePlan = LedgerRecord(
+            id = "future_plan",
+            source = "manual",
+            layer = TimeLayer.PLANNED,
+            createdAt = nowMs - 10_000L,
+            userConfirmedAt = nowMs - 10_000L,
+            category = TimeCategory.WORK,
+            title = "Lịch chiều",
+            date = today.toString(),
+            durationSeconds = 3600L,
+            startedAt = planStart,
+            endedAt = planEnd,
+            timezone = zone.id,
+            status = "PLANNED",
+            idempotencyKey = "future_plan",
+            confirmationStateRaw = "PLANNED",
+            plannedStartedAt = planStart,
+            plannedEndedAt = planEnd,
+            plannedDurationSeconds = 3600L
+        )
+        val activeTimer = ActiveTimerSession(
+            title = "Đo trực tiếp",
+            categoryKey = TimeCategory.WORK.key,
+            startedAtEpochMs = timerStart,
+            startedElapsedRealtimeMs = 5_000L,
+            timezone = zone.id
+        )
+
+        val walletStats = DerivedStatsCalculator.compute(
+            records = listOf(morningRecord, futurePlan),
+            budgets = emptyList(),
+            dailyReviews = emptyList(),
+            activityNotes = emptyList(),
+            reviewDateOverride = null,
+            selectedReviewDate = today.toString(),
+            activeTimer = activeTimer,
+            preferredFocusCategory = TimeCategory.WORK,
+            consecutiveBreakRolls = 0,
+            zone = zone,
+            nowMs = nowMs
+        ).dayStats
+        val walletRecordedSeconds = DashboardSummary.from(walletStats).recordedSeconds
+        val walletFormatted = LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(walletRecordedSeconds)
+        val walletCompact = LedgerAnalyticsCalculator.formatCompactDurationSeconds(walletRecordedSeconds)
+        val snapshot = WallyHubSnapshotEngine.build(
+            records = listOf(morningRecord, futurePlan),
+            tasks = emptyList(),
+            activeTimer = activeTimer,
+            pausedTimer = null,
+            nowEpochMs = nowMs,
+            nowElapsedRealtimeMs = 5_000L + (nowMs - timerStart),
+            zoneId = zone
+        )
+
+        // 20m + 15m35s = 35m35s (2135s) -> làm tròn chung thành 36p (0h 36 / 36p), không cộng PLANNED
+        assertEquals(2135L, walletRecordedSeconds)
+        assertEquals("0h 36", walletFormatted)
+        assertEquals("36p", walletCompact)
+        assertEquals(36, snapshot.actualRecordedMinutes)
+        assertEquals(walletCompact, TimeRange.formatDuration(snapshot.actualRecordedMinutes))
+
+        val floatingSrc = projectFile("app/src/main/java/com/timewallet/mvp/overlay/WallyFloatingService.kt").readText()
+        assertTrue(floatingSrc.contains("Ghi \${TimeRange.formatDuration(snapshot.actualRecordedMinutes)}"))
+        val vmSrc = projectFile("app/src/main/java/com/timewallet/mvp/ui/TimeWalletViewModel.kt").readText()
+        assertTrue(vmSrc.contains("val fastDayStats = LedgerAnalyticsCalculator.computeDayStats("))
+        val widgetSrc = projectFile("app/src/main/java/com/timewallet/mvp/widget/WallyHomeWidgetProvider.kt").readText()
+        assertTrue(widgetSrc.contains("snapshot.actualRecordedMinutes"))
+    }
+
+    @Test
+    fun `completing linked todo hides it from floating panel and widget upcoming while preserving planned block on calendar`() {
+        val zone = ZoneId.of("Asia/Ho_Chi_Minh")
+        val today = LocalDate.of(2026, 11, 25)
+        val todayStr = today.toString()
+        val nowMorningMs = ZonedDateTime.of(today, LocalTime.of(10, 0), zone).toInstant().toEpochMilli()
+        val p1Start = ZonedDateTime.of(today, LocalTime.of(11, 0), zone).toInstant().toEpochMilli()
+        val p1End = ZonedDateTime.of(today, LocalTime.of(12, 0), zone).toInstant().toEpochMilli()
+        val p2Start = ZonedDateTime.of(today, LocalTime.of(14, 0), zone).toInstant().toEpochMilli()
+        val p2End = ZonedDateTime.of(today, LocalTime.of(15, 0), zone).toInstant().toEpochMilli()
+        val duringP1Ms = ZonedDateTime.of(today, LocalTime.of(11, 15), zone).toInstant().toEpochMilli()
+
+        val todoTask = TaskItem(
+            id = "task_scheduled_done",
+            title = "Hoàn thiện tài liệu",
+            category = TimeCategory.WORK,
+            priority = TaskPriority.P1,
+            dueDateLocal = todayStr,
+            dueTimeLocal = "11:00",
+            estimatedMinutes = 60,
+            status = TaskStatus.TODO
+        )
+        val plannedForTask = LedgerRecord(
+            id = "plan_for_done_task",
+            source = "manual",
+            layer = TimeLayer.PLANNED,
+            createdAt = nowMorningMs - 60_000L,
+            userConfirmedAt = nowMorningMs - 60_000L,
+            category = TimeCategory.WORK,
+            title = "Hoàn thiện tài liệu",
+            date = todayStr,
+            durationSeconds = 3600L,
+            startedAt = p1Start,
+            endedAt = p1End,
+            timezone = zone.id,
+            status = "PLANNED",
+            idempotencyKey = "plan_for_done_task",
+            confirmationStateRaw = "PLANNED",
+            plannedStartedAt = p1Start,
+            plannedEndedAt = p1End,
+            plannedDurationSeconds = 3600L,
+            taskId = todoTask.id
+        )
+        val laterOpenPlan = LedgerRecord(
+            id = "plan_open_later",
+            source = "manual",
+            layer = TimeLayer.PLANNED,
+            createdAt = nowMorningMs - 30_000L,
+            userConfirmedAt = nowMorningMs - 30_000L,
+            category = TimeCategory.LEARN,
+            title = "Review kiến trúc",
+            date = todayStr,
+            durationSeconds = 3600L,
+            startedAt = p2Start,
+            endedAt = p2End,
+            timezone = zone.id,
+            status = "PLANNED",
+            idempotencyKey = "plan_open_later",
+            confirmationStateRaw = "PLANNED",
+            plannedStartedAt = p2Start,
+            plannedEndedAt = p2End,
+            plannedDurationSeconds = 3600L,
+            taskId = null
+        )
+
+        val beforeDone = WallyHubSnapshotEngine.build(
+            records = listOf(plannedForTask),
+            tasks = listOf(todoTask),
+            activeTimer = null,
+            pausedTimer = null,
+            nowEpochMs = nowMorningMs,
+            zoneId = zone
+        )
+        assertEquals("Hoàn thiện tài liệu", beforeDone.upcoming?.title)
+
+        val doneTask = todoTask.copy(status = TaskStatus.DONE, completedAt = nowMorningMs)
+        val afterDoneSingle = WallyHubSnapshotEngine.build(
+            records = listOf(plannedForTask),
+            tasks = listOf(doneTask),
+            activeTimer = null,
+            pausedTimer = null,
+            nowEpochMs = nowMorningMs,
+            zoneId = zone
+        )
+        assertNull("Việc đã xong không được hiện ở Sắp làm trên Bảng nổi/Widget", afterDoneSingle.upcoming)
+        assertEquals(0, afterDoneSingle.plannedRemainingMinutes)
+
+        val afterDoneDuringSlot = WallyHubSnapshotEngine.build(
+            records = listOf(plannedForTask),
+            tasks = listOf(doneTask),
+            activeTimer = null,
+            pausedTimer = null,
+            nowEpochMs = duringP1Ms,
+            zoneId = zone
+        )
+        assertNull("Việc đã xong không hiển thị thẻ Theo lịch ở Đang làm", afterDoneDuringSlot.current)
+
+        val afterDoneWithLater = WallyHubSnapshotEngine.build(
+            records = listOf(plannedForTask, laterOpenPlan),
+            tasks = listOf(doneTask),
+            activeTimer = null,
+            pausedTimer = null,
+            nowEpochMs = nowMorningMs,
+            zoneId = zone
+        )
+        assertEquals("Review kiến trúc", afterDoneWithLater.upcoming?.title)
+        assertEquals("14:00", afterDoneWithLater.upcoming?.startHm)
+
+        // Trên Lịch, khung 11:00–12:00 vẫn giữ nguyên
+        val calendarDay = ScheduleGridEngine.buildDayScheduleModel(
+            date = today,
+            records = listOf(plannedForTask, laterOpenPlan),
+            activeTimer = null,
+            nowEpochMs = nowMorningMs,
+            zone = zone
+        )
+        assertTrue(
+            "Khung đã xếp trên Lịch phải còn nguyên sau khi tích hoàn thành To-do",
+            calendarDay.timedBlocks.any { it.recordId == plannedForTask.id }
+        )
     }
 }

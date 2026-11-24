@@ -121,11 +121,19 @@ object WallyHubSnapshotEngine {
             zone = zoneId
         )
 
+        val closedTaskIds = tasks
+            .asSequence()
+            .filter { it.isDone || it.status == TaskStatus.ARCHIVED }
+            .mapTo(HashSet()) { it.id }
+        val isLinkedTaskClosed: (String?) -> Boolean = { taskId -> taskId != null && taskId in closedTaskIds }
+        val activeTimerSnap = activeTimer?.computeElapsedSeconds(nowEpochMs, nowElapsedRealtimeMs, currentBootCount)
+        val effectiveNowEpochMs = activeTimerSnap?.effectiveEndEpochMs ?: nowEpochMs
+
         // 1. Đang làm (Priority 1)
         val currentSnapshot: ActiveActivitySnapshot? = when {
             activeTimer != null -> {
                 val cat = TimeCategory.fromKeyOrDefault(activeTimer.categoryKey)
-                val snap = activeTimer.computeElapsedSeconds(nowEpochMs, nowElapsedRealtimeMs, currentBootCount)
+                val snap = activeTimerSnap!!
                 val startHm = Instant.ofEpochMilli(activeTimer.startedAtEpochMs).atZone(zoneId).format(HM_FMT)
                 ActiveActivitySnapshot(
                     mode = CurrentWorkMode.ACTIVE_TIMER,
@@ -155,7 +163,10 @@ object WallyHubSnapshotEngine {
             }
             else -> {
                 val activePlanBlock = dayModel.timedBlocks.firstOrNull { blk ->
-                    blk.visualState == ScheduleBlockVisualState.PLANNED && blk.startMinute <= nowMinute && nowMinute < blk.endMinute
+                    blk.visualState == ScheduleBlockVisualState.PLANNED &&
+                        blk.startMinute <= nowMinute &&
+                        nowMinute < blk.endMinute &&
+                        !isLinkedTaskClosed(blk.record?.taskId)
                 }
                 activePlanBlock?.let { blk ->
                     val remain = (blk.endMinute - nowMinute).coerceAtLeast(1)
@@ -175,7 +186,11 @@ object WallyHubSnapshotEngine {
 
         // 2. Sắp làm (Priority 2)
         val nextPlanBlock = dayModel.timedBlocks
-            .filter { blk -> blk.startMinute > nowMinute && (blk.visualState == ScheduleBlockVisualState.PLANNED || (blk.record?.startedAt ?: 0L) > nowEpochMs) }
+            .filter { blk ->
+                blk.startMinute > nowMinute &&
+                    (blk.visualState == ScheduleBlockVisualState.PLANNED || (blk.record?.startedAt ?: 0L) > nowEpochMs) &&
+                    !isLinkedTaskClosed(blk.record?.taskId)
+            }
             .minByOrNull { blk -> blk.startMinute }
         val nextDueTaskToday = tasks
             .filter { !it.isDone && it.status != TaskStatus.ARCHIVED && it.dueDateLocal == todayLocal && it.dueTimeLocal != null }
@@ -210,10 +225,24 @@ object WallyHubSnapshotEngine {
         }
 
         // 3. Thời gian thực tế vs Kế hoạch vs Thời gian trống hôm nay (không cộng PLANNED vào thực tế!)
-        val recordsToday = records.filter { it.date == todayLocal }
-        val actualRecordedMinutes = (JournalDayTotal.seconds(recordsToday, nowEpochMs) / 60L).toInt().coerceAtLeast(0)
+        // Dùng chung LedgerAnalyticsCalculator.computeDayStats + DashboardSummary để khớp Ví 24h theo từng ngày
+        // (bao gồm tách phiên qua đêm 23:00–00:30 và ActiveTimer đang chạy tại cùng thời điểm).
+        val dayStats = LedgerAnalyticsCalculator.computeDayStats(
+            dateLocal = todayLocal,
+            records = records,
+            zoneId = zoneId,
+            nowEpochMs = effectiveNowEpochMs,
+            activeTimer = activeTimer
+        )
+        val actualRecordedMinutes = ((DashboardSummary.from(dayStats).recordedSeconds + 30L) / 60L)
+            .toInt()
+            .coerceAtLeast(0)
         val plannedRemainingMinutes = dayModel.timedBlocks
-            .filter { blk -> blk.visualState == ScheduleBlockVisualState.PLANNED && blk.endMinute > nowMinute }
+            .filter { blk ->
+                blk.visualState == ScheduleBlockVisualState.PLANNED &&
+                    blk.endMinute > nowMinute &&
+                    !isLinkedTaskClosed(blk.record?.taskId)
+            }
             .sumOf { blk -> (blk.endMinute - maxOf(blk.startMinute, nowMinute)).coerceAtLeast(0) }
 
         val remainingFreeGaps = dayModel.freeGaps.mapNotNull { gap ->
@@ -236,7 +265,7 @@ object WallyHubSnapshotEngine {
             .map { blk ->
                 val blkPlanned = blk.visualState == ScheduleBlockVisualState.PLANNED
                 val isCurrent = blk.startMinute <= nowMinute && nowMinute < blk.endMinute
-                val isPastDone = blk.endMinute <= nowMinute && !blkPlanned
+                val isPastDone = (blk.endMinute <= nowMinute && !blkPlanned) || isLinkedTaskClosed(blk.record?.taskId)
                 TimelineItemSnapshot(
                     id = blk.recordId,
                     title = blk.title,

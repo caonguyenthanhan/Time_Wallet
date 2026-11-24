@@ -14,10 +14,14 @@ import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
 import com.timewallet.mvp.domain.usecase.LedgerValidator
 import com.timewallet.mvp.domain.usecase.ManualEntry
 import com.timewallet.mvp.domain.usecase.ManualEntryValidation
+import com.timewallet.mvp.ui.EditableProposalDraft
 import com.timewallet.mvp.ui.ManualEntryDraftCoordinator
 import com.timewallet.mvp.ui.ManualEntryState
 import com.timewallet.mvp.ui.ManualMode
+import com.timewallet.mvp.ui.toBatchInput
 import kotlinx.coroutines.runBlocking
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -342,5 +346,172 @@ class V120DraftPersistenceTest {
         assertTrue(vm.contains("fun clearChatHistory()"))
         val chat = File("src/main/java/com/timewallet/mvp/ui/screens/ChatScreen.kt").readText(Charsets.UTF_8)
         assertTrue(chat.contains("Xóa lịch sử"))
+    }
+
+    @Test
+    fun `manual entry draft preserves linked taskId across process restart and loads legacy drafts safely`() {
+        val prefs = InMemorySharedPreferences()
+        val dao = InMemoryLedgerDao()
+        val storeBeforeRestart = TimerAndSettingsStore(prefs)
+        val nowMs = LocalDateTime.of(today.year, today.month, today.dayOfMonth, 10, 0).atZone(zone).toInstant().toEpochMilli()
+
+        val taskLinkedForm = ManualEntryState(
+            sessionId = "draft_with_task_99",
+            categoryKey = "work",
+            dateLocal = tomorrowStr,
+            note = "Lịch từ To-do gốc",
+            mode = ManualMode.RANGE,
+            tagId = tagRead.id,
+            startText = "1500",
+            endText = "1545",
+            saveAsPlanned = true,
+            taskId = "task_origin_99"
+        )
+        assertTrue(ManualEntryDraft(sessionId = "only_task", dateLocal = todayStr, taskId = "task_origin_99").hasUserData(todayStr))
+        val synced = ManualEntryDraftCoordinator.syncDraft(storeBeforeRestart, taskLinkedForm, todayStr, nowMs, immediate = true)
+        assertEquals("task_origin_99", synced?.taskId)
+
+        // Giả lập Android thu hồi tiến trình: khởi tạo lại Store hoàn toàn mới
+        val storeAfterRestart = TimerAndSettingsStore(prefs)
+        val (restoredForm, restoredDraft) = ManualEntryDraftCoordinator.openOrRestore(
+            storedDraft = storeAfterRestart.loadManualEntryDraft(),
+            requestedCategoryKey = null,
+            tags = listOf(tagRead),
+            todayLocal = todayStr
+        )
+        assertEquals("task_origin_99", restoredDraft?.taskId)
+        assertEquals("task_origin_99", restoredForm.taskId)
+
+        val valid = ManualEntry.validateRange(
+            categoryKey = restoredForm.categoryKey,
+            tagId = restoredForm.tagId,
+            tagName = null,
+            startText = "15:00",
+            endText = "15:45",
+            endIsNow = restoredForm.endIsNow,
+            dateLocal = restoredForm.dateLocal,
+            note = restoredForm.note,
+            today = today,
+            nowHm = "10:00",
+            saveAsPlanned = restoredForm.saveAsPlanned
+        ) as ManualEntryValidation.Valid
+        val batchInput = ManualEntry.toBatchInput(valid, restoredForm.sessionId).copy(taskId = restoredForm.taskId)
+        val outcome = runBlocking {
+            BatchConfirm.run(dao, listOf(batchInput), null, { null }, nowMs, zone) { nowMs }
+        }
+        assertTrue(outcome is ConfirmResult.Committed)
+        val saved = runBlocking { dao.getAllRecordsSnapshot() }.single()
+        assertEquals("task_origin_99", saved.taskId)
+        assertEquals("PLANNED", saved.layer)
+
+        // Tương thích ngược: JSON nháp cũ không có khóa taskId vẫn tải và mở được bình thường
+        val legacyJson = JSONObject().apply {
+            put("sessionId", "legacy_manual_1")
+            put("categoryKey", "learn")
+            put("hoursText", "")
+            put("minutesText", "25")
+            put("dateLocal", todayStr)
+            put("note", "Nháp cũ không taskId")
+            put("modeName", "DURATION")
+            put("tagId", JSONObject.NULL)
+            put("tagQuery", "")
+            put("startText", "")
+            put("endText", "")
+            put("endIsNow", false)
+            put("saveAsPlanned", false)
+            put("isMarkedWaste", false)
+            put("updatedAtEpochMs", 5000L)
+        }.toString()
+        prefs.edit().putString("manual_entry_draft_v1", legacyJson).commit()
+        val legacyLoaded = TimerAndSettingsStore(prefs).loadManualEntryDraft()
+        assertNotNull(legacyLoaded)
+        assertNull(legacyLoaded!!.taskId)
+        assertEquals("Nháp cũ không taskId", legacyLoaded.note)
+        val (legacyForm, _) = ManualEntryDraftCoordinator.openOrRestore(legacyLoaded, null, listOf(tagRead), todayStr)
+        assertNull(legacyForm.taskId)
+        assertEquals("Nháp cũ không taskId", legacyForm.note)
+    }
+
+    @Test
+    fun `proposal drafts preserve linked taskId across process restart and load legacy drafts safely`() {
+        val prefs = InMemorySharedPreferences()
+        val dao = InMemoryLedgerDao()
+        val storeBeforeRestart = TimerAndSettingsStore(prefs)
+        val nowMs = LocalDateTime.of(today.year, today.month, today.dayOfMonth, 10, 0).atZone(zone).toInstant().toEpochMilli()
+
+        val savedDraft = SavedProposalDraft(
+            id = "prop_task_77",
+            rawInput = "Xếp lịch Soạn đề án",
+            title = "Soạn đề án",
+            categoryKey = "work",
+            durationMinutesText = "45",
+            dateLocal = tomorrowStr,
+            startLocal = "09:00",
+            endLocal = "09:45",
+            hasInitialTimeEvidence = true,
+            isFuturePlanned = true,
+            idempotencyKey = "idem_prop_task_77",
+            tagId = tagRead.id,
+            isMarkedWaste = false,
+            taskId = "task_prop_77"
+        )
+        storeBeforeRestart.saveChatProposalsDraft(listOf(savedDraft), immediate = true)
+
+        val restored = TimerAndSettingsStore(prefs).loadChatProposalsDraft()
+        assertEquals(1, restored.size)
+        assertEquals("task_prop_77", restored[0].taskId)
+
+        val editableRestored = EditableProposalDraft(
+            id = restored[0].id,
+            rawInput = restored[0].rawInput,
+            title = restored[0].title,
+            categoryKey = restored[0].categoryKey,
+            durationMinutesText = restored[0].durationMinutesText,
+            dateLocal = restored[0].dateLocal,
+            startLocal = restored[0].startLocal,
+            endLocal = restored[0].endLocal,
+            hasInitialTimeEvidence = restored[0].hasInitialTimeEvidence,
+            isFuturePlanned = restored[0].isFuturePlanned,
+            idempotencyKey = restored[0].idempotencyKey,
+            tagId = restored[0].tagId,
+            isMarkedWaste = restored[0].isMarkedWaste,
+            taskId = restored[0].taskId
+        )
+        val outcome = runBlocking {
+            BatchConfirm.run(dao, listOf(editableRestored.toBatchInput()), null, { null }, nowMs, zone) { nowMs }
+        }
+        assertTrue(outcome is ConfirmResult.Committed)
+        val saved = runBlocking { dao.getAllRecordsSnapshot() }.single()
+        assertEquals("task_prop_77", saved.taskId)
+
+        // Tương thích ngược: nháp đề xuất cũ không có khóa taskId vẫn đọc bình thường
+        val legacyArray = JSONArray().apply {
+            put(
+                JSONObject().apply {
+                    put("id", "legacy_prop_1")
+                    put("rawInput", "Đọc sách 30p")
+                    put("title", "Nháp đề xuất cũ")
+                    put("categoryKey", "learn")
+                    put("durationMinutesText", "30")
+                    put("dateLocal", todayStr)
+                    put("startLocal", "")
+                    put("endLocal", "")
+                    put("hasInitialTimeEvidence", false)
+                    put("isFuturePlanned", false)
+                    put("idempotencyKey", "legacy_prop_1")
+                    put("tagId", JSONObject.NULL)
+                    put("isMarkedWaste", false)
+                }
+            )
+        }.toString()
+        prefs.edit().putString("chat_proposals_draft_v1", legacyArray).commit()
+        val legacyLoaded = TimerAndSettingsStore(prefs).loadChatProposalsDraft()
+        assertEquals(1, legacyLoaded.size)
+        assertEquals("Nháp đề xuất cũ", legacyLoaded[0].title)
+        assertNull(legacyLoaded[0].taskId)
+
+        val vm = File("src/main/java/com/timewallet/mvp/ui/TimeWalletViewModel.kt").readText(Charsets.UTF_8)
+        assertTrue(vm.contains("taskId = taskId"))
+        assertTrue(vm.contains("syncManualDraftPersistence(scheduledForm"))
     }
 }

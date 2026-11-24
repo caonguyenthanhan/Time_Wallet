@@ -39,7 +39,8 @@ object ManualEntryDraftCoordinator {
                 endText = storedDraft.endText,
                 endIsNow = storedDraft.endIsNow,
                 saveAsPlanned = storedDraft.saveAsPlanned,
-                isMarkedWaste = storedDraft.isMarkedWaste
+                isMarkedWaste = storedDraft.isMarkedWaste,
+                taskId = storedDraft.taskId
             )
             return restored to storedDraft
         }

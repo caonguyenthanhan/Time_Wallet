@@ -885,6 +885,16 @@ private fun FloatingQuickPanelCard(
                             )
                         }
                     }
+                    if (snapshot != null && (cur?.mode == CurrentWorkMode.ACTIVE_TIMER || cur?.mode == CurrentWorkMode.PAUSED_TIMER)) {
+                        Text(
+                            text = "Ghi ${TimeRange.formatDuration(snapshot.actualRecordedMinutes)} · ${cur.subtitleVi}",
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = WalletMintAccent,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
 
                     if (activeDrawer != QuickPanelDrawer.ADD_TODO) {
                         Row(
