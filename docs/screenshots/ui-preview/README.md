@@ -2,7 +2,7 @@
 
 Bộ ảnh chụp màn hình thật từ emulator QA tách biệt **`WallyQA`** (`index 1`, Android 9, `780×1688 @320dpi`, múi giờ `Asia/Ho_Chi_Minh`, dữ liệu synthetic — không chạm instance cá nhân của Owner).
 
-## Cập nhật mới trong `v2.2.1` (`D02C4A07…` · `9,457,633` bytes)
+## Cập nhật mới trong `v2.2.1` (`329E9A75…` · `9,457,632` bytes)
 
 | Tệp ảnh | Màn hình / Trạng thái | Điểm kiểm chứng thực tế |
 |---|---|---|
