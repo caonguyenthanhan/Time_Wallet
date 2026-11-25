@@ -1370,9 +1370,7 @@ object LedgerAnalyticsCalculator {
         return "${hours}h ${mins.toString().padStart(2, '0')}"
     }
 
-    fun formatCompactDurationSeconds(seconds: Long): String {
-        if (seconds <= 0L) return "0p"
-        val totalMinutes = (seconds + 30L) / 60L
+    fun formatCompactDurationMinutes(totalMinutes: Long): String {
         if (totalMinutes <= 0L) return "0p"
         val hours = totalMinutes / 60L
         val mins = totalMinutes % 60L
@@ -1382,4 +1380,7 @@ object LedgerAnalyticsCalculator {
             else -> "${mins}p"
         }
     }
+
+    fun formatCompactDurationSeconds(seconds: Long): String =
+        formatCompactDurationMinutes(GoalDisplayMath.roundedMinutes(seconds))
 }

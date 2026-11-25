@@ -2,7 +2,9 @@ package com.timewallet.mvp.domain.usecase
 
 import com.timewallet.mvp.domain.model.ActiveTimerSession
 import com.timewallet.mvp.domain.model.ConfirmationState
+import com.timewallet.mvp.domain.model.GoalGroupState
 import com.timewallet.mvp.domain.model.GoalKind
+import com.timewallet.mvp.domain.model.GoalPeriod
 import com.timewallet.mvp.domain.model.GoalTargetType
 import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.model.Tag
@@ -19,6 +21,13 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+
+data class GoalRowLabels(
+    val headerTargetText: String,
+    val progressText: String,
+    val statusText: String,
+    val accessibilityText: String
+)
 
 /**
  * Chuẩn hóa số phút mục tiêu để thanh tiến độ, lời kể Wally và "Phân tích AI" luôn khớp nhau 100%.
@@ -49,6 +58,40 @@ data class GoalDisplayMath(
                 targetLabel = formatGoalMinutes(targetM),
                 remainingLabel = formatGoalMinutes(remM),
                 overLabel = formatGoalMinutes(overM)
+            )
+        }
+
+        /** Nhãn hiển thị dùng chung cho hàng mục tiêu ở GoalsDialog, thẻ Tổng quan và TalkBack. */
+        fun rowLabels(summary: GoalRules.Summary): GoalRowLabels {
+            val g = summary.latest
+            val p = summary.progress
+            val per = if (g.period == GoalPeriod.DAY) "ngày" else "tuần"
+            val sign = if (g.kind == GoalKind.MIN) "≥ " else "≤ "
+            val targetOnly = formatGoalMinutes(roundedMinutes(g.targetSeconds).coerceAtLeast(1L))
+            val headerTargetText = "$sign$targetOnly/$per"
+            if (p == null) {
+                val stateText = if (summary.state == GoalGroupState.PAUSED) "Đang tạm dừng" else "Đã kết thúc"
+                return GoalRowLabels(
+                    headerTargetText = headerTargetText,
+                    progressText = "",
+                    statusText = stateText,
+                    accessibilityText = "${summary.name}. $stateText"
+                )
+            }
+            val math = from(p.usedSeconds, p.targetSeconds)
+            val statusText = when {
+                g.kind == GoalKind.MIN && p.met -> "Đã đạt ✓"
+                g.kind == GoalKind.MIN && math.remainingMinutes > 0L -> "Còn thiếu ${math.remainingLabel}"
+                g.kind == GoalKind.MIN -> "Còn thiếu < 1p"
+                p.met -> "Còn ${math.remainingLabel} trong giới hạn"
+                math.overMinutes > 0L -> "Vượt ${math.overLabel}"
+                else -> "Vượt < 1p"
+            }
+            return GoalRowLabels(
+                headerTargetText = headerTargetText,
+                progressText = "${math.usedLabel} / ${math.targetLabel}",
+                statusText = statusText,
+                accessibilityText = "${summary.name}: ${math.usedLabel} trên ${math.targetLabel}. $statusText"
             )
         }
 

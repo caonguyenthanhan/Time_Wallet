@@ -82,6 +82,7 @@ import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.model.TimeLayer
 import com.timewallet.mvp.domain.usecase.AiTodoAnalysisReport
 import com.timewallet.mvp.domain.usecase.AiTodoProposal
+import com.timewallet.mvp.domain.usecase.GoalDisplayMath
 import com.timewallet.mvp.domain.usecase.GoalRules
 import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
 import com.timewallet.mvp.domain.usecase.TaskHabitEngine
@@ -872,7 +873,7 @@ fun TasksHabitsScreen(
                         val isLegacyViewOnly = goal.id.startsWith("budget_view_")
                         val used = summary.progress?.usedSeconds ?: 0L
                         val frac = summary.progress?.fraction ?: 0f
-                        val fmt = LedgerAnalyticsCalculator::formatCompactDurationSeconds
+                        val math = GoalDisplayMath.from(used, goal.targetSeconds)
 
                         SoftCard(padding = 14.dp) {
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -918,7 +919,7 @@ fun TasksHabitsScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "${fmt(used)} / ${fmt(goal.targetSeconds)}",
+                                        text = "${math.usedLabel} / ${math.targetLabel}",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = WalletInk

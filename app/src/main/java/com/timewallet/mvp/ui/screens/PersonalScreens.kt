@@ -62,6 +62,7 @@ import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.usecase.CoachActionItem
 import com.timewallet.mvp.domain.usecase.CoachBrief
 import com.timewallet.mvp.domain.usecase.CoachSuggestion
+import com.timewallet.mvp.domain.usecase.GoalDisplayMath
 import com.timewallet.mvp.domain.usecase.GoalRules
 import com.timewallet.mvp.domain.usecase.TagRules
 import com.timewallet.mvp.domain.usecase.TimeRange
@@ -208,34 +209,23 @@ fun TagPicker(
 fun GoalProgressRow(summary: GoalRules.Summary) {
     val p = summary.progress
     val g = summary.latest
-    val per = if (g.period == GoalPeriod.DAY) "ngày" else "tuần"
+    val labels = GoalDisplayMath.rowLabels(summary)
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(summary.name, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = WalletInk, modifier = Modifier.weight(1f))
-            Text(
-                (if (g.kind == GoalKind.MIN) "≥ " else "≤ ") + TimeRange.formatDuration((g.targetSeconds / 60).toInt()) + "/$per",
-                fontSize = 12.sp, color = WalletMuted
-            )
+            Text(labels.headerTargetText, fontSize = 12.sp, color = WalletMuted)
         }
         if (p != null) {
-            val used = TimeRange.formatDuration((p.usedSeconds / 60).toInt())
-            val tgt = TimeRange.formatDuration((p.targetSeconds / 60).toInt())
-            val status = when {
-                g.kind == GoalKind.MIN && p.met -> "Đã đạt ✓"
-                g.kind == GoalKind.MIN -> "Còn thiếu ${TimeRange.formatDuration((p.remainingSeconds / 60).toInt())}"
-                p.met -> "Còn ${TimeRange.formatDuration((p.remainingSeconds / 60).toInt())} trong giới hạn"
-                else -> "Vượt ${TimeRange.formatDuration((p.overSeconds / 60).toInt())}"
-            }
             LinearProgressIndicator(
                 progress = { p.fraction },
                 modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp))
-                    .semantics { contentDescription = "${summary.name}: $used trên $tgt. $status" },
+                    .semantics { contentDescription = labels.accessibilityText },
                 color = if (g.kind == GoalKind.MAX && !p.met) Color(0xFFD97706) else WalletMintAccent,
                 trackColor = WalletUntrackedBar
             )
-            Text("$used / $tgt · $status", fontSize = 12.sp, color = WalletMuted)
+            Text("${labels.progressText} · ${labels.statusText}", fontSize = 12.sp, color = WalletMuted)
         } else {
-            Text(if (summary.state == GoalGroupState.PAUSED) "Đang tạm dừng" else "Đã kết thúc", fontSize = 12.sp, color = WalletMuted)
+            Text(labels.statusText, fontSize = 12.sp, color = WalletMuted)
         }
     }
 }

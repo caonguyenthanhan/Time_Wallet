@@ -108,10 +108,15 @@ data class TimeBudgetProgress(
         get() = if (combinedUsedSeconds == 0L) "0p" else LedgerAnalyticsCalculator.formatCompactDurationSeconds(combinedUsedSeconds)
 
     val combinedDifferenceLabelVi: String
-        get() = when {
-            combinedRemainingSeconds > 0L -> "Còn ${LedgerAnalyticsCalculator.formatCompactDurationSeconds(combinedRemainingSeconds)}"
-            combinedExceededSeconds > 0L -> "Vượt ${LedgerAnalyticsCalculator.formatCompactDurationSeconds(combinedExceededSeconds)}"
-            else -> "Còn 0p (Đủ mục tiêu)"
+        get() {
+            val math = com.timewallet.mvp.domain.usecase.GoalDisplayMath.from(combinedUsedSeconds, targetSeconds)
+            return when {
+                combinedRemainingSeconds > 0L ->
+                    if (math.remainingMinutes > 0L) "Còn ${LedgerAnalyticsCalculator.formatCompactDurationMinutes(math.remainingMinutes)}" else "Còn < 1p"
+                combinedExceededSeconds > 0L ->
+                    if (math.overMinutes > 0L) "Vượt ${LedgerAnalyticsCalculator.formatCompactDurationMinutes(math.overMinutes)}" else "Vượt < 1p"
+                else -> "Còn 0p (Đủ mục tiêu)"
+            }
         }
 
     val usedFormatted: String
@@ -127,10 +132,15 @@ data class TimeBudgetProgress(
         get() = "${LedgerAnalyticsCalculator.formatCompactDurationSeconds(targetSeconds)}${budget.period.shortSuffixVi}"
 
     val differenceLabelVi: String
-        get() = when {
-            remainingSeconds > 0L -> "Còn ${LedgerAnalyticsCalculator.formatCompactDurationSeconds(remainingSeconds)}"
-            exceededSeconds > 0L -> "Vượt ${LedgerAnalyticsCalculator.formatCompactDurationSeconds(exceededSeconds)}"
-            else -> "Còn 0p (Đủ mục tiêu)"
+        get() {
+            val math = com.timewallet.mvp.domain.usecase.GoalDisplayMath.from(usedSeconds, targetSeconds)
+            return when {
+                remainingSeconds > 0L ->
+                    if (math.remainingMinutes > 0L) "Còn ${LedgerAnalyticsCalculator.formatCompactDurationMinutes(math.remainingMinutes)}" else "Còn < 1p"
+                exceededSeconds > 0L ->
+                    if (math.overMinutes > 0L) "Vượt ${LedgerAnalyticsCalculator.formatCompactDurationMinutes(math.overMinutes)}" else "Vượt < 1p"
+                else -> "Còn 0p (Đủ mục tiêu)"
+            }
         }
 }
 
