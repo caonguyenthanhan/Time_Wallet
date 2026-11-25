@@ -65,7 +65,8 @@ data class AiTodoProposal(
     val categoryKey: String = TimeCategory.WORK.key,
     val conflictWarningVi: String? = null,
     val deadlineWarningVi: String? = null,
-    val needsConfirmation: Boolean = true
+    val needsConfirmation: Boolean = true,
+    val tagId: String? = null
 )
 
 data class AiTodoAnalysisReport(
@@ -297,6 +298,7 @@ object AiTodoEngine {
                         "Rà soát & chốt (${(est - 2 * step).coerceAtLeast(10)}p)"
                     ),
                     categoryKey = task.category.key,
+                    tagId = task.tagId,
                     needsConfirmation = true
                 )
             }
@@ -332,7 +334,8 @@ object AiTodoEngine {
                             endHm = eHm,
                             categoryKey = task.category.key,
                             deadlineWarningVi = deadlineWarn,
-                            needsConfirmation = true
+                            needsConfirmation = true,
+                            tagId = task.tagId
                         )
                         if (endMin < gap.endMinute) {
                             openGaps[gIdx] = ScheduleFreeGap(todayLocal, endMin + 5, gap.endMinute)
@@ -361,6 +364,7 @@ object AiTodoEngine {
                     reasonVi = "Hết khoảng trống phù hợp hôm nay — đổi hạn $oldDueLabel → $newDueLabel",
                     targetDateLocal = tomorrowStr,
                     categoryKey = task.category.key,
+                    tagId = task.tagId,
                     needsConfirmation = true
                 )
             }
@@ -500,6 +504,7 @@ object AiTodoEngine {
                     .put("suggestedPriority", p.suggestedPriority?.name ?: JSONObject.NULL)
                     .put("suggestedSubtasks", JSONArray(p.suggestedSubtasks))
                     .put("categoryKey", p.categoryKey)
+                    .put("tagId", p.tagId ?: JSONObject.NULL)
                     .put("conflictWarningVi", p.conflictWarningVi ?: JSONObject.NULL)
                     .put("deadlineWarningVi", p.deadlineWarningVi ?: JSONObject.NULL)
             )
@@ -560,7 +565,8 @@ object AiTodoEngine {
                             categoryKey = p.optString("categoryKey", TimeCategory.WORK.key),
                             conflictWarningVi = p.optString("conflictWarningVi", "").takeIf { it.isNotBlank() && it != "null" },
                             deadlineWarningVi = p.optString("deadlineWarningVi", "").takeIf { it.isNotBlank() && it != "null" },
-                            needsConfirmation = true
+                            needsConfirmation = true,
+                            tagId = p.optString("tagId", "").takeIf { it.isNotBlank() && it != "null" }
                         )
                     )
                 }

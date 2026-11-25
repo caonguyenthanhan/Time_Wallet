@@ -118,9 +118,12 @@ object ConfirmationEngine {
         existingRecords: List<LedgerRecord>,
         activeTimer: ActiveTimerSession? = null,
         nowEpochMs: Long,
-        zoneId: ZoneId
+        zoneId: ZoneId,
+        overrideTagId: String? = record.tagId,
+        overrideCategoryKey: String? = null
     ): ConfirmationActionResult {
         if (record.isCancelled) return ConfirmationActionResult.Invalid("Hoạt động đã bị hủy.")
+        val resolvedCategory = overrideCategoryKey?.let { com.timewallet.mvp.domain.model.TimeCategory.fromKeyOrDefault(it) } ?: record.category
         val todayLocal = Instant.ofEpochMilli(nowEpochMs).atZone(zoneId).toLocalDate()
         val parsedDate = runCatching { LocalDate.parse(record.date) }.getOrDefault(todayLocal)
         if (parsedDate.isAfter(todayLocal)) {
@@ -137,6 +140,8 @@ object ConfirmationEngine {
             val actualSeconds = ((effectiveEnd - record.startedAt) / 1000L).coerceAtLeast(60L)
             val candidate = record.copy(
                 layer = if (record.source == "timer") TimeLayer.MEASURED else TimeLayer.REPORTED_TIMED,
+                category = resolvedCategory,
+                tagId = overrideTagId,
                 durationSeconds = actualSeconds,
                 endedAt = effectiveEnd,
                 userConfirmedAt = nowEpochMs,
@@ -165,6 +170,8 @@ object ConfirmationEngine {
         } else {
             val updated = record.copy(
                 layer = TimeLayer.REPORTED_UNTIMED,
+                category = resolvedCategory,
+                tagId = overrideTagId,
                 userConfirmedAt = nowEpochMs,
                 status = "CONFIRMED",
                 confirmationStateRaw = ConfirmationState.COMPLETED.name,
@@ -192,7 +199,8 @@ object ConfirmationEngine {
         activeTimer: ActiveTimerSession? = null,
         nowEpochMs: Long,
         zoneId: ZoneId,
-        newMarkedWaste: Boolean = existing.isMarkedWaste
+        newMarkedWaste: Boolean = existing.isMarkedWaste,
+        newTagId: String? = existing.tagId
     ): ConfirmationActionResult {
         val st = newStartHm.trim()
         val en = newEndHm.trim()
@@ -235,7 +243,7 @@ object ConfirmationEngine {
             idempotencyKey = existing.idempotencyKey,
             excludeRecordId = existing.id,
             convertFutureToPlanned = allowFutureAsPlanned,
-            tagId = existing.tagId,
+            tagId = newTagId,
             plannedStartedAt = origPlanStart,
             plannedEndedAt = origPlanEnd,
             plannedDurationSeconds = origPlanDur,

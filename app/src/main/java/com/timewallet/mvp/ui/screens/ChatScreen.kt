@@ -67,6 +67,8 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import com.timewallet.mvp.data.local.AiPreferences
 import com.timewallet.mvp.data.local.WallyModelPreset
+import com.timewallet.mvp.domain.model.TagAssignmentProposal
+import com.timewallet.mvp.domain.model.TagAssignmentUndoToken
 import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.usecase.AiFault
 import com.timewallet.mvp.domain.usecase.CancelArming
@@ -174,7 +176,13 @@ fun ChatScreen(
         onAnalyzeClick()
     },
     onOpenAppIntro: () -> Unit = {},
-    embeddedInOverlay: Boolean = false
+    embeddedInOverlay: Boolean = false,
+    tags: List<com.timewallet.mvp.domain.model.Tag> = emptyList(),
+    tagSuggestions: List<com.timewallet.mvp.domain.model.Tag> = emptyList(),
+    pendingTagAssignments: List<TagAssignmentProposal> = emptyList(),
+    onApproveTagAssignment: (String) -> Unit = {},
+    onDismissTagAssignment: (String) -> Unit = {},
+    onUndoTagAssignment: (TagAssignmentUndoToken) -> Unit = {}
 ) {
     // v1.0.11: ba gợi ý ngắn thay cho năm chip; câu đầy đủ vẫn được điền vào ô nhập để người dùng xem/sửa trước khi gửi.
     val examples = listOf(
@@ -642,8 +650,88 @@ fun ChatScreen(
                     ChatAnswerContent(
                         answer = chatAnswer,
                         onDismiss = onDismissAnswer,
-                        onUseSuggestion = onApplyExample
+                        onUndoTagAssignment = onUndoTagAssignment,
+                        onUseSuggestion = { suggestion ->
+                            suppressedInFlightRaw = null
+                            if (chatAnswer.isClarification) {
+                                onLastUserMessageChange(suggestion.trim())
+                                onDismissAnswer()
+                                keyboardController?.hide()
+                                onEditAndResubmitPrompt(suggestion)
+                            } else {
+                                onApplyExample(suggestion)
+                            }
+                        }
                     )
+                }
+            }
+
+            if (pendingTagAssignments.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    pendingTagAssignments.forEach { assign ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(18.dp),
+                            colors = CardDefaults.cardColors(containerColor = WalletCardBg),
+                            border = BorderStroke(1.2.dp, WalletMint)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(13.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "✦ Gắn Tag cho phiên đã lưu · chờ bạn duyệt",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = WalletMintAccent
+                                )
+                                Text(
+                                    text = assign.recordTitle,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = WalletInk
+                                )
+                                Text(
+                                    text = "${assign.recordDateLocal} · ${assign.recordTimeLabel}",
+                                    fontSize = 12.5.sp,
+                                    color = WalletMuted
+                                )
+                                Text(
+                                    text = "Tag: ${assign.previousTagName ?: "Chưa gắn Tag"} → ${assign.newTagName ?: "Không gắn Tag"}",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = WalletInk
+                                )
+                                Text(
+                                    text = "Chưa thay đổi dữ liệu cho tới khi bạn bấm Duyệt.",
+                                    fontSize = 11.5.sp,
+                                    color = WalletMuted
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    OutlinedButton(
+                                        onClick = { onDismissTagAssignment(assign.id) },
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.heightIn(min = 44.dp)
+                                    ) {
+                                        Text("Bỏ", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = WalletMuted)
+                                    }
+                                    Spacer(modifier = Modifier.weight(1f))
+                                    Button(
+                                        onClick = { onApproveTagAssignment(assign.id) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.heightIn(min = 44.dp)
+                                    ) {
+                                        Text("✓ Duyệt gắn Tag", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -658,7 +746,9 @@ fun ChatScreen(
                         onDiscardProposal = onDiscardProposal,
                         onClearAll = onClearAllProposals,
                         onConfirmSingle = onConfirmSingleProposal,
-                        onConfirmAll = onConfirmAllProposals
+                        onConfirmAll = onConfirmAllProposals,
+                        tags = tags,
+                        tagSuggestions = tagSuggestions
                     )
                 }
             }
@@ -1092,7 +1182,9 @@ private fun CompactProposalBatchCard(
     onDiscardProposal: (String) -> Unit,
     onClearAll: () -> Unit,
     onConfirmSingle: (String) -> Unit,
-    onConfirmAll: () -> Unit
+    onConfirmAll: () -> Unit,
+    tags: List<com.timewallet.mvp.domain.model.Tag> = emptyList(),
+    tagSuggestions: List<com.timewallet.mvp.domain.model.Tag> = emptyList()
 ) {
     // Tách rõ thời lượng có mốc giờ, chưa gắn giờ và dự kiến — không gộp thành 1 tổng gây hiểu nhầm
     val timedMinutes = proposals
@@ -1262,11 +1354,13 @@ private fun CompactProposalBatchCard(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+                            val itemTag = item.tagId?.let { id -> tags.firstOrNull { !it.isArchived && it.id == id } }
                             Text(
                                 // v1.1.0: 🏷 = đề xuất đã khớp một Tag của bạn (khớp xác định theo tên, không do AI); nhóm theo Tag.
                                 text = buildString {
                                     append(cat.displayName)
-                                    if (item.tagId != null) append(" 🏷")
+                                    if (itemTag != null) append(" · 🏷 ${itemTag.name}")
+                                    else if (item.tagId != null) append(" 🏷")
                                     if (timeWindowText != null) append(" · $timeWindowText")
                                     if (item.isMarkedWaste) append(" · Lãng phí")
                                 },
@@ -1324,6 +1418,8 @@ private fun CompactProposalBatchCard(
 
                     // On-demand Detail Editor (chỉ xuất hiện khi người dùng yêu cầu)
                     if (isExpanded) {
+                        var draftTagQuery by remember(item.id) { mutableStateOf("") }
+                        val tagPool = tags.filter { !it.isArchived }.ifEmpty { tagSuggestions.filter { !it.isArchived } }
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1349,6 +1445,54 @@ private fun CompactProposalBatchCard(
                                     onUpdateProposal(item.id) { it.copy(categoryKey = c) }
                                 }
                             )
+
+                            if (tagPool.isNotEmpty() || item.tagId != null) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Tag cá nhân",
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = WalletMuted
+                                    )
+                                    if (item.tagId != null) {
+                                        TextButton(
+                                            onClick = {
+                                                onUpdateProposal(item.id) { it.copy(tagId = null) }
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                        ) {
+                                            Text(
+                                                text = "Bỏ Tag",
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = WalletDangerText
+                                            )
+                                        }
+                                    }
+                                }
+                                TagPicker(
+                                    suggestions = tagSuggestions.filter { !it.isArchived }.ifEmpty { tagPool.take(8) },
+                                    allActiveTags = tagPool,
+                                    selectedTagId = item.tagId,
+                                    query = draftTagQuery,
+                                    onQueryChange = { draftTagQuery = it },
+                                    onSelect = { picked ->
+                                        val nextId = if (item.tagId == picked) null else picked
+                                        val pickedTag = tagPool.firstOrNull { it.id == nextId }
+                                        onUpdateProposal(item.id) { draft ->
+                                            draft.copy(
+                                                tagId = nextId,
+                                                categoryKey = pickedTag?.category?.key ?: draft.categoryKey
+                                            )
+                                        }
+                                    },
+                                    onCreateClick = null
+                                )
+                            }
 
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedTextField(
@@ -1507,7 +1651,8 @@ private fun CompactProposalBatchCard(
 private fun ChatAnswerContent(
     answer: ChatAnswer,
     onDismiss: () -> Unit,
-    onUseSuggestion: (String) -> Unit
+    onUseSuggestion: (String) -> Unit,
+    onUndoTagAssignment: (TagAssignmentUndoToken) -> Unit = {}
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
@@ -1600,6 +1745,22 @@ private fun ChatAnswerContent(
         answer.notes.forEach { note ->
             Text(text = note, fontSize = 12.sp, color = WalletMuted, lineHeight = 17.sp)
         }
+        val undoTok = answer.undoToken
+        if (undoTok != null && !undoTok.undone) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                OutlinedButton(
+                    onClick = { onUndoTagAssignment(undoTok) },
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                    modifier = Modifier.heightIn(min = 42.dp)
+                ) {
+                    Text("↶ Hoàn tác", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = WalletInk)
+                }
+            }
+        }
         if (answer.suggestions.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(
@@ -1658,7 +1819,13 @@ fun WallyAiOverlay(
     onCleanChatInput: () -> Unit = {},
     onCopyPromptToast: () -> Unit = {},
     onEditAndResubmitPrompt: (String) -> Unit,
-    onOpenAppIntro: () -> Unit = {}
+    onOpenAppIntro: () -> Unit = {},
+    tags: List<com.timewallet.mvp.domain.model.Tag> = emptyList(),
+    tagSuggestions: List<com.timewallet.mvp.domain.model.Tag> = emptyList(),
+    pendingTagAssignments: List<TagAssignmentProposal> = emptyList(),
+    onApproveTagAssignment: (String) -> Unit = {},
+    onDismissTagAssignment: (String) -> Unit = {},
+    onUndoTagAssignment: (TagAssignmentUndoToken) -> Unit = {}
 ) {
     val activeScopes = remember(aiReadPermissions) {
         buildList {
@@ -1829,7 +1996,13 @@ fun WallyAiOverlay(
                         onCopyPromptToast = onCopyPromptToast,
                         onEditAndResubmitPrompt = onEditAndResubmitPrompt,
                         onOpenAppIntro = onOpenAppIntro,
-                        embeddedInOverlay = true
+                        embeddedInOverlay = true,
+                        tags = tags,
+                        tagSuggestions = tagSuggestions,
+                        pendingTagAssignments = pendingTagAssignments,
+                        onApproveTagAssignment = onApproveTagAssignment,
+                        onDismissTagAssignment = onDismissTagAssignment,
+                        onUndoTagAssignment = onUndoTagAssignment
                     )
                 }
             }

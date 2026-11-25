@@ -1,6 +1,6 @@
-# Kiến trúc, Quyền riêng tư & Kiểm chứng kỹ thuật — Time Wallet `v2.2.2`
+# Kiến trúc, Quyền riêng tư & Kiểm chứng kỹ thuật — Time Wallet `v2.2.3`
 
-Tài liệu kỹ thuật chuyên sâu cho **Time Wallet (`Wally`)** `v2.2.2` (`versionCode = 25`), tách khỏi `README.md` để trang chính giữ vai trò giới thiệu sản phẩm.
+Tài liệu kỹ thuật chuyên sâu cho **Time Wallet (`Wally`)** `v2.2.3` (`versionCode = 26`, ứng viên luồng Tag & hội thoại nhiều lượt), tách khỏi `README.md` để trang chính giữ vai trò giới thiệu sản phẩm.
 
 ---
 
@@ -23,16 +23,16 @@ Time Wallet lưu trữ dữ liệu theo nguyên tắc trung thực, không tự 
 app/src/main/java/com/timewallet/mvp/
 ├── domain/
 │   ├── model/         # LedgerRecord, TaskItem, Habit, Goal, Proposal, UpdateContract
-│   └── usecase/       # WallyDataStoryEngine, LedgerAnalyticsCalculator, TaskHabitEngine,
-│                      # ConfirmationEngine, TimelineFeedEngine, AiTodoEngine,
-│                      # WallyHubSnapshotEngine, ScheduleGridEngine, AdaptiveContextRouter, AppUpdateContract
-├── data/
-│   ├── local/         # Room Database v8 (MIGRATION_4_5..7_8), DAO, Android Keystore prefs,
-│   │                  # WallyActionController (SSOT cho App + Widget + Floating Assistant)
-│   ├── ai/            # GeminiProposalClient, WallyTodoAiPlanner, AiProviderPreset
-│   └── update/        # GitHubReleaseUpdateChannel (HTTPS allowlist, SHA-256, cert check)
-├── widget/            # WallyHomeWidgetProvider & WallyHomeWidgetService (2×2 / 4×2 / 4×3+)
-├── overlay/           # WallyFloatingService (Foreground specialUse + SYSTEM_ALERT_WINDOW)
+│   │   └── usecase/       # WallyConversationEngine, WallyTagAssignmentEngine, WallyDataStoryEngine, LedgerAnalyticsCalculator, TaskHabitEngine,
+│   │                      # ConfirmationEngine, TimelineFeedEngine, AiTodoEngine,
+│   │                      # WallyHubSnapshotEngine, ScheduleGridEngine, AdaptiveContextRouter, AppUpdateContract
+│   ├── data/
+│   │   ├── local/         # Room Database v8 (MIGRATION_4_5..7_8), DAO, Android Keystore prefs,
+│   │   │                  # WallyActionController (SSOT cho App + Widget + Floating Assistant)
+│   │   ├── ai/            # GeminiProposalClient, WallyTodoAiPlanner, AiProviderPreset
+│   │   └── update/        # GitHubReleaseUpdateChannel (HTTPS allowlist, SHA-256, cert check)
+│   ├── widget/            # WallyHomeWidgetProvider & WallyHomeWidgetService (2×2 / 4×2 / 4×3+)
+│   ├── overlay/           # WallyFloatingService & WallyFloatingChatSession (Foreground specialUse + SYSTEM_ALERT_WINDOW)
 ├── notifications/     # Focus pinned notification (id=910301) & CompletionBootReceiver
 └── ui/                # Jetpack Compose Material 3 (Lịch trình, Công việc, Tập trung, Mở rộng, Chat)
 ```
@@ -58,15 +58,26 @@ app/src/main/java/com/timewallet/mvp/
 
 ---
 
-## 4. Kết quả kiểm chứng bản `v2.2.2` (`versionCode 25`)
+## 4. Kết quả kiểm chứng ứng viên `v2.2.3` (`versionCode 26`)
 
 | Hạng mục | Kết quả | Chi tiết đo trực tiếp |
 |---|---|---|
-| Unit & Contract Tests (`:app:testDebugUnitTest`) | **PASS (705 / 705 chạy offline)** | `709` test cases (`705 passed, 0 failures, 0 errors, 4 skipped` — 4 test Live AI / live-eval bỏ qua khi không có API key live; gồm 3 test mới trong `V220FloatingWidgetAndAiTodoTest` và 2 test mới trong `V120DraftPersistenceTest` cho đồng bộ tổng phút qua đêm/timer, lọc việc đã xong khỏi `Sắp làm`, và giữ `taskId` nháp + tương thích ngược JSON cũ). |
-| Compose Screenshot Validation (`:app:validateDebugScreenshotTest`) | **PASS (15 / 15)** | `15 passed, 0 failures, 0 errors, 0 skipped` (gồm các preview `Thống kê`, `Lịch`, `Dòng thời gian` 320dp/390dp, `Tập trung` và thẻ `Tasks 320dp` Light & Dark). |
-| Android Lint (`:app:lintDebug` & `:app:lintRelease`) | **PASS (0 errors)** | `lintDebug`: `0 errors, 117 warnings` · `lintRelease`: `0 errors, 105 warnings`. |
-| Release APK & chữ ký (`apksigner`) | **PASS** | `TimeWallet-MVP-v2.2.2-release.apk`: **`9,523,164` bytes** · `SHA-256`: `66628ED44634559B070AC9E01B56E51BFB842E182243B80BDF69F19D12BF3732` · ký bằng chứng thư `39f5712d139124e05d550458180e69a1919ade5a331d2eadbb9de47da79cdcd0`. |
-| Debug APK | **PASS** | `TimeWallet-MVP-v2.2.2-debug.apk`: **`15,958,845` bytes** · `SHA-256`: `FD3E21D016187A02065EBE254028985CCCD62E2DD612FA4DF2885618F3588EAE`. |
+| Unit & Contract Tests (`:app:testDebugUnitTest`) | **PASS (716 / 716 chạy offline)** | `720` test cases across `80` suites (`716 passed, 0 failures, 0 errors, 4 skipped` — 4 test Live AI bỏ qua khi `FOZA_API_KEY` chưa đặt; gồm `V223FinalClosureTest` `3/3`, `V223TagAndMultiTurnTest` `7/7`, `V108TransactionStatusTest` `16/16`, `WallyChatLifecycleTest` `8/8` dùng phản hồi JSON AI giả lập + `InMemoryLedgerDao`, và hợp đồng Z-order đường chỉ báo thời gian hiện tại trong `V1011UiPolishContractTest`). |
+| Compose Screenshot Validation (`:app:validateDebugScreenshotTest`) | **PASS (15 / 15)** | `15 passed, 0 failures, 0 errors, 0 skipped`. |
+| Android Lint (`:app:lintDebug` & `:app:lintRelease`) | **PASS (0 errors)** | `lintDebug`: `0 errors, 119 warnings` · `lintRelease`: `0 errors, 107 warnings`. |
+| Release APK & chữ ký (`apksigner`) | **PASS** | `out/wally_candidate_v223/TimeWallet-MVP-v2.2.3-release.apk`: **`9,621,469` bytes** · `SHA-256`: `87F202081EBF45AEC49E57EB65BF66293E916BAF4706E56FDA491D54C71F1EE8` · ký bằng chứng thư `39f5712d139124e05d550458180e69a1919ade5a331d2eadbb9de47da79cdcd0`. |
+| Debug APK | **PASS** | `out/wally_candidate_v223/TimeWallet-MVP-v2.2.3-debug.apk`: **`14,663,449` bytes** · `SHA-256`: `E8F18F8BE02A7484A76A845DE4272317E4ACDCA70D1C79A9B5B48575472F692A` · chứng thư debug `402f1d417186bdb1f73975f57f4ceb7976e2e683fa26adf896e1590af222530d`. |
+| QA bản Release trên `WallyQA` (`out/wally_evidence_v223/`, APK `87F20208…`) | **PASS từng phần (0 crash, `LOGCAT_FATAL_COUNT=0`)** | (1) Đường chỉ báo thời gian hiện tại (`zIndex = 15f`) hiển thị liên tục trên thẻ `On IELTS qua gio` (`11:53–13:23`), chữ rõ ở cả 3 chế độ `Ngày` (`s01`, `s02`, `s03`), `3 ngày` (`s05`, `s06`) và `Tuần` (`s08`, `s09`); chạm đúng giao điểm đường đỏ mở chọn thẻ + thanh thao tác; kéo mép trên thẻ ở chế độ `Ngày` tạo preview `12:00–13:23 · 1h 23p` kèm nút `✓ Lưu`. (2) `Thống kê` đồng bộ live timer `Tag: IELTS`: từ `60p / 5h` (`g02`) tăng lên `61p / 5h` & `1h 31p / 24h` khi timer chạy `01:28` (`g04`) và `1h 32p / 24h` (`c04`), không cộng nhầm khối `PLANNED` `90p`. (3) Thông báo `Wally đang đồng hành` & bóng chat pop-on hiển thị ổn định (`s09`, `c01_shade`). |
+| Phạm vi chưa chạy trên thiết bị / AI live (`NOT_TESTED` & nghẽn dịch vụ host) | — | Gọi model Cloud AI thật (`LiveEval` 4 suite skip do không có key QA); kiểm tra trên `WallyQA` đợt 2 (lưu kết quả sau bấm `✓ Lưu` khi kéo giãn, mở ngăn `Mục tiêu` đối chiếu trực tiếp với `Thống kê`, thao tác gõ/gửi trên Chat nổi & Chat trong app, và hoàn tác/gắn Tag phiên cũ trực tiếp trên APK — đợt chạy lại bị chặn vì dịch vụ `Ld9BoxSVC` treo ở `vbox_pid = -1`, đã dừng theo Rule 8 và giữ nguyên quy trình bảo vệ môi trường); ghim Home Widget vật lý trên launcher; và ghi chú mở từ `v2.2.2` (`04:51` vs `04:59`). |
+
+---
+
+## 5. Hồ sơ kiểm chứng baseline tiền nhiệm `v2.2.2` (`versionCode 25`, tag `6d59f61`)
+
+| Hạng mục | Kết quả | Chi tiết đo trực tiếp |
+|---|---|---|
+| Unit & Contract Tests (`:app:testDebugUnitTest`) | **PASS (705 / 705 chạy offline)** | `709` test cases (`705 passed, 0 failures, 0 errors, 4 skipped`). |
+| Release APK & chữ ký (`apksigner`) | **PASS** | `TimeWallet-MVP-v2.2.2-release.apk`: **`9,523,164` bytes** · `SHA-256`: `66628ED44634559B070AC9E01B56E51BFB842E182243B80BDF69F19D12BF3732`. |
 | QA `320dp` sau `Xác nhận` trên `WallyQA` (APK `66628ED4…`) | **PASS (khép khoảng trống `320dp`)** | Bộ `out/wally_evidence_v222/confirm_planned_320dp/` (`99` tệp PNG/XML/text, `NO_FATAL_EXCEPTION_OR_ANR`): trước xác nhận `0h 15 / 24h` + thẻ `Chờ xác nhận` `On tap thi thu` (`c01`, `c03c`) → hộp thoại `Xác nhận hoàn thành` (`c04`) → sau xác nhận tăng lên `0h 45 / 24h`, chuyển vào `Đã diễn ra` (`02:33–03:03 · Đã ghi 30p`, `c05`, `c05b`), `Thống kê` `45p / 24h` (`c07`), và giữ nguyên sau `am force-stop` (`c08`, `c08b`, `c09` `Thực tế 30p`). *(Ghi chú: ảnh `c06` ở vẫn ở tab Dòng thời gian do thanh `Lịch ngày` đã cuộn lên trên; tổng giờ & persistence đã xác nhận qua `c05`/`c05b`/`c07`/`c08`/`c08b`/`c09`.)* |
 | QA 3 bản vá trên `WallyQA` (`APK 66628ED4…`) & JVM | **PASS** | Bộ `out/wally_evidence_v222/fixes_v222_qa/` (`120` tệp, `NO_FATAL_EXCEPTION_OR_ANR`): (1) phiên `23:00–00:30` tách `1h 00` ở `Hôm qua` (`f02`) & `0h 30 / 24h` ở `Hôm nay` (`f01`), `Bảng nổi` `Ghi 30p` (`f03`); khi timer chạy (`f04` `01:07`, `f05` `● 01:10`), `Bảng nổi` và `Ví 24h` cùng báo `31p` (`0h 31 / 24h`); (2) trước khi tích hoàn thành, `f06` ghi cùng lúc `Kế: 04:59 Kiem tra Sap lam` trên `Bảng nổi` và khối `04:59–05:29` trên Lịch bên dưới; sau khi bấm `○`, `f07` xóa mục khỏi `Kế:` trong khi `f07`, `f08` và `f08b` vẫn giữ nguyên đúng khung `04:59–05:29` trên Lịch ngày và Dòng thời gian; (3) xếp lịch `Draft Link Check`, bấm Home + `am kill com.timewallet.mvp`, mở lại `+ Ghi` giữ nguyên `"Thuộc công việc: Draft Link Check"` (`f10`, `03:45–04:15`) và sau khi lưu hiện lại `"Thuộc công việc: Draft Link Check · Hạn 11-25"` (`f12`). Nhánh Widget provider, nháp đề xuất chat (`SavedProposalDraft.taskId`) và tương thích ngược JSON nháp cũ được kiểm chứng qua JVM unit tests (`V220FloatingWidgetAndAiTodoTest`, `V120DraftPersistenceTest`). |
 | QA baseline tiền nhiệm trên `WallyQA` (`36A46F2E…` & `751B65AE…`) | **Lưu hồ sơ đối chiếu** | `out/wally_evidence_v222/timeline_phase_review/` (`228` tệp, Ca 1–3 đạt đầy đủ trên `36A46F2E…`) và `out/wally_evidence_v221/crud_delete_overlay_320dp_run1/` (`164` tệp trên `751B65AE…`). Các điểm hiển thị từng ghi nhận ở `320dp` (`bóng nổi`, `"Dịch khung gi…"`, `"Wa…"`) giữ nguyên phạm vi theo chốt Owner. |
@@ -74,7 +85,7 @@ app/src/main/java/com/timewallet/mvp/
 
 ---
 
-## 5. Build từ mã nguồn
+## 6. Build từ mã nguồn
 
 ```bash
 # Chạy toàn bộ unit & contract test

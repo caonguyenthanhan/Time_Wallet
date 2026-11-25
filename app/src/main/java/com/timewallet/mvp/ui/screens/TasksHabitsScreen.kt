@@ -545,13 +545,20 @@ fun TasksHabitsScreen(
                                                 .padding(horizontal = 5.dp, vertical = 1.5.dp)
                                         )
                                     }
+                                    val propTag = (prop.tagId ?: tasks.firstOrNull { it.id == prop.taskId }?.tagId)?.let { id ->
+                                        tags.firstOrNull { !it.isArchived && it.id == id }
+                                    }
                                     val timeHint = if (!prop.startHm.isNullOrBlank() && !prop.endHm.isNullOrBlank()) {
                                         " (${prop.targetDateLocal ?: todayDateLocal} · ${prop.startHm}–${prop.endHm})"
                                     } else if (!prop.targetDateLocal.isNullOrBlank()) {
                                         " → ${prop.targetDateLocal}"
                                     } else ""
                                     Text(
-                                        text = "${prop.reasonVi}$timeHint",
+                                        text = buildString {
+                                            if (propTag != null) append("🏷 ${propTag.name} · ")
+                                            append(prop.reasonVi)
+                                            append(timeHint)
+                                        },
                                         fontSize = 11.sp,
                                         color = WalletMuted
                                     )

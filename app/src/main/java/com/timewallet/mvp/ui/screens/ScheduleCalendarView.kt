@@ -2491,29 +2491,10 @@ private fun DayTimelineGrid(
                 }
 
                 if (isToday) {
-                    val nowY = (nowMinute / 60f) * hourHeight.value
-                    // Vẽ đường giờ hiện tại phía dưới lớp thẻ (zIndex 0.5f) để KHÔNG bao giờ che tên phiên ngắn;
-                    // nhãn giờ "HH:mm" đã được ghim gọn trong cột giờ bên trái.
-                    Row(
-                        modifier = Modifier
-                            .offset(y = (nowY - 3f).dp)
-                            .fillMaxWidth()
-                            .zIndex(0.5f),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(NowIndicatorCoral)
-                        )
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(1.5.dp)
-                                .background(NowIndicatorCoral.copy(alpha = 0.8f))
-                        )
-                    }
+                    CurrentTimeIndicatorOverlay(
+                        nowMinute = nowMinute,
+                        hourHeight = hourHeight
+                    )
                 }
                 }
             }
@@ -3104,12 +3085,13 @@ private fun MultiDayTimelineGrid(
                             .then(if (needsHorizontalScroll) Modifier.horizontalScroll(hScrollState) else Modifier)
                             .padding(end = rightPad)
                     ) {
-                        Row(
+                        Box(
                             modifier = Modifier
                                 .width(totalDaysWidth)
                                 .height(hourHeight * 24)
                         ) {
-                            days.forEach { day ->
+                            Row(modifier = Modifier.fillMaxSize()) {
+                                days.forEach { day ->
                                 val isDayToday = day.dateLocal == todayStr
                                 val latestDay by rememberUpdatedState(day)
                                 var colCoords by remember(day.dateLocal) { mutableStateOf<LayoutCoordinates?>(null) }
@@ -3506,18 +3488,18 @@ private fun MultiDayTimelineGrid(
                                             }
                                         }
                                     }
-                                    if (isDayToday) {
-                                        val nowY = (nowMinute / 60f) * hourHeight.value
-                                        Box(
-                                            modifier = Modifier
-                                                .offset(y = nowY.dp)
-                                                .fillMaxWidth()
-                                                .height(1.5.dp)
-                                                .zIndex(0.5f)
-                                                .background(NowIndicatorCoral.copy(alpha = 0.8f))
-                                        )
-                                    }
                                 }
+                            }
+                            }
+                            val todayIdx = days.indexOfFirst { it.dateLocal == todayStr }
+                            if (todayIdx >= 0) {
+                                CurrentTimeIndicatorOverlay(
+                                    nowMinute = nowMinute,
+                                    hourHeight = hourHeight,
+                                    highlightOffsetX = colWidth * todayIdx,
+                                    highlightWidth = colWidth,
+                                    showFullGridGuide = true
+                                )
                             }
                         }
                     }
@@ -4009,6 +3991,65 @@ private fun formatScheduleRangeHeading(
         }
         ScheduleViewMode.MONTH -> {
             selectedDate.format(DateTimeFormatter.ofPattern("'Tháng' MM/yyyy", Locale("vi", "VN")))
+        }
+    }
+}
+
+private const val CURRENT_TIME_INDICATOR_Z_INDEX = 15f
+
+/**
+ * Đường chỉ báo thời gian hiện tại (overlay không chặn thao tác):
+ * luôn vẽ phía trên các khối lịch trình (zIndex 15f > 12f) và xuyên suốt chiều ngang vùng lịch,
+ * đồng thời giữ thấp hơn nhãn giờ ở trục trái (21f), chip nhảy nhanh (24f) và thanh công cụ nổi (30f).
+ */
+@Composable
+private fun CurrentTimeIndicatorOverlay(
+    nowMinute: Int,
+    hourHeight: Dp,
+    highlightOffsetX: Dp = 0.dp,
+    highlightWidth: Dp? = null,
+    showFullGridGuide: Boolean = false
+) {
+    val nowY = (nowMinute / 60f) * hourHeight.value
+    Box(
+        modifier = Modifier
+            .offset(y = (nowY - 3f).dp)
+            .fillMaxWidth()
+            .height(6.dp)
+            .zIndex(CURRENT_TIME_INDICATOR_Z_INDEX),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        if (showFullGridGuide) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.2.dp)
+                    .background(NowIndicatorCoral.copy(alpha = 0.55f))
+            )
+        }
+        val dotAndLineModifier = if (highlightWidth != null) {
+            Modifier
+                .offset(x = highlightOffsetX)
+                .width(highlightWidth)
+        } else {
+            Modifier.fillMaxWidth()
+        }
+        Row(
+            modifier = dotAndLineModifier,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(NowIndicatorCoral)
+            )
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(1.5.dp)
+                    .background(NowIndicatorCoral.copy(alpha = 0.92f))
+            )
         }
     }
 }

@@ -1,6 +1,8 @@
 package com.timewallet.mvp.domain.usecase
 
 import com.timewallet.mvp.domain.model.ActivityProposal
+import com.timewallet.mvp.domain.model.RawTagAssignmentIntent
+import com.timewallet.mvp.domain.model.TagAssignmentProposal
 import java.text.Normalizer
 import java.time.LocalDate
 import java.time.LocalTime
@@ -23,7 +25,12 @@ data class ParseChatOutcome(
     val retryCount: Int = 0,
     val intent: WallyIntentKind? = null,
     /** true nếu lượt này có đính kèm ngữ cảnh thích ứng từ [WallyContextEngine]. */
-    val usedAdaptiveContext: Boolean = false
+    val usedAdaptiveContext: Boolean = false,
+    val pendingClarification: PendingProposalContext? = null,
+    val clarificationSuggestions: List<String> = emptyList(),
+    val replacesDraftId: String? = null,
+    val rawTagAssignments: List<RawTagAssignmentIntent> = emptyList(),
+    val tagAssignmentProposals: List<TagAssignmentProposal> = emptyList()
 )
 
 /**

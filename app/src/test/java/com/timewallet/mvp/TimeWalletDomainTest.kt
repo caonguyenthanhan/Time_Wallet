@@ -1560,6 +1560,8 @@ class TimeWalletDomainTest {
 
         override suspend fun getAllRecordsSnapshot(): List<LedgerRecordEntity> = rows.toList()
 
+        override suspend fun findById(id: String): LedgerRecordEntity? = rows.firstOrNull { it.id == id }
+
         override suspend fun countByIdempotencyKey(idempotencyKey: String): Int =
             rows.count { it.idempotencyKey == idempotencyKey }
 

@@ -2,11 +2,22 @@ package com.timewallet.mvp.domain.usecase
 
 import com.timewallet.mvp.domain.model.ActiveTimerSession
 import com.timewallet.mvp.domain.model.CategoryTimeBudget
+import com.timewallet.mvp.domain.model.ConfirmationState
+import com.timewallet.mvp.domain.model.Goal
+import com.timewallet.mvp.domain.model.GoalKind
+import com.timewallet.mvp.domain.model.GoalPeriod
+import com.timewallet.mvp.domain.model.GoalTargetType
 import com.timewallet.mvp.domain.model.LedgerRecord
+import com.timewallet.mvp.domain.model.Tag
+import com.timewallet.mvp.domain.model.TagAssignmentUndoToken
 import com.timewallet.mvp.domain.model.TimeCategory
+import com.timewallet.mvp.domain.model.TimeLayer
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /** Tổng hợp số liệu của một kỳ, cộng từ LedgerAnalyticsCalculator.computeDayStats theo từng ngày. */
@@ -43,14 +54,17 @@ object LedgerQueryEngine {
         zoneId: ZoneId = ZoneId.systemDefault(),
         nowEpochMs: Long = System.currentTimeMillis(),
         activeTimer: ActiveTimerSession? = null,
-        budgets: List<CategoryTimeBudget> = emptyList()
+        budgets: List<CategoryTimeBudget> = emptyList(),
+        tags: List<Tag> = emptyList(),
+        goals: List<Goal> = emptyList()
     ): QueryAnswer {
         val primary = aggregate(intent.period, records, zoneId, nowEpochMs, activeTimer)
         val today = Instant.ofEpochMilli(nowEpochMs).atZone(zoneId).toLocalDate()
+        val resolvedTag = resolveTargetTag(intent, tags)
 
-        // R02: câu hỏi ngân sách đi theo đường riêng (một vòng, không so sánh kỳ, không phụ thuộc "có dữ liệu trong kỳ hay không").
+        // R02: câu hỏi ngân sách / mục tiêu đi theo đường riêng (một vòng, dùng chung dữ liệu với Tổng quan/Thống kê).
         if (intent.metric == QueryMetric.BUDGET) {
-            return budgetAnswer(intent, primary, budgets, records, zoneId, nowEpochMs, activeTimer, today)
+            return budgetAnswer(intent, primary, budgets, goals, tags, resolvedTag, records, zoneId, nowEpochMs, activeTimer, today)
         }
         val compare = intent.compareTo?.let { aggregate(it, records, zoneId, nowEpochMs, activeTimer) }
 
@@ -60,6 +74,14 @@ object LedgerQueryEngine {
         }
         if (primary.untimedSeconds > 0L && intent.metric != QueryMetric.UNTIMED) {
             notes.add("Đã ghi nhận ${fmt(primary.timedSeconds + primary.untimedSeconds)} gồm ${fmt(primary.timedSeconds)} có mốc giờ và ${fmt(primary.untimedSeconds)} chưa gắn giờ (tách riêng).")
+        }
+
+        if (intent.metric == QueryMetric.TYPICAL_WINDOW) {
+            return typicalWindowAnswer(intent, primary, records, resolvedTag, zoneId, nowEpochMs, notes)
+        }
+
+        if (resolvedTag != null || !intent.tagName.isNullOrBlank()) {
+            return tagAnswer(intent, primary, compare, records, resolvedTag, tags, zoneId, nowEpochMs, activeTimer, notes)
         }
 
         if (compare != null) return buildComparison(intent, primary, compare, notes)
@@ -75,13 +97,14 @@ object LedgerQueryEngine {
 
         val cat = intent.category
         return when (intent.metric) {
-            QueryMetric.TOTAL -> if (cat == null) totalAnswer(intent, primary, notes) else categoryAnswer(intent, primary, cat, notes)
+            QueryMetric.TOTAL -> if (cat == null) totalAnswer(intent, primary, notes) else categoryAnswer(intent, primary, cat, records, tags, zoneId, nowEpochMs, activeTimer, notes)
             QueryMetric.UNTIMED -> untimedAnswer(intent, primary, notes)
             QueryMetric.PLANNED -> plannedAnswer(intent, primary, notes)
             QueryMetric.TOP_CATEGORY -> rankAnswer(intent, primary, top = true, notes = notes)
             QueryMetric.LEAST_CATEGORY -> rankAnswer(intent, primary, top = false, notes = notes)
             QueryMetric.BREAKDOWN -> breakdownAnswer(intent, primary, notes)
             QueryMetric.BUDGET -> error("BUDGET được xử lý ở trên")
+            QueryMetric.TYPICAL_WINDOW -> error("TYPICAL_WINDOW được xử lý ở trên")
         }
     }
 
@@ -91,6 +114,9 @@ object LedgerQueryEngine {
         intent: QueryIntent,
         primary: PeriodFigures,
         budgets: List<CategoryTimeBudget>,
+        goals: List<Goal>,
+        tags: List<Tag>,
+        resolvedTag: Tag?,
         records: List<LedgerRecord>,
         zoneId: ZoneId,
         nowEpochMs: Long,
@@ -99,43 +125,161 @@ object LedgerQueryEngine {
     ): QueryAnswer {
         val notes = mutableListOf<String>()
         if (intent.compareTo != null) notes.add("Ngân sách không có so sánh hai kỳ; chỉ hiển thị mức hiện tại.")
-        if (budgets.isEmpty()) {
+
+        val activeTags = tags.filter { !it.isArchived }
+        val tagMap = activeTags.associateBy { it.id }
+        val activeGoals = GoalRules.summaries(
+            goals = goals,
+            records = records,
+            tagNameOf = { id -> tagMap[id]?.name },
+            today = today,
+            nowEpochMs = nowEpochMs,
+            zone = zoneId,
+            activeTimer = activeTimer
+        ).filter { it.progress != null }
+
+        if (budgets.isEmpty() && activeGoals.isEmpty()) {
             return QueryAnswer(
                 headline = "Bạn chưa đặt ngân sách nào.",
-                lines = listOf("Hãy đặt mục tiêu theo danh mục ở tab Insights rồi hỏi lại."),
+                lines = listOf("Hãy đặt mục tiêu hoặc ngân sách theo danh mục/Tag ở tab Thống kê rồi hỏi lại."),
                 figures = primary,
                 notes = notes
             )
         }
-        // Cùng một hàm với Tổng quan / Insights / Nhật ký ngày: không có bản tính thứ hai.
-        val all = LedgerAnalyticsCalculator.computeBudgetProgress(budgets, records, zoneId, nowEpochMs, activeTimer)
-        val cat = intent.category
-        val shown = if (cat == null) all else all.filter { it.category == cat }
-        if (shown.isEmpty()) {
+
+        // Bảo toàn nguyên vẹn hành vi cũ khi chỉ có CategoryTimeBudget (R02 & V106BudgetQueryTest)
+        if (activeGoals.isEmpty()) {
+            val all = LedgerAnalyticsCalculator.computeBudgetProgress(budgets, records, zoneId, nowEpochMs, activeTimer)
+            val cat = intent.category
+            val shown = if (cat == null) all else all.filter { it.category == cat }
+            if (shown.isEmpty()) {
+                return QueryAnswer(
+                    headline = "Bạn chưa đặt ngân sách cho ${cat?.displayName ?: "danh mục này"}.",
+                    lines = all.take(MAX_BUDGET_LINES).map { budgetLine(it) },
+                    figures = primary,
+                    notes = notes
+                )
+            }
+            if (intent.period.start.isAfter(today) || intent.period.end.isBefore(today)) {
+                notes.add("Ngân sách luôn tính cho ngày/tuần hiện tại, không theo khoảng ngày bạn hỏi.")
+            }
+            notes.add("Đã ghi nhận gồm cả thời lượng chưa gắn giờ; hoạt động dự kiến không được tính.")
+            val exceeded = shown.count { it.combinedIsExceeded }
+            val headline = if (shown.size == 1) {
+                val p = shown[0]
+                "Ngân sách ${p.category.displayName} (${p.targetFormatted}): đã ghi nhận ${p.combinedUsedFormatted}, ${p.combinedDifferenceLabelVi.lowercase()}."
+            } else {
+                "Ngân sách hiện tại: ${shown.size} danh mục" + if (exceeded > 0) ", $exceeded đã vượt mục tiêu." else ", chưa danh mục nào vượt mục tiêu."
+            }
             return QueryAnswer(
-                headline = "Bạn chưa đặt ngân sách cho ${cat?.displayName ?: "danh mục này"}.",
-                lines = all.take(MAX_BUDGET_LINES).map { budgetLine(it) },
+                headline = headline,
+                lines = if (shown.size == 1) listOf(budgetLine(shown[0])) else shown.take(MAX_BUDGET_LINES).map { budgetLine(it) },
                 figures = primary,
                 notes = notes
             )
         }
-        if (intent.period.start.isAfter(today) || intent.period.end.isBefore(today)) {
-            notes.add("Ngân sách luôn tính cho ngày/tuần hiện tại, không theo khoảng ngày bạn hỏi.")
+
+        // Thống nhất cả Goal mới và CategoryTimeBudget cũ chưa trùng trên cùng một phép tính với Thống kê/Mục tiêu.
+        val allBudgets = LedgerAnalyticsCalculator.computeBudgetProgress(budgets, records, zoneId, nowEpochMs, activeTimer)
+        val coveredWeeklyMaxCategories = activeGoals
+            .filter { it.latest.targetType == GoalTargetType.CATEGORY && it.latest.kind == GoalKind.MAX }
+            .mapTo(HashSet()) { it.latest.targetKey }
+        val uncoveredBudgets = allBudgets.filter {
+            it.period != com.timewallet.mvp.domain.model.BudgetPeriod.WEEKLY || it.category.key !in coveredWeeklyMaxCategories
         }
-        notes.add("Đã ghi nhận gồm cả thời lượng chưa gắn giờ; hoạt động dự kiến không được tính.")
-        val exceeded = shown.count { it.combinedIsExceeded }
-        val headline = if (shown.size == 1) {
-            val p = shown[0]
-            "Ngân sách ${p.category.displayName} (${p.targetFormatted}): đã ghi nhận ${p.combinedUsedFormatted}, ${p.combinedDifferenceLabelVi.lowercase()}."
+
+        val cat = intent.category
+        val matchedGoals = activeGoals.filter { s ->
+            when {
+                resolvedTag != null -> s.latest.targetType == GoalTargetType.TAG && s.latest.targetKey == resolvedTag.id
+                cat != null -> (s.latest.targetType == GoalTargetType.CATEGORY && s.latest.targetKey == cat.key) ||
+                    (s.latest.targetType == GoalTargetType.TAG && tagMap[s.latest.targetKey]?.category == cat)
+                else -> true
+            }
+        }
+        val matchedBudgets = if (resolvedTag != null) {
+            emptyList()
         } else {
-            "Ngân sách hiện tại: ${shown.size} danh mục" + if (exceeded > 0) ", $exceeded đã vượt mục tiêu." else ", chưa danh mục nào vượt mục tiêu."
+            uncoveredBudgets.filter { cat == null || it.category == cat }
+        }
+
+        if (matchedGoals.isEmpty() && matchedBudgets.isEmpty()) {
+            val targetLabel = resolvedTag?.name ?: cat?.displayName ?: "mục này"
+            val fallbackLines = (activeGoals.map { goalSummaryLine(it, tagMap) } +
+                uncoveredBudgets.map { budgetLine(it) }).take(MAX_BUDGET_LINES)
+            return QueryAnswer(
+                headline = "Bạn chưa đặt mục tiêu hay ngân sách cho $targetLabel.",
+                lines = fallbackLines,
+                figures = primary,
+                notes = notes
+            )
+        }
+
+        if (intent.period.start.isAfter(today) || intent.period.end.isBefore(today)) {
+            notes.add("Mục tiêu và ngân sách luôn tính cho ngày/tuần hiện tại, không theo khoảng ngày bạn hỏi.")
+        }
+        notes.add("Đã ghi nhận gồm cả thời lượng có mốc giờ, chưa gắn giờ và đồng hồ đang chạy; hoạt động dự kiến không được tính.")
+
+        val combinedLines = (matchedGoals.map { goalSummaryLine(it, tagMap) } +
+            matchedBudgets.map { budgetLine(it) }).take(MAX_BUDGET_LINES)
+
+        val headline = when {
+            matchedGoals.size == 1 && matchedBudgets.isEmpty() -> {
+                val s = matchedGoals[0]
+                val p = s.progress!!
+                val math = GoalDisplayMath.from(p.usedSeconds, p.targetSeconds)
+                val periodVi = if (s.latest.period == GoalPeriod.DAY) "ngày" else "tuần"
+                val statusVi = when {
+                    s.latest.kind == GoalKind.MIN && p.met -> "đã đạt mục tiêu"
+                    s.latest.kind == GoalKind.MIN -> "còn thiếu ${math.remainingLabel}"
+                    p.overSeconds > 0L -> "vượt ${fmt(p.overSeconds)}"
+                    else -> "còn lại ${math.remainingLabel}"
+                }
+                "Mục tiêu ${s.name} (${math.targetLabel}/$periodVi): đã ghi nhận ${math.usedLabel}, $statusVi."
+            }
+            matchedBudgets.size == 1 && matchedGoals.isEmpty() -> {
+                val p = matchedBudgets[0]
+                "Ngân sách ${p.category.displayName} (${p.targetFormatted}): đã ghi nhận ${p.combinedUsedFormatted}, ${p.combinedDifferenceLabelVi.lowercase()}."
+            }
+            else -> {
+                val totalCount = matchedGoals.size + matchedBudgets.size
+                val alertCount = matchedGoals.count { s ->
+                    val p = s.progress!!
+                    s.latest.kind == GoalKind.MAX && p.overSeconds > 0L
+                } + matchedBudgets.count { it.combinedIsExceeded }
+                val metMinCount = matchedGoals.count { it.latest.kind == GoalKind.MIN && it.progress!!.met }
+                when {
+                    alertCount > 0 -> "Mục tiêu & ngân sách hiện tại: $totalCount mục, $alertCount đang vượt giới hạn."
+                    metMinCount > 0 -> "Mục tiêu & ngân sách hiện tại: $totalCount mục ($metMinCount mục tiêu tối thiểu đã đạt)."
+                    else -> "Mục tiêu & ngân sách hiện tại: $totalCount mục đang theo dõi."
+                }
+            }
         }
         return QueryAnswer(
             headline = headline,
-            lines = if (shown.size == 1) listOf(budgetLine(shown[0])) else shown.take(MAX_BUDGET_LINES).map { budgetLine(it) },
+            lines = combinedLines,
             figures = primary,
             notes = notes
         )
+    }
+
+    private fun goalSummaryLine(s: GoalRules.Summary, tagMap: Map<String, Tag>): String {
+        val p = s.progress!!
+        val math = GoalDisplayMath.from(p.usedSeconds, p.targetSeconds)
+        val cat = if (s.latest.targetType == GoalTargetType.TAG) {
+            tagMap[s.latest.targetKey]?.category ?: TimeCategory.OTHER
+        } else {
+            TimeCategory.fromKeyOrDefault(s.latest.targetKey)
+        }
+        val periodSuffix = if (s.latest.period == GoalPeriod.DAY) "/ngày" else "/tuần"
+        val sign = if (s.latest.kind == GoalKind.MIN) "≥ " else "≤ "
+        val status = when {
+            s.latest.kind == GoalKind.MIN && p.met -> "Đạt mục tiêu"
+            s.latest.kind == GoalKind.MIN -> "Còn thiếu ${math.remainingLabel}"
+            p.overSeconds > 0L -> "Vượt ${fmt(p.overSeconds)}"
+            else -> "Còn ${math.remainingLabel}"
+        }
+        return "${cat.emoji} ${s.name}: ${math.usedLabel} / $sign${math.targetLabel}$periodSuffix — $status"
     }
 
     private const val MAX_BUDGET_LINES = 6
@@ -186,19 +330,386 @@ object LedgerQueryEngine {
         )
     }
 
-    private fun categoryAnswer(intent: QueryIntent, f: PeriodFigures, cat: TimeCategory, notes: List<String>): QueryAnswer {
+    private fun categoryAnswer(
+        intent: QueryIntent,
+        f: PeriodFigures,
+        cat: TimeCategory,
+        records: List<LedgerRecord>,
+        tags: List<Tag>,
+        zoneId: ZoneId,
+        nowEpochMs: Long,
+        activeTimer: ActiveTimerSession?,
+        notes: List<String>
+    ): QueryAnswer {
         val timed = f.timedByCategory[cat] ?: 0L
         val untimed = f.untimedByCategory[cat] ?: 0L
         val planned = f.plannedByCategory[cat] ?: 0L
+        val totalActual = timed + untimed
         val lines = mutableListOf<String>()
         if (untimed > 0L) lines.add("Chưa gắn giờ: ${fmt(untimed)} (tách riêng)")
-        if (planned > 0L) lines.add("Dự kiến: ${fmt(planned)}")
+        if (planned > 0L) lines.add("Dự kiến: ${fmt(planned)} (chưa tính vào thực tế)")
+
+        val activeTags = tags.filter { !it.isArchived }
+        if (activeTags.isNotEmpty() && totalActual > 0L) {
+            val byTag = computeTagTotalsInPeriod(
+                period = intent.period,
+                records = records,
+                tags = activeTags,
+                categoryFilter = cat,
+                nowEpochMs = nowEpochMs,
+                activeTimer = activeTimer,
+                zoneId = zoneId
+            )
+            if (byTag.taggedActualSeconds.isNotEmpty()) {
+                val tagParts = byTag.taggedActualSeconds.entries
+                    .sortedByDescending { it.value }
+                    .take(4)
+                    .mapNotNull { (tid, sec) ->
+                        val tName = activeTags.firstOrNull { it.id == tid }?.name ?: return@mapNotNull null
+                        "$tName ${fmt(sec)}"
+                    }
+                val parts = tagParts.toMutableList()
+                if (byTag.untaggedActualSeconds > 0L) {
+                    parts += "chưa gắn tag ${fmt(byTag.untaggedActualSeconds)}"
+                }
+                if (parts.isNotEmpty()) {
+                    lines.add("Trong ${cat.displayName} (${fmt(totalActual)} thực tế): ${parts.joinToString(" · ")}")
+                }
+            }
+        }
+
         val head = if (timed == 0L && untimed == 0L && planned == 0L) {
             "${cap(intent.period.label)}: chưa có bản ghi ${cat.displayName}."
         } else {
             "${cap(intent.period.label)} — ${cat.displayName}: ${fmt(timed)} có mốc giờ."
         }
         return QueryAnswer(head, lines, f, notes = notes)
+    }
+
+    private data class PeriodTagBreakdown(
+        val taggedActualSeconds: Map<String, Long>,
+        val taggedTimedSeconds: Map<String, Long>,
+        val taggedUntimedSeconds: Map<String, Long>,
+        val taggedPlannedSeconds: Map<String, Long>,
+        val untaggedActualSeconds: Long
+    )
+
+    private fun resolveTargetTag(intent: QueryIntent, tags: List<Tag>): Tag? {
+        val active = tags.filter { !it.isArchived }
+        intent.tagId?.let { id -> active.firstOrNull { it.id == id }?.let { return it } }
+        intent.tagName?.let { name ->
+            val key = TagRules.nameKey(name)
+            if (key.isNotEmpty()) {
+                active.firstOrNull { it.nameKey == key }?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private fun computeTagTotalsInPeriod(
+        period: QueryPeriod,
+        records: List<LedgerRecord>,
+        tags: List<Tag>,
+        categoryFilter: TimeCategory?,
+        nowEpochMs: Long,
+        activeTimer: ActiveTimerSession?,
+        zoneId: ZoneId
+    ): PeriodTagBreakdown {
+        val taggedTimed = mutableMapOf<String, Long>()
+        val taggedUntimed = mutableMapOf<String, Long>()
+        val taggedPlanned = mutableMapOf<String, Long>()
+        var untaggedTimed = 0L
+        var untaggedUntimed = 0L
+
+        val today = Instant.ofEpochMilli(nowEpochMs).atZone(zoneId).toLocalDate()
+        var day = period.start
+        while (!day.isAfter(period.end)) {
+            val dayStr = day.toString()
+            val isFuture = day.isAfter(today)
+            val dayStartMs = day.atStartOfDay(zoneId).toInstant().toEpochMilli()
+            val dayEndMs = day.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli()
+            val pastCutoffMs = if (isFuture) dayStartMs else min(nowEpochMs, dayEndMs)
+
+            // Theo tagId: khử trùng lặp khoảng thời gian trên từng tag nếu có hai phiên giao nhau cùng tag.
+            val timedIntervalsByTag = mutableMapOf<String?, MutableList<Pair<Long, Long>>>()
+
+            for (r in records) {
+                if (r.isCancelled || r.isNeedsReconciliation) continue
+                if (categoryFilter != null && r.category != categoryFilter) continue
+                val tid = r.tagId?.takeIf { id -> tags.any { it.id == id } }
+                if (r.startedAt != null && r.endedAt != null) {
+                    val s = r.startedAt
+                    val e = r.endedAt
+                    if (e <= dayStartMs - 1000L || s >= dayEndMs + 1000L) continue
+                    val isPlan = r.layer == TimeLayer.PLANNED || r.status.equals("PLANNED", ignoreCase = true) || s >= pastCutoffMs
+                    if (isPlan) {
+                        val clippedStart = max(s, dayStartMs)
+                        val clippedEnd = min(e, dayEndMs)
+                        if (clippedEnd > clippedStart && tid != null) {
+                            taggedPlanned[tid] = (taggedPlanned[tid] ?: 0L) + ((clippedEnd - clippedStart) / 1000L)
+                        }
+                    } else {
+                        val cutoffMs = min(nowEpochMs, r.confirmedCutoffEpochMsAt(nowEpochMs))
+                        val confEnd = min(cutoffMs, e)
+                        val cs = max(s, dayStartMs)
+                        val ce = min(min(confEnd, dayEndMs), nowEpochMs)
+                        if (ce > cs) {
+                            timedIntervalsByTag.getOrPut(tid) { mutableListOf() }.add(cs to ce)
+                        }
+                    }
+                } else if (!isFuture && r.date == dayStr) {
+                    val isPlan = r.layer == TimeLayer.PLANNED || r.status.equals("PLANNED", ignoreCase = true)
+                    if (isPlan) {
+                        if (tid != null) taggedPlanned[tid] = (taggedPlanned[tid] ?: 0L) + r.durationSeconds
+                    } else {
+                        if (tid != null) taggedUntimed[tid] = (taggedUntimed[tid] ?: 0L) + r.durationSeconds
+                        else untaggedUntimed += r.durationSeconds
+                    }
+                }
+            }
+
+            if (activeTimer != null && activeTimer.startedAtEpochMs < nowEpochMs && pastCutoffMs > dayStartMs) {
+                val tCat = TimeCategory.fromKeyOrDefault(activeTimer.categoryKey)
+                if (categoryFilter == null || tCat == categoryFilter) {
+                    val tid = activeTimer.tagId?.takeIf { id -> tags.any { it.id == id } }
+                    val cs = max(activeTimer.startedAtEpochMs, dayStartMs)
+                    val ce = min(nowEpochMs, dayEndMs)
+                    if (ce > cs) {
+                        timedIntervalsByTag.getOrPut(tid) { mutableListOf() }.add(cs to ce)
+                    }
+                }
+            }
+
+            for ((tid, spans) in timedIntervalsByTag) {
+                val secs = unionIntervalSeconds(spans)
+                if (secs <= 0L) continue
+                if (tid != null) {
+                    taggedTimed[tid] = (taggedTimed[tid] ?: 0L) + secs
+                } else {
+                    untaggedTimed += secs
+                }
+            }
+            day = day.plusDays(1)
+        }
+
+        val taggedActual = mutableMapOf<String, Long>()
+        for (tid in taggedTimed.keys + taggedUntimed.keys) {
+            taggedActual[tid] = (taggedTimed[tid] ?: 0L) + (taggedUntimed[tid] ?: 0L)
+        }
+        return PeriodTagBreakdown(
+            taggedActualSeconds = taggedActual,
+            taggedTimedSeconds = taggedTimed,
+            taggedUntimedSeconds = taggedUntimed,
+            taggedPlannedSeconds = taggedPlanned,
+            untaggedActualSeconds = untaggedTimed + untaggedUntimed
+        )
+    }
+
+    private fun unionIntervalSeconds(spans: List<Pair<Long, Long>>): Long {
+        if (spans.isEmpty()) return 0L
+        val sorted = spans.sortedBy { it.first }
+        var totalMs = 0L
+        var curS = sorted[0].first
+        var curE = sorted[0].second
+        for (i in 1 until sorted.size) {
+            val (ns, ne) = sorted[i]
+            if (ns <= curE) {
+                if (ne > curE) curE = ne
+            } else {
+                totalMs += (curE - curS).coerceAtLeast(0L)
+                curS = ns
+                curE = ne
+            }
+        }
+        totalMs += (curE - curS).coerceAtLeast(0L)
+        return totalMs / 1000L
+    }
+
+    private fun tagAnswer(
+        intent: QueryIntent,
+        primary: PeriodFigures,
+        compare: PeriodFigures?,
+        records: List<LedgerRecord>,
+        resolvedTag: Tag?,
+        tags: List<Tag>,
+        zoneId: ZoneId,
+        nowEpochMs: Long,
+        activeTimer: ActiveTimerSession?,
+        notes: List<String>
+    ): QueryAnswer {
+        if (resolvedTag == null) {
+            val label = intent.tagName.orEmpty().trim()
+            return QueryAnswer(
+                headline = "Chưa tìm thấy Tag \"$label\" đang hoạt động.",
+                lines = listOf("Bạn có thể tạo Tag trong Cài đặt › Quản lý Tag hoặc hỏi tổng thời gian theo danh mục."),
+                figures = primary,
+                compareFigures = compare,
+                notes = notes
+            )
+        }
+        val activeTags = tags.filter { !it.isArchived }
+        val cat = resolvedTag.category
+        val periodStats = computeTagTotalsInPeriod(
+            period = intent.period,
+            records = records,
+            tags = activeTags,
+            categoryFilter = null,
+            nowEpochMs = nowEpochMs,
+            activeTimer = activeTimer,
+            zoneId = zoneId
+        )
+        val catPeriodStats = computeTagTotalsInPeriod(
+            period = intent.period,
+            records = records,
+            tags = activeTags,
+            categoryFilter = cat,
+            nowEpochMs = nowEpochMs,
+            activeTimer = activeTimer,
+            zoneId = zoneId
+        )
+
+        val tagTimed = periodStats.taggedTimedSeconds[resolvedTag.id] ?: 0L
+        val tagUntimed = periodStats.taggedUntimedSeconds[resolvedTag.id] ?: 0L
+        val tagActual = tagTimed + tagUntimed
+        val tagPlanned = periodStats.taggedPlannedSeconds[resolvedTag.id] ?: 0L
+
+        val catTimed = primary.timedByCategory[cat] ?: 0L
+        val catUntimed = primary.untimedByCategory[cat] ?: 0L
+        val catActual = catTimed + catUntimed
+        val untaggedInCat = catPeriodStats.untaggedActualSeconds
+        val otherTaggedInCat = (catActual - (catPeriodStats.taggedActualSeconds[resolvedTag.id] ?: 0L) - untaggedInCat).coerceAtLeast(0L)
+
+        val lines = mutableListOf<String>()
+        if (tagTimed > 0L) lines += "${resolvedTag.name} (có mốc giờ): ${fmt(tagTimed)}"
+        if (tagUntimed > 0L) lines += "${resolvedTag.name} (chưa gắn giờ): ${fmt(tagUntimed)}"
+        if (tagPlanned > 0L) lines += "${resolvedTag.name} dự kiến: ${fmt(tagPlanned)} (chưa tính vào thực tế)"
+
+        if (catActual > 0L) {
+            val parts = buildList {
+                add("${fmt(tagActual)} mang tag ${resolvedTag.name}")
+                if (untaggedInCat > 0L) add("${fmt(untaggedInCat)} chưa phân loại / chưa gắn tag")
+                if (otherTaggedInCat > 0L) add("${fmt(otherTaggedInCat)} mang tag khác")
+            }
+            lines += "Tổng ${cat.displayName}: ${fmt(catActual)} (${parts.joinToString(", ")})"
+        }
+
+        if (compare != null) {
+            val prevStats = computeTagTotalsInPeriod(
+                period = compare.period,
+                records = records,
+                tags = activeTags,
+                categoryFilter = null,
+                nowEpochMs = nowEpochMs,
+                activeTimer = activeTimer,
+                zoneId = zoneId
+            )
+            val prevActual = prevStats.taggedActualSeconds[resolvedTag.id] ?: 0L
+            lines += "${cap(compare.period.label)}: ${fmt(prevActual)}"
+            lines += deltaLine(tagActual, prevActual)
+        }
+
+        val head = if (tagActual > 0L) {
+            "${cap(intent.period.label)} — Tag ${resolvedTag.name}: ${fmt(tagActual)} thực tế."
+        } else {
+            "${cap(intent.period.label)}: chưa ghi nhận thực tế mang tag ${resolvedTag.name}."
+        }
+        val cleanNotes = notes.filterNot { it.startsWith("Đã ghi nhận ") }
+        return QueryAnswer(
+            headline = head,
+            lines = lines.ifEmpty { listOf("Chưa có phiên thực tế hay dự kiến nào cho Tag ${resolvedTag.name}.") },
+            figures = primary,
+            compareFigures = compare,
+            notes = cleanNotes
+        )
+    }
+
+    private fun typicalWindowAnswer(
+        intent: QueryIntent,
+        primary: PeriodFigures,
+        records: List<LedgerRecord>,
+        resolvedTag: Tag?,
+        zoneId: ZoneId,
+        nowEpochMs: Long,
+        notes: List<String>
+    ): QueryAnswer {
+        val filterCat = intent.category ?: resolvedTag?.category
+        val subjectLabel = when {
+            resolvedTag != null -> "Tag ${resolvedTag.name}"
+            filterCat != null -> filterCat.displayName
+            else -> "các hoạt động"
+        }
+        val startMs = intent.period.start.atStartOfDay(zoneId).toInstant().toEpochMilli()
+        val endMs = min(nowEpochMs, intent.period.end.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli())
+
+        val hourSeconds = LongArray(24)
+        var sessionCount = 0
+        var totalTimedSeconds = 0L
+
+        for (r in records) {
+            if (r.isCancelled || r.isNeedsReconciliation) continue
+            if (r.layer != TimeLayer.MEASURED && r.layer != TimeLayer.REPORTED_TIMED) continue
+            if (resolvedTag != null) {
+                if (r.tagId != resolvedTag.id) continue
+            } else if (filterCat != null) {
+                if (r.category != filterCat) continue
+            }
+            val rs = r.startedAt ?: continue
+            val re = r.endedAt ?: continue
+            val cs = max(rs, startMs)
+            val ce = min(re, endMs)
+            if (ce <= cs) continue
+            sessionCount++
+            totalTimedSeconds += (ce - cs) / 1000L
+
+            var cursor = cs
+            while (cursor < ce) {
+                val z = Instant.ofEpochMilli(cursor).atZone(zoneId)
+                val nextHourMs = z.withMinute(0).withSecond(0).withNano(0).plusHours(1).toInstant().toEpochMilli()
+                val sliceEnd = min(ce, nextHourMs)
+                val sec = ((sliceEnd - cursor) / 1000L).coerceAtLeast(0L)
+                hourSeconds[z.hour] += sec
+                cursor = sliceEnd
+            }
+        }
+
+        if (sessionCount == 0 || totalTimedSeconds <= 0L) {
+            return QueryAnswer(
+                headline = "${cap(intent.period.label)}: chưa đủ phiên có mốc giờ cho $subjectLabel.",
+                lines = listOf("Hãy ghi nhận hoặc bấm giờ vài phiên để Wally nhận diện khung giờ thường gặp."),
+                figures = primary,
+                notes = notes
+            )
+        }
+
+        var bestHour = 0
+        var bestTwoHourSec = -1L
+        for (h in 0..22) {
+            val pairSec = hourSeconds[h] + hourSeconds[h + 1]
+            if (pairSec > bestTwoHourSec) {
+                bestTwoHourSec = pairSec
+                bestHour = h
+            }
+        }
+        val windowLabel = "${"%02d:00".format(bestHour)}–${"%02d:00".format(bestHour + 2)}"
+        val bandTotals = listOf(
+            "Buổi sáng (06:00–12:00)" to (6 until 12).sumOf { hourSeconds[it] },
+            "Buổi chiều (12:00–18:00)" to (12 until 18).sumOf { hourSeconds[it] },
+            "Buổi tối (18:00–22:00)" to (18 until 22).sumOf { hourSeconds[it] },
+            "Đêm/sớm (22:00–06:00)" to ((22..23).sumOf { hourSeconds[it] } + (0 until 6).sumOf { hourSeconds[it] })
+        ).filter { it.second > 0L }.sortedByDescending { it.second }
+
+        val lines = mutableListOf(
+            "Tổng $subjectLabel có mốc giờ: ${fmt(totalTimedSeconds)} ($sessionCount phiên trong ${intent.period.label})."
+        )
+        bandTotals.take(3).forEach { (band, secs) ->
+            lines += "$band: ${fmt(secs)}"
+        }
+        return QueryAnswer(
+            headline = "Khung giờ thường $subjectLabel: $windowLabel.",
+            lines = lines,
+            figures = primary,
+            notes = notes
+        )
     }
 
     private fun untimedAnswer(intent: QueryIntent, f: PeriodFigures, notes: List<String>): QueryAnswer {
@@ -340,7 +851,9 @@ data class ChatAnswer(
     /** Nhãn tiêu đề thẻ; null = dùng nhãn mặc định theo loại. */
     val label: String? = null,
     /** v1.0.8: thẻ nêu trạng thái giao dịch tại một thời điểm (số đề xuất đang chờ...); bị xóa khi danh sách đề xuất đổi. */
-    val isTransactionStatus: Boolean = false
+    val isTransactionStatus: Boolean = false,
+    /** v2.2.3: token hoàn tác khi vừa duyệt gắn/đổi/bỏ Tag cho một phiên cũ ngay trong Chat. */
+    val undoToken: TagAssignmentUndoToken? = null
 ) {
     companion object {
         fun fromQuery(question: String, answer: QueryAnswer) =

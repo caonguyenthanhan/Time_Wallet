@@ -2,6 +2,7 @@ package com.timewallet.mvp.ui
 
 import com.timewallet.mvp.data.local.SubtaskEntity
 import com.timewallet.mvp.data.local.TaskEntity
+import com.timewallet.mvp.domain.model.ActiveTimerSession
 import com.timewallet.mvp.domain.model.AiReadPermissions
 import com.timewallet.mvp.domain.model.CategoryTimeBudget
 import com.timewallet.mvp.domain.model.DailyReviewRecord
@@ -64,7 +65,8 @@ object Wally20Coordinator {
         tagNameOf: (String) -> String?,
         today: LocalDate,
         nowEpochMs: Long,
-        zone: ZoneId
+        zone: ZoneId,
+        activeTimer: ActiveTimerSession? = null
     ): List<GoalRules.Summary> {
         val goalSummaries = GoalRules.summaries(
             goals = goals,
@@ -72,7 +74,8 @@ object Wally20Coordinator {
             tagNameOf = tagNameOf,
             today = today,
             nowEpochMs = nowEpochMs,
-            zone = zone
+            zone = zone,
+            activeTimer = activeTimer
         )
         val coveredWeeklyMaxCategories = goalSummaries
             .filter { it.latest.targetType == GoalTargetType.CATEGORY && it.latest.kind == GoalKind.MAX }
@@ -97,7 +100,7 @@ object Wally20Coordinator {
                     isPriority = b.isPriority,
                     priorityOrder = b.priorityOrder
                 )
-                val prog = GoalRules.progress(syntheticGoal, records, today, nowEpochMs, zone)
+                val prog = GoalRules.progress(syntheticGoal, records, today, nowEpochMs, zone, activeTimer = activeTimer)
                 GoalRules.Summary(
                     groupId = syntheticGoal.groupId,
                     name = "${b.category.displayName} (Ngân sách tuần)",

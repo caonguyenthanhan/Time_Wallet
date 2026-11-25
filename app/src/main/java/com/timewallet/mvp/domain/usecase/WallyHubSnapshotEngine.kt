@@ -30,7 +30,8 @@ data class ActiveActivitySnapshot(
     val startedElapsedRealtimeMs: Long? = null,
     val targetDurationSeconds: Long? = null,
     val taskId: String? = null,
-    val subtitleVi: String
+    val subtitleVi: String,
+    val tagId: String? = null
 )
 
 data class UpcomingActivitySnapshot(
@@ -40,7 +41,8 @@ data class UpcomingActivitySnapshot(
     val category: TimeCategory,
     val startsInMinutes: Int,
     val isPlannedBlock: Boolean,
-    val taskId: String? = null
+    val taskId: String? = null,
+    val tagId: String? = null
 )
 
 data class TimelineItemSnapshot(
@@ -65,7 +67,8 @@ data class TodoItemSnapshot(
     val hasRiskWarning: Boolean,
     val riskLabel: String?,
     val isDone: Boolean,
-    val postponedCount: Int
+    val postponedCount: Int,
+    val tagId: String? = null
 )
 
 data class WallyHubSnapshot(
@@ -144,7 +147,8 @@ object WallyHubSnapshotEngine {
                     startedElapsedRealtimeMs = activeTimer.startedElapsedRealtimeMs,
                     targetDurationSeconds = activeTimer.targetDurationSeconds,
                     taskId = activeTimer.taskId,
-                    subtitleVi = "Đang đo thực tế · từ $startHm"
+                    subtitleVi = "Đang đo thực tế · từ $startHm",
+                    tagId = activeTimer.tagId
                 )
             }
             pausedTimer != null -> {
@@ -158,7 +162,8 @@ object WallyHubSnapshotEngine {
                     elapsedSeconds = pausedTimer.accumulatedSeconds,
                     targetDurationSeconds = pausedTimer.targetDurationSeconds,
                     taskId = pausedTimer.taskId,
-                    subtitleVi = if (pausedTimer.accumulatedSeconds >= 60L) "Đã tạm dừng · đã ghi $savedStr" else "Đang tạm dừng · chạm Tiếp tục"
+                    subtitleVi = if (pausedTimer.accumulatedSeconds >= 60L) "Đã tạm dừng · đã ghi $savedStr" else "Đang tạm dừng · chạm Tiếp tục",
+                    tagId = pausedTimer.tagId
                 )
             }
             else -> {
@@ -178,7 +183,8 @@ object WallyHubSnapshotEngine {
                         elapsedSeconds = ((nowMinute - blk.startMinute).coerceAtLeast(0)) * 60L,
                         targetDurationSeconds = ((blk.endMinute - blk.startMinute).coerceAtLeast(1)) * 60L,
                         taskId = blk.record?.taskId,
-                        subtitleVi = "Theo kế hoạch ${ScheduleGridEngine.formatHmWindow(blk.startMinute, blk.endMinute)} · còn ${remain}p"
+                        subtitleVi = "Theo kế hoạch ${ScheduleGridEngine.formatHmWindow(blk.startMinute, blk.endMinute)} · còn ${remain}p",
+                        tagId = blk.record?.tagId
                     )
                 }
             }
@@ -206,7 +212,8 @@ object WallyHubSnapshotEngine {
                     category = nextPlanBlock.category,
                     startsInMinutes = (nextPlanBlock.startMinute - nowMinute).coerceAtLeast(1),
                     isPlannedBlock = true,
-                    taskId = nextPlanBlock.record?.taskId
+                    taskId = nextPlanBlock.record?.taskId,
+                    tagId = nextPlanBlock.record?.tagId
                 )
             }
             nextDueTaskToday != null -> {
@@ -218,7 +225,8 @@ object WallyHubSnapshotEngine {
                     category = task.category,
                     startsInMinutes = (m - nowMinute).coerceAtLeast(1),
                     isPlannedBlock = false,
-                    taskId = task.id
+                    taskId = task.id,
+                    tagId = task.tagId
                 )
             }
             else -> null
@@ -325,7 +333,8 @@ object WallyHubSnapshotEngine {
                 hasRiskWarning = primaryRisk != null,
                 riskLabel = primaryRisk?.kind?.shortLabel,
                 isDone = t.isDone,
-                postponedCount = t.postponedCount
+                postponedCount = t.postponedCount,
+                tagId = t.tagId
             )
         }
 

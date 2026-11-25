@@ -18,17 +18,25 @@ import com.timewallet.mvp.domain.model.HabitLog
 import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.model.LocalCategoryRule
 import com.timewallet.mvp.domain.model.Project
+import com.timewallet.mvp.domain.model.TagAssignmentProposal
 import com.timewallet.mvp.domain.model.TaskItem
 import com.timewallet.mvp.domain.model.ThemeModePreference
 import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.usecase.ApiKeyHygiene
 import com.timewallet.mvp.domain.usecase.ChatHistoryEntry
+import com.timewallet.mvp.domain.usecase.PendingProposalContext
+import com.timewallet.mvp.domain.usecase.PersistedChatConversation
+import com.timewallet.mvp.domain.usecase.QueryContext
+import com.timewallet.mvp.domain.usecase.QueryMetric
+import com.timewallet.mvp.domain.usecase.QueryPeriod
+import com.timewallet.mvp.domain.usecase.QueryPeriodKind
 import com.timewallet.mvp.domain.usecase.UpdatePreferences
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
 import java.security.KeyStore
 import java.time.Instant
+import java.time.LocalDate
 import java.util.Base64
 import java.util.Locale
 import javax.crypto.Cipher
@@ -801,6 +809,186 @@ class TimerAndSettingsStore(
                             tagId = if (o.isNull("tagId")) null else o.optString("tagId").takeIf { it.isNotBlank() },
                             isMarkedWaste = o.optBoolean("isMarkedWaste", false),
                             taskId = if (o.isNull("taskId")) null else o.optString("taskId", "").takeIf { it.isNotBlank() }
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    fun saveChatConversationSnapshot(snapshot: PersistedChatConversation?, immediate: Boolean = false) {
+        val edit = prefs.edit()
+        if (snapshot == null) {
+            edit.remove("chat_conversation_snapshot_v1")
+        } else {
+            val root = JSONObject().apply {
+                put("isAdvisoryTopic", snapshot.isAdvisoryTopic)
+                put("topicLabel", snapshot.topicLabel ?: JSONObject.NULL)
+                put("focusCategoryKey", snapshot.focusCategoryKey ?: JSONObject.NULL)
+                put("focusTagId", snapshot.focusTagId ?: JSONObject.NULL)
+                put("targetDateLocal", snapshot.targetDateLocal ?: JSONObject.NULL)
+                put("updatedAtEpochMs", snapshot.updatedAtEpochMs)
+                put("permissionsFingerprint", snapshot.permissionsFingerprint)
+                put("clarificationQuestion", snapshot.clarificationQuestion ?: JSONObject.NULL)
+                put("clarificationSuggestions", JSONArray(snapshot.clarificationSuggestions))
+                put(
+                    "pendingProposal",
+                    snapshot.pendingProposal?.let { p ->
+                        JSONObject().apply {
+                            put("draftId", p.draftId ?: JSONObject.NULL)
+                            put("title", p.title)
+                            put("categoryKey", p.categoryKey)
+                            put("tagId", p.tagId ?: JSONObject.NULL)
+                            put("tagName", p.tagName ?: JSONObject.NULL)
+                            put("dateLocal", p.dateLocal)
+                            put("startLocal", p.startLocal ?: JSONObject.NULL)
+                            put("endLocal", p.endLocal ?: JSONObject.NULL)
+                            put("durationMinutes", p.durationMinutes ?: JSONObject.NULL)
+                            put("isFuturePlanned", p.isFuturePlanned)
+                            put("taskId", p.taskId ?: JSONObject.NULL)
+                            put("awaitingFields", JSONArray(p.awaitingFields.toList()))
+                            put("explicitTagCleared", p.explicitTagCleared)
+                        }
+                    } ?: JSONObject.NULL
+                )
+                put(
+                    "lastQuery",
+                    snapshot.lastQuery?.let { q ->
+                        JSONObject().apply {
+                            put("metric", q.metric.name)
+                            put("start", q.period.start.toString())
+                            put("end", q.period.end.toString())
+                            put("label", q.period.label)
+                            put("kind", q.period.kind.name)
+                            put("categoryKey", q.category?.key ?: JSONObject.NULL)
+                            put("tagId", q.tagId ?: JSONObject.NULL)
+                            put("tagName", q.tagName ?: JSONObject.NULL)
+                        }
+                    } ?: JSONObject.NULL
+                )
+            }
+            edit.putString("chat_conversation_snapshot_v1", root.toString())
+        }
+        if (immediate) edit.commit() else edit.apply()
+    }
+
+    fun loadChatConversationSnapshot(): PersistedChatConversation? {
+        val raw = prefs.getString("chat_conversation_snapshot_v1", null)?.takeIf { it.isNotBlank() } ?: return null
+        return runCatching {
+            val o = JSONObject(raw)
+            fun strOrNull(obj: JSONObject, key: String): String? =
+                if (obj.isNull(key)) null else obj.optString(key, "").takeIf { it.isNotBlank() }
+
+            val pendingObj = if (o.isNull("pendingProposal")) null else o.optJSONObject("pendingProposal")
+            val pending = pendingObj?.let { p ->
+                val awArr = p.optJSONArray("awaitingFields") ?: JSONArray()
+                val awaiting = (0 until awArr.length()).mapNotNull { i -> awArr.optString(i).takeIf { it.isNotBlank() } }.toSet()
+                PendingProposalContext(
+                    draftId = strOrNull(p, "draftId"),
+                    title = p.optString("title", "").ifBlank { return@let null },
+                    categoryKey = p.optString("categoryKey", "other"),
+                    tagId = strOrNull(p, "tagId"),
+                    tagName = strOrNull(p, "tagName"),
+                    dateLocal = p.optString("dateLocal", ""),
+                    startLocal = strOrNull(p, "startLocal"),
+                    endLocal = strOrNull(p, "endLocal"),
+                    durationMinutes = if (p.isNull("durationMinutes")) null else p.optInt("durationMinutes").takeIf { it > 0 },
+                    isFuturePlanned = p.optBoolean("isFuturePlanned", true),
+                    taskId = strOrNull(p, "taskId"),
+                    awaitingFields = awaiting,
+                    explicitTagCleared = p.optBoolean("explicitTagCleared", false)
+                )
+            }
+            val lqObj = if (o.isNull("lastQuery")) null else o.optJSONObject("lastQuery")
+            val lastQuery = lqObj?.let { q ->
+                val metric = runCatching { QueryMetric.valueOf(q.optString("metric", "")) }.getOrNull() ?: return@let null
+                val start = runCatching { LocalDate.parse(q.optString("start", "")) }.getOrNull() ?: return@let null
+                val end = runCatching { LocalDate.parse(q.optString("end", "")) }.getOrNull() ?: return@let null
+                val kind = runCatching { QueryPeriodKind.valueOf(q.optString("kind", "")) }.getOrDefault(QueryPeriodKind.DAY)
+                QueryContext(
+                    metric = metric,
+                    period = QueryPeriod(start, end, q.optString("label", ""), kind),
+                    category = strOrNull(q, "categoryKey")?.let { TimeCategory.fromKeyOrNull(it) },
+                    tagId = strOrNull(q, "tagId"),
+                    tagName = strOrNull(q, "tagName")
+                )
+            }
+            val sugArr = o.optJSONArray("clarificationSuggestions") ?: JSONArray()
+            val sugs = (0 until sugArr.length()).mapNotNull { i -> sugArr.optString(i).takeIf { it.isNotBlank() } }
+            PersistedChatConversation(
+                pendingProposal = pending,
+                lastQuery = lastQuery,
+                focusTagId = strOrNull(o, "focusTagId"),
+                topicLabel = strOrNull(o, "topicLabel"),
+                focusCategoryKey = strOrNull(o, "focusCategoryKey"),
+                targetDateLocal = strOrNull(o, "targetDateLocal"),
+                isAdvisoryTopic = o.optBoolean("isAdvisoryTopic", false),
+                updatedAtEpochMs = o.optLong("updatedAtEpochMs", 0L),
+                permissionsFingerprint = o.optString("permissionsFingerprint", ""),
+                clarificationQuestion = strOrNull(o, "clarificationQuestion"),
+                clarificationSuggestions = sugs
+            )
+        }.getOrNull()
+    }
+
+    fun savePendingTagAssignments(list: List<TagAssignmentProposal>, immediate: Boolean = false) {
+        val edit = prefs.edit()
+        if (list.isEmpty()) {
+            edit.remove("chat_pending_tag_assignments_v1")
+        } else {
+            val arr = JSONArray()
+            list.take(6).forEach { a ->
+                arr.put(
+                    JSONObject().apply {
+                        put("id", a.id)
+                        put("recordId", a.recordId)
+                        put("recordTitle", a.recordTitle)
+                        put("recordDateLocal", a.recordDateLocal)
+                        put("recordTimeLabel", a.recordTimeLabel)
+                        put("recordDurationSeconds", a.recordDurationSeconds)
+                        put("previousTagId", a.previousTagId ?: JSONObject.NULL)
+                        put("previousTagName", a.previousTagName ?: JSONObject.NULL)
+                        put("previousCategoryKey", a.previousCategoryKey)
+                        put("newTagId", a.newTagId ?: JSONObject.NULL)
+                        put("newTagName", a.newTagName ?: JSONObject.NULL)
+                        put("newCategoryKey", a.newCategoryKey)
+                        put("affectedPeriodStart", a.affectedPeriodStart)
+                        put("affectedPeriodEnd", a.affectedPeriodEnd)
+                        put("affectedPeriodLabel", a.affectedPeriodLabel)
+                    }
+                )
+            }
+            edit.putString("chat_pending_tag_assignments_v1", arr.toString())
+        }
+        if (immediate) edit.commit() else edit.apply()
+    }
+
+    fun loadPendingTagAssignments(): List<TagAssignmentProposal> {
+        val raw = prefs.getString("chat_pending_tag_assignments_v1", null)?.takeIf { it.isNotBlank() } ?: return emptyList()
+        return runCatching {
+            val arr = JSONArray(raw)
+            buildList {
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val id = o.optString("id", "").takeIf { it.isNotBlank() } ?: continue
+                    val recId = o.optString("recordId", "").takeIf { it.isNotBlank() } ?: continue
+                    add(
+                        TagAssignmentProposal(
+                            id = id,
+                            recordId = recId,
+                            recordTitle = o.optString("recordTitle", ""),
+                            recordDateLocal = o.optString("recordDateLocal", ""),
+                            recordTimeLabel = o.optString("recordTimeLabel", ""),
+                            recordDurationSeconds = o.optLong("recordDurationSeconds", 0L),
+                            previousTagId = if (o.isNull("previousTagId")) null else o.optString("previousTagId").takeIf { it.isNotBlank() },
+                            previousTagName = if (o.isNull("previousTagName")) null else o.optString("previousTagName").takeIf { it.isNotBlank() },
+                            previousCategoryKey = o.optString("previousCategoryKey", "other"),
+                            newTagId = if (o.isNull("newTagId")) null else o.optString("newTagId").takeIf { it.isNotBlank() },
+                            newTagName = if (o.isNull("newTagName")) null else o.optString("newTagName").takeIf { it.isNotBlank() },
+                            newCategoryKey = o.optString("newCategoryKey", "other"),
+                            affectedPeriodStart = o.optString("affectedPeriodStart", ""),
+                            affectedPeriodEnd = o.optString("affectedPeriodEnd", ""),
+                            affectedPeriodLabel = o.optString("affectedPeriodLabel", "tuần này")
                         )
                     )
                 }

@@ -125,6 +125,101 @@ object TagRules {
         return active.filter { it.nameKey.length >= 2 && padded.contains(" ${it.nameKey} ") }.maxByOrNull { it.nameKey.length }
     }
 
+    /**
+     * Khớp Tag được người dùng gọi tên tường minh trong câu nhập tự nhiên (kể cả Tag ít dùng).
+     * Chỉ khớp cụm từ nguyên vẹn; không tự suy đoán từ khái niệm rộng hơn (ví dụ "tiếng Anh" không tự khớp "IELTS").
+     */
+    fun findExplicitMatchesInText(text: String, tags: List<Tag>): List<Tag> {
+        val key = nameKey(text)
+        if (key.isEmpty()) return emptyList()
+        val active = tags.filter { !it.isArchived && it.nameKey.isNotEmpty() }
+        val padded = " $key "
+        return active.filter { tag ->
+            tag.nameKey == key || (tag.nameKey.length >= 2 && padded.contains(" ${tag.nameKey} "))
+        }.sortedWith(compareByDescending<Tag> { it.nameKey.length }.thenBy { it.nameKey })
+    }
+
+    /**
+     * Tìm Tag cho một đề xuất từ AI/nhập liệu theo thứ tự tin cậy:
+     * (1) Tag của To-do/bản nháp đang nối tiếp nếu chưa bị đổi/gỡ,
+     * (2) Tag khớp tiêu đề đề xuất,
+     * (3) Tag gọi tên tường minh trong đúng mệnh đề tương ứng của `rawInput`,
+     * (4) Tag do AI gợi ý nhưng BẮT BUỘC phải có căn cứ tên Tag trong `title`/`rawInput` hoặc bản nháp/công việc gốc.
+     */
+    fun resolveProposalTag(
+        title: String,
+        rawInput: String,
+        tags: List<Tag>,
+        proposedTagId: String? = null,
+        proposedTagName: String? = null,
+        linkedTaskTagId: String? = null,
+        inheritedDraftTagId: String? = null,
+        isSingleProposal: Boolean = true,
+        explicitClearRequested: Boolean = false
+    ): Tag? {
+        if (explicitClearRequested) return null
+        val active = tags.filter { !it.isArchived && it.nameKey.isNotEmpty() }
+        if (active.isEmpty()) return null
+        val activeById = active.associateBy { it.id }
+
+        matchTitle(title, active)?.let { return it }
+
+        val relevantClause = if (isSingleProposal) {
+            rawInput
+        } else {
+            bestMatchingClause(title = title, rawInput = rawInput) ?: ""
+        }
+        if (relevantClause.isNotBlank()) {
+            matchTitle(relevantClause, active)?.let { return it }
+        }
+
+        if (isSingleProposal) {
+            val allInRaw = findExplicitMatchesInText(rawInput, active)
+            if (allInRaw.size == 1) return allInRaw.first()
+        }
+
+        val groundedPoolKeys = buildSet {
+            add(nameKey(title))
+            if (relevantClause.isNotBlank()) add(nameKey(relevantClause))
+            if (isSingleProposal) add(nameKey(rawInput))
+        }
+        fun isGroundedInText(tag: Tag): Boolean = groundedPoolKeys.any { k ->
+            k == tag.nameKey || (tag.nameKey.length >= 2 && " $k ".contains(" ${tag.nameKey} "))
+        }
+
+        proposedTagId?.let { activeById[it] }?.let { candidate ->
+            if (candidate.id == linkedTaskTagId || candidate.id == inheritedDraftTagId || isGroundedInText(candidate)) {
+                return candidate
+            }
+        }
+        proposedTagName?.trim()?.takeIf { it.isNotEmpty() }?.let { name ->
+            val key = nameKey(name)
+            active.firstOrNull { it.nameKey == key }?.let { candidate ->
+                if (candidate.id == linkedTaskTagId || candidate.id == inheritedDraftTagId || isGroundedInText(candidate)) {
+                    return candidate
+                }
+            }
+        }
+
+        linkedTaskTagId?.let { activeById[it] }?.let { return it }
+        inheritedDraftTagId?.let { activeById[it] }?.let { return it }
+        return null
+    }
+
+    private fun bestMatchingClause(title: String, rawInput: String): String? {
+        val clauses = rawInput.split(',', ';', '\n').map { it.trim() }.filter { it.isNotEmpty() }
+        if (clauses.size <= 1) return clauses.firstOrNull()
+        val titleTokens = nameKey(title).split(' ').filter { it.length >= 2 }.toSet()
+        if (titleTokens.isEmpty()) return null
+        return clauses.maxByOrNull { clause ->
+            val cTokens = nameKey(clause).split(' ').filter { it.length >= 2 }.toSet()
+            titleTokens.count { it in cTokens }
+        }?.takeIf { clause ->
+            val cTokens = nameKey(clause).split(' ').filter { it.length >= 2 }.toSet()
+            titleTokens.any { it in cTokens }
+        }
+    }
+
     /** Số bản ghi gắn Tag — để hiển thị "đang dùng N lần" khi lưu trữ/đổi tên (không dùng để xóa dữ liệu). */
     fun usageCount(tagId: String, records: List<LedgerRecord>): Int = records.count { it.tagId == tagId }
 }

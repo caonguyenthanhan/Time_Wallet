@@ -43,6 +43,25 @@ data class FeasibleSlot(
 )
 
 /**
+ * Bản nháp đề xuất đang chờ làm rõ / chỉnh sửa nối tiếp qua hội thoại (chỉ nằm trong RAM).
+ */
+data class PendingProposalContext(
+    val draftId: String? = null,
+    val title: String,
+    val categoryKey: String,
+    val tagId: String? = null,
+    val tagName: String? = null,
+    val dateLocal: String,
+    val startLocal: String? = null,
+    val endLocal: String? = null,
+    val durationMinutes: Int? = null,
+    val isFuturePlanned: Boolean = true,
+    val taskId: String? = null,
+    val awaitingFields: Set<String> = emptySet(),
+    val explicitTagCleared: Boolean = false
+)
+
+/**
  * Trạng thái hội thoại giới hạn có TTL và gắn chặt với dấu vân tay quyền [AiReadPermissions].
  * Chỉ giữ tóm tắt cấu trúc tối thiểu trong RAM (không lưu toàn bộ lịch sử hay sổ cái).
  */
@@ -58,13 +77,16 @@ data class ConversationState(
     val candidateSlots: List<FeasibleSlot> = emptyList(),
     val updatedAtEpochMs: Long = 0L,
     val ttlMs: Long = DEFAULT_TTL_MS,
-    val permissionsFingerprint: String = ""
+    val permissionsFingerprint: String = "",
+    val focusTag: Tag? = null,
+    val pendingProposal: PendingProposalContext? = null
 ) {
     val hasAdvisoryTopic: Boolean
-        get() = isAdvisoryTopic && (!topicLabel.isNullOrBlank() ||
+        get() = pendingProposal != null || (isAdvisoryTopic && (!topicLabel.isNullOrBlank() ||
             focusCategory != null ||
+            focusTag != null ||
             !lastRecommendationHeadline.isNullOrBlank() ||
-            candidateSlots.isNotEmpty())
+            candidateSlots.isNotEmpty()))
 
     fun isValidFor(nowEpochMs: Long, perms: AiReadPermissions): Boolean {
         if (updatedAtEpochMs <= 0L) return false
@@ -77,6 +99,21 @@ data class ConversationState(
         val EMPTY = ConversationState()
     }
 }
+
+/** Bản sao tuần tự hóa của trạng thái hội thoại dùng chung giữa Chat nổi và Chat trong app. */
+data class PersistedChatConversation(
+    val pendingProposal: PendingProposalContext? = null,
+    val lastQuery: QueryContext? = null,
+    val focusTagId: String? = null,
+    val topicLabel: String? = null,
+    val focusCategoryKey: String? = null,
+    val targetDateLocal: String? = null,
+    val isAdvisoryTopic: Boolean = false,
+    val updatedAtEpochMs: Long = 0L,
+    val permissionsFingerprint: String = "",
+    val clarificationQuestion: String? = null,
+    val clarificationSuggestions: List<String> = emptyList()
+)
 
 fun AiReadPermissions.fingerprint(): String =
     "L${if (readLedger) 1 else 0}T${if (readTasks) 1 else 0}H${if (readHabits) 1 else 0}G${if (readGoals) 1 else 0}"
@@ -174,7 +211,8 @@ object WallyContextEngine {
                 today = today,
                 focusCategory = route.focusCategory,
                 nowEpochMs = nowEpochMs,
-                zone = zone
+                zone = zone,
+                activeTimer = activeTimer
             )
         } else emptyList()
 
@@ -216,10 +254,38 @@ object WallyContextEngine {
         incompleteHabits.forEach { h -> backedMinutes += h.minSessionMinutes }
 
         val validContinuity = conversationState?.takeIf { it.isValidFor(nowEpochMs, perms) }
+        val pendingDraft = validContinuity?.pendingProposal
+        pendingDraft?.durationMinutes?.let { backedMinutes += it }
+        pendingDraft?.startLocal?.let { hm ->
+            TimeRange.parseMinuteOfDay(hm)?.let { backedMinutes += it }
+        }
+
+        val anchorClockMinutes = if (route.includeScheduleGaps && slots.isNotEmpty()) {
+            listOf(9 * 60, 14 * 60, 19 * 60, 20 * 60, 21 * 60).filter { m ->
+                slots.any { sl -> sl.startMinute <= m && sl.endMinute >= m + 30 }
+            }.also { anchors -> anchors.forEach { backedMinutes += it } }
+        } else emptyList()
 
         val sb = StringBuilder()
         sb.append("[NGỮ CẢNH THÔNG MINH WALLY]\n")
         sb.append("- Ngày xét: ${targetDate} (${targetDate.format(dmFmt)}) · Khung: ${route.dayWindow.labelVi}\n")
+
+        val activeFocusTag = route.focusTag ?: validContinuity?.focusTag
+        if (activeFocusTag != null) {
+            sb.append("- Tag người dùng nêu: ${activeFocusTag.name} (nhóm=${activeFocusTag.category.displayName})\n")
+        }
+
+        if (pendingDraft != null) {
+            sb.append("- Đề xuất đang mở cần làm rõ/cập nhật: tiêu đề=\"${pendingDraft.title}\", ngày=${pendingDraft.dateLocal}")
+            sb.append(", nhóm=${pendingDraft.categoryKey}")
+            if (!pendingDraft.tagName.isNullOrBlank()) sb.append(", tag=\"${pendingDraft.tagName}\"")
+            pendingDraft.startLocal?.let { sb.append(", giờ bắt đầu=$it") }
+            pendingDraft.durationMinutes?.let { sb.append(", thời lượng=${it}p") }
+            if (pendingDraft.awaitingFields.isNotEmpty()) {
+                sb.append(", còn thiếu=${pendingDraft.awaitingFields.joinToString("/")}")
+            }
+            sb.append('\n')
+        }
 
         if (validContinuity != null && route.includeContinuity && validContinuity.hasAdvisoryTopic) {
             val parts = buildList {
@@ -262,6 +328,10 @@ object WallyContextEngine {
             slots.take(4).forEach { sl ->
                 sb.append("  * ${sl.startHm}-${sl.endHm} (${sl.durationMinutes}p)\n")
             }
+            if (anchorClockMinutes.isNotEmpty()) {
+                val anchorLabels = anchorClockMinutes.take(3).joinToString(", ") { TimeRange.formatHm(it) }
+                sb.append("- Mốc giờ gợi ý trong khoảng trống: $anchorLabels\n")
+            }
         } else if (route.includeScheduleGaps) {
             sb.append("- Khung giờ trống ngày ${targetDate.format(dmFmt)}: không còn slot trống >= 15p trong khung này.\n")
         }
@@ -282,6 +352,28 @@ object WallyContextEngine {
                 .append('\n')
         }
 
+        if (route.includeTagAssignmentCandidates && perms.readLedger) {
+            val candidates = WallyTagAssignmentEngine.findCandidateRecordsForContext(
+                userText = "",
+                records = safeRecords,
+                today = today,
+                zone = zone,
+                limit = 6
+            )
+            if (candidates.isNotEmpty()) {
+                sb.append("- Các phiên đã lưu gần đây (chỉ để đối chiếu gắn Tag khi người dùng yêu cầu):\n")
+                candidates.forEach { rec ->
+                    val hm = rec.startedAt?.let {
+                        java.time.Instant.ofEpochMilli(it).atZone(zone).toLocalTime()
+                            .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+                    } ?: "chưa gắn giờ"
+                    val tagLabel = rec.tagId?.let { id -> tagById[id]?.name } ?: "chưa gắn"
+                    val durMin = ((rec.durationSeconds + 30L) / 60L).coerceAtLeast(1L)
+                    sb.append("  * \"${rec.title.take(40)}\" | ${rec.date} | $hm | ${durMin}p | tag=$tagLabel\n")
+                }
+            }
+        }
+
         val cappedText = capContextBlock(sb.toString().trimEnd())
         return AdaptivePromptContext(
             formattedBlock = cappedText,
@@ -300,7 +392,8 @@ object WallyContextEngine {
         today: LocalDate,
         focusCategory: TimeCategory?,
         nowEpochMs: Long,
-        zone: ZoneId
+        zone: ZoneId,
+        activeTimer: ActiveTimerSession? = null
     ): List<GoalDeficitSummary> {
         val grouped = goals.groupBy { it.groupId }
         val result = mutableListOf<GoalDeficitSummary>()
@@ -314,7 +407,7 @@ object WallyContextEngine {
                     tagById[activeGoal.targetKey]?.category?.key ?: TimeCategory.OTHER.key
                 com.timewallet.mvp.domain.model.GoalTargetType.CATEGORY -> activeGoal.targetKey
             }
-            val progress = GoalRules.progress(activeGoal, records, today, nowEpochMs, zone)
+            val progress = GoalRules.progress(activeGoal, records, today, nowEpochMs, zone, activeTimer = activeTimer)
             val (pStart, pEnd) = GoalRules.periodBounds(activeGoal.period, today)
             val confSec = GoalRules.confirmedUsedSeconds(
                 activeGoal.targetType, activeGoal.targetKey, records, pStart, pEnd, nowEpochMs, zone

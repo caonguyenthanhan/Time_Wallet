@@ -2,6 +2,7 @@ package com.timewallet.mvp.ui
 
 import com.timewallet.mvp.domain.model.ActiveTimerSession
 import com.timewallet.mvp.domain.model.CategoryTimeBudget
+import com.timewallet.mvp.domain.model.Goal
 import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.data.ai.GuardUnavailableException
 import com.timewallet.mvp.domain.usecase.AiFault
@@ -15,6 +16,8 @@ import com.timewallet.mvp.domain.usecase.ParseChatOutcome
 import com.timewallet.mvp.domain.usecase.ProposalLifecycle
 import com.timewallet.mvp.domain.usecase.QueryAnswer
 import com.timewallet.mvp.domain.usecase.QueryIntent
+import com.timewallet.mvp.domain.usecase.WallyConversationEngine
+import com.timewallet.mvp.domain.usecase.WallyTurnPolicy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,7 +33,8 @@ import kotlin.coroutines.EmptyCoroutineContext
 class QueryBasis(
     val records: List<LedgerRecord>,
     val timer: ActiveTimerSession?,
-    val budgets: List<CategoryTimeBudget>
+    val budgets: List<CategoryTimeBudget>,
+    val goals: List<Goal> = emptyList()
 )
 
 /**
@@ -109,19 +113,23 @@ class WallyChatRunner(
             val outcome = analyze()
             if (!owner.isCurrent(ticket)) return
             val tagsNow = state.value.tags
-            val newDrafts = outcome.proposals.map { EditableProposalDraft.fromProposal(it).withTagMatch(tagsNow) }
+            val clearTagExplicit = WallyConversationEngine.containsExplicitClearTagCommand(text)
+            val newDrafts = outcome.proposals.map {
+                EditableProposalDraft.fromProposal(it).withTagMatch(tagsNow, explicitClear = clearTagExplicit)
+            }
             val needsAnswers = outcome.fault == null && outcome.queries.isNotEmpty()
             var attempts = 0
             var effective = outcome
             while (true) {
                 val snap = state.value
-                val basis = QueryBasis(snap.records, snap.activeTimer, snap.budgets)
+                val basis = QueryBasis(snap.records, snap.activeTimer, snap.budgets, snap.goals)
                 val pre = if (needsAnswers && effective.queries.isNotEmpty()) {
                     WallyChatReducer.Precomputed(
                         answers = withContext(computeContext) { computeAnswers(basis, effective.queries) },
                         basedOnRecords = basis.records,
                         basedOnTimer = basis.timer,
-                        basedOnBudgets = basis.budgets
+                        basedOnBudgets = basis.budgets,
+                        basedOnGoals = basis.goals
                     )
                 } else null
                 if (!owner.isCurrent(ticket)) return
@@ -134,7 +142,14 @@ class WallyChatRunner(
                         step = Step.STALE
                         s
                     } else {
-                        val merged = ProposalLifecycle.mergeIfCurrent(s.proposals, newDrafts, ticket, epoch)
+                        val merged = ProposalLifecycle.mergeOrReplaceIfCurrent(
+                            current = s.proposals,
+                            incoming = newDrafts,
+                            replacesDraftId = cur.replacesDraftId,
+                            idOf = { it.id },
+                            capturedEpoch = ticket,
+                            epoch = epoch
+                        )
                         if (merged == null) {
                             step = Step.STALE
                             s
@@ -157,11 +172,13 @@ class WallyChatRunner(
                         if (state.value.chatInputText.isEmpty()) {
                             onChatInputConsumed()
                         }
-                        if (outcome.fault == null && (newDrafts.isNotEmpty() || producedCard)) {
+                        if (outcome.fault == null && (newDrafts.isNotEmpty() || cur.tagAssignmentProposals.isNotEmpty() || producedCard)) {
                             onChatTurnApplied(text, state.value)
                         }
                         if (outcome.fault == null && newDrafts.isNotEmpty()) {
                             toast(ChatAnalysisFeedback.toastMessage(newDrafts.size, effective.warnings))
+                        } else if (outcome.fault == null && cur.tagAssignmentProposals.isNotEmpty()) {
+                            toast("Wally đã chuẩn bị đề xuất gắn Tag — bấm Duyệt để áp dụng.")
                         } else if (outcome.fault == null && !producedCard) {
                             toast(ChatAnalysisFeedback.toastMessage(0, effective.warnings))
                         }

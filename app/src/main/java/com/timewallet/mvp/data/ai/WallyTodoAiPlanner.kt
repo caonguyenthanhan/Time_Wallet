@@ -5,6 +5,7 @@ import com.timewallet.mvp.data.local.AiPreferences
 import com.timewallet.mvp.domain.model.ActiveTimerSession
 import com.timewallet.mvp.domain.model.AiReadPermissions
 import com.timewallet.mvp.domain.model.LedgerRecord
+import com.timewallet.mvp.domain.model.Tag
 import com.timewallet.mvp.domain.model.TaskItem
 import com.timewallet.mvp.domain.model.TaskPriority
 import com.timewallet.mvp.domain.model.TaskStatus
@@ -56,7 +57,8 @@ object WallyTodoAiPlanner {
         modelName: String = AiPreferences.DEFAULT_AI_MODEL,
         trustedHost: String? = null,
         connectionFactory: HttpOpener? = null,
-        nowMs: () -> Long = { System.currentTimeMillis() }
+        nowMs: () -> Long = { System.currentTimeMillis() },
+        tags: List<Tag> = emptyList()
     ): TodoPlanOutcome {
         val nowEpoch = nowMs()
         if (!aiReadPermissions.readTasks) {
@@ -108,6 +110,7 @@ object WallyTodoAiPlanner {
 
         val todayDate = runCatching { LocalDate.parse(todayLocal) }.getOrElse { LocalDate.now(zoneId) }
         val nowMin = nowTime.hour * 60 + nowTime.minute
+        val tagNameById = tags.filter { !it.isArchived }.associate { it.id to it.name }
         val contextObj = JSONObject().apply {
             put("today", todayLocal)
             put("nowHm", hmFormatter.format(nowTime))
@@ -124,6 +127,7 @@ object WallyTodoAiPlanner {
                             .put("postponedCount", t.postponedCount)
                             .put("subtasksCount", t.subtasks.size)
                             .put("category", t.category.key)
+                            .put("tag", t.tagId?.let { tagNameById[it] })
                     )
                 }
             })
@@ -279,6 +283,7 @@ object WallyTodoAiPlanner {
                 suggestedPriority = prio,
                 suggestedSubtasks = subs,
                 categoryKey = task.category.key,
+                tagId = task.tagId,
                 needsConfirmation = true
             )
         }

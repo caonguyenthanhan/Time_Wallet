@@ -134,6 +134,7 @@ class Ai01IntegrityReproTest {
         private val rows = mutableListOf<LedgerRecordEntity>()
         override fun observeAllRecords(): Flow<List<LedgerRecordEntity>> = emptyFlow()
         override suspend fun getAllRecordsSnapshot(): List<LedgerRecordEntity> = rows.toList()
+        override suspend fun findById(id: String): LedgerRecordEntity? = rows.firstOrNull { it.id == id }
         override suspend fun countByIdempotencyKey(idempotencyKey: String): Int =
             rows.count { it.idempotencyKey == idempotencyKey }
         override suspend fun findOverlappingEntity(startMs: Long, endMs: Long, excludeId: String): LedgerRecordEntity? =

@@ -185,4 +185,31 @@ class V1011UiPolishContractTest {
         val card = chat.substring(chat.indexOf("private fun CompactProposalBatchCard("))
         assertTrue(card.indexOf("FlowRow(") in 0 until card.indexOf("Có giờ: "))
     }
+
+    @Test
+    fun `current time indicator renders above all schedule blocks across full grid width without blocking touch input`() {
+        val cal = src("ScheduleCalendarView.kt")
+        assertFalse("Không còn đẩy đường giờ hiện tại xuống dưới lớp thẻ (zIndex 0.5f)", cal.contains("zIndex(0.5f)"))
+        assertTrue("Đường giờ hiện tại phải dùng zIndex cao hơn thẻ đang chọn (12f) và dưới badge trục trái (21f)",
+            cal.contains("private const val CURRENT_TIME_INDICATOR_Z_INDEX = 15f"))
+
+        val dayFnStart = cal.indexOf("private fun DayTimelineGrid(")
+        val multiFnStart = cal.indexOf("private fun MultiDayTimelineGrid(")
+        val helperStart = cal.indexOf("private fun CurrentTimeIndicatorOverlay(")
+        assertTrue(dayFnStart >= 0 && multiFnStart > dayFnStart && helperStart > multiFnStart)
+
+        val dayBody = cal.substring(dayFnStart, multiFnStart)
+        val nextComposableAfterMulti = cal.indexOf("\n@Composable", multiFnStart + 20)
+        val multiBody = cal.substring(multiFnStart, nextComposableAfterMulti)
+        assertTrue("DayTimelineGrid phải gọi CurrentTimeIndicatorOverlay", dayBody.contains("CurrentTimeIndicatorOverlay("))
+        assertTrue("MultiDayTimelineGrid phải gọi CurrentTimeIndicatorOverlay phủ ngang lưới ngày",
+            multiBody.contains("CurrentTimeIndicatorOverlay(") && multiBody.contains("showFullGridGuide = true"))
+
+        val helperEnd = cal.indexOf("internal fun computeEmbeddedGridHeightDp(", helperStart)
+        val helperBody = cal.substring(helperStart, helperEnd)
+        assertTrue(helperBody.contains(".zIndex(CURRENT_TIME_INDICATOR_Z_INDEX)"))
+        assertTrue(helperBody.contains(".fillMaxWidth()"))
+        assertFalse("Overlay đường giờ hiện tại không được gắn clickable", helperBody.contains("clickable"))
+        assertFalse("Overlay đường giờ hiện tại không được chặn pointerInput", helperBody.contains("pointerInput"))
+    }
 }

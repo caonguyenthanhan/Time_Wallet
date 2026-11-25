@@ -295,7 +295,8 @@ fun InsightsScreen(
                 aiEnabled = aiEnabled,
                 peakFocusWindow = peakFocusWindow,
                 planAccuracySummary = planAccuracySummary,
-                onExecuteWallyStoryAction = onExecuteWallyStoryAction
+                onExecuteWallyStoryAction = onExecuteWallyStoryAction,
+                hasTags = tagsCount > 0
             )
         } else {
             ToolsHubSegment(
@@ -403,7 +404,8 @@ private fun EfficiencyAnalyticsSegment(
     aiEnabled: Boolean = false,
     peakFocusWindow: PeakFocusWindow? = null,
     planAccuracySummary: PlanAccuracySummary? = null,
-    onExecuteWallyStoryAction: (WallyStoryAction) -> Unit = {}
+    onExecuteWallyStoryAction: (WallyStoryAction) -> Unit = {},
+    hasTags: Boolean = true
 ) {
     val fmt = LedgerAnalyticsCalculator::formatHoursMinutesFromSeconds
     val fmtCompact = LedgerAnalyticsCalculator::formatCompactDurationSeconds
@@ -822,8 +824,9 @@ private fun EfficiencyAnalyticsSegment(
                             )
                         }
                         if (filteredActDay.uncategorizedOrUntaggedSeconds > 0L && activeBucketFilter == null) {
+                            val untaggedPrefix = if (hasTags) "Đã ghi nhận nhưng chưa gắn Tag" else "Đã ghi nhận khác"
                             Text(
-                                text = "Đã ghi nhận nhưng chưa gắn Tag: ${fmtCompact(filteredActDay.uncategorizedOrUntaggedSeconds)} · Chưa ghi nhận: ${fmtCompact(filteredActDay.unrecordedSeconds)}",
+                                text = "$untaggedPrefix: ${fmtCompact(filteredActDay.uncategorizedOrUntaggedSeconds)} · Chưa ghi nhận: ${fmtCompact(filteredActDay.unrecordedSeconds)}",
                                 fontSize = 10.5.sp,
                                 color = WalletMuted
                             )
