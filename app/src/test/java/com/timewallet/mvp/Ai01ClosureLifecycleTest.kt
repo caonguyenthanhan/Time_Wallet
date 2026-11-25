@@ -198,8 +198,8 @@ class Ai01ClosureLifecycleTest {
         assertFalse("nhánh chưa cấu hình không được đụng proposals", vmText.substring(gateBegin, gateEnd).contains("proposals"))
         // v1.0.6: logic áp kết quả chuyển sang WallyChatRunner (có test hành vi trong V106ChatRunnerTest); bất biến giữ nguyên.
         val runnerText = File("src/main/java/com/timewallet/mvp/ui/WallyChatRunner.kt").readText()
-        assertTrue(runnerText.contains("ProposalLifecycle.mergeIfCurrent(s.proposals, newDrafts, ticket, epoch)"))
-        val resultBlock = runnerText.substring(runnerText.indexOf("val merged = ProposalLifecycle.mergeIfCurrent"), runnerText.indexOf("Step.STALE -> return"))
+        assertTrue(runnerText.contains("ProposalLifecycle.mergeOrReplaceIfCurrent("))
+        val resultBlock = runnerText.substring(runnerText.indexOf("val merged = ProposalLifecycle.mergeOrReplaceIfCurrent"), runnerText.indexOf("Step.STALE -> return"))
         assertFalse("không có đường nào xóa draft khi có câu trả lời", resultBlock.contains("proposals = emptyList()"))
     }
 

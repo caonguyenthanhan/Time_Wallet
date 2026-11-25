@@ -2,7 +2,9 @@ package com.timewallet.mvp.ui
 
 import com.timewallet.mvp.data.local.SubtaskEntity
 import com.timewallet.mvp.data.local.TaskEntity
+import com.timewallet.mvp.domain.model.ActiveTimerSession
 import com.timewallet.mvp.domain.model.AiReadPermissions
+import com.timewallet.mvp.domain.model.BudgetPeriod
 import com.timewallet.mvp.domain.model.CategoryTimeBudget
 import com.timewallet.mvp.domain.model.DailyReviewRecord
 import com.timewallet.mvp.domain.model.Goal
@@ -64,7 +66,8 @@ object Wally20Coordinator {
         tagNameOf: (String) -> String?,
         today: LocalDate,
         nowEpochMs: Long,
-        zone: ZoneId
+        zone: ZoneId,
+        activeTimer: ActiveTimerSession? = null
     ): List<GoalRules.Summary> {
         val goalSummaries = GoalRules.summaries(
             goals = goals,
@@ -72,22 +75,30 @@ object Wally20Coordinator {
             tagNameOf = tagNameOf,
             today = today,
             nowEpochMs = nowEpochMs,
-            zone = zone
+            zone = zone,
+            activeTimer = activeTimer
         )
         val coveredWeeklyMaxCategories = goalSummaries
-            .filter { it.latest.targetType == GoalTargetType.CATEGORY && it.latest.kind == GoalKind.MAX }
+            .filter {
+                it.latest.targetType == GoalTargetType.CATEGORY &&
+                    it.latest.kind == GoalKind.MAX &&
+                    it.latest.period == GoalPeriod.WEEK
+            }
             .mapTo(HashSet()) { it.latest.targetKey }
 
         val legacyBudgetFallbacks = budgets
-            .filter { b -> b.category.key !in coveredWeeklyMaxCategories }
+            .filter { b -> b.period != BudgetPeriod.WEEKLY || b.category.key !in coveredWeeklyMaxCategories }
             .map { b ->
+                val mappedPeriod = if (b.period == BudgetPeriod.DAILY) GoalPeriod.DAY else GoalPeriod.WEEK
+                val periodLabel = if (b.period == BudgetPeriod.DAILY) "Ngân sách ngày" else "Ngân sách tuần"
+                val suffix = if (b.period == BudgetPeriod.DAILY) "_daily" else ""
                 val syntheticGoal = Goal(
-                    id = "budget_view_${b.category.key}",
-                    groupId = "grp_budget_${b.category.key}",
+                    id = "budget_view_${b.category.key}$suffix",
+                    groupId = "grp_budget_${b.category.key}$suffix",
                     targetType = GoalTargetType.CATEGORY,
                     targetKey = b.category.key,
                     kind = GoalKind.MAX,
-                    period = GoalPeriod.WEEK,
+                    period = mappedPeriod,
                     targetSeconds = b.targetSeconds,
                     status = GoalVersionStatus.ACTIVE,
                     validFrom = "1970-01-01",
@@ -97,10 +108,10 @@ object Wally20Coordinator {
                     isPriority = b.isPriority,
                     priorityOrder = b.priorityOrder
                 )
-                val prog = GoalRules.progress(syntheticGoal, records, today, nowEpochMs, zone)
+                val prog = GoalRules.progress(syntheticGoal, records, today, nowEpochMs, zone, activeTimer = activeTimer)
                 GoalRules.Summary(
                     groupId = syntheticGoal.groupId,
-                    name = "${b.category.displayName} (Ngân sách tuần)",
+                    name = "${b.category.displayName} ($periodLabel)",
                     state = com.timewallet.mvp.domain.model.GoalGroupState.ACTIVE,
                     latest = syntheticGoal,
                     progress = prog

@@ -120,7 +120,11 @@ import com.timewallet.mvp.domain.usecase.ManualEntryValidation
 import com.timewallet.mvp.domain.usecase.ScheduleViewMode
 import com.timewallet.mvp.domain.usecase.SelectedSlotGroup
 import com.timewallet.mvp.domain.usecase.ValidationResult
+import com.timewallet.mvp.domain.model.TagAssignmentProposal
+import com.timewallet.mvp.domain.model.TagAssignmentUndoToken
+import com.timewallet.mvp.domain.usecase.PersistedChatConversation
 import com.timewallet.mvp.domain.usecase.WallyStoryAction
+import com.timewallet.mvp.domain.usecase.WallyTagAssignmentEngine
 import com.timewallet.mvp.domain.usecase.WeeklyEfficiencySummary
 import com.timewallet.mvp.domain.usecase.WeeklyInsightsSummary
 import androidx.room.withTransaction
@@ -205,9 +209,15 @@ data class EditableProposalDraft(
     val isMarkedWaste: Boolean = false,
     val taskId: String? = null
 ) {
-    /** Gắn Tag khớp tiêu đề; Tag là cách phân loại của người dùng nên Category theo Tag (người dùng vẫn sửa được ở khung sửa). */
-    fun withTagMatch(tags: List<Tag>): EditableProposalDraft {
-        val t = TagRules.matchTitle(title, tags) ?: return this
+    /** Gắn Tag khớp tiêu đề hoặc giữ Tag đã xác định từ đề xuất/công việc gốc; Category theo Tag nếu chưa gỡ. */
+    fun withTagMatch(tags: List<Tag>, explicitClear: Boolean = false): EditableProposalDraft {
+        if (explicitClear) return copy(tagId = null)
+        val active = tags.filter { !it.isArchived }
+        tagId?.let { id ->
+            val resolved = active.firstOrNull { it.id == id }
+            if (resolved != null) return copy(categoryKey = resolved.category.key)
+        }
+        val t = TagRules.matchTitle(title, active) ?: return this
         return copy(tagId = t.id, categoryKey = t.category.key)
     }
 
@@ -227,7 +237,9 @@ data class EditableProposalDraft(
                 endLocal = p.endLocal ?: "",
                 hasInitialTimeEvidence = p.timeEvidence == "explicit_range",
                 isFuturePlanned = p.isFuturePlanned,
-                isMarkedWaste = false
+                tagId = p.tagId,
+                isMarkedWaste = false,
+                taskId = p.taskId
             )
         }
     }
@@ -411,6 +423,7 @@ data class TimeWalletUiState(
     val chatAnswer: ChatAnswer? = null,
     val lastQueryContext: QueryContext? = null,
     val proposals: List<EditableProposalDraft> = emptyList(),
+    val pendingTagAssignments: List<TagAssignmentProposal> = emptyList(),
     val chatHistory: List<ChatHistoryEntry> = emptyList(),
     val expandedProposalId: String? = null,
     val historyFilter: HistoryFilter = HistoryFilter.ALL,
@@ -535,6 +548,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         scope = viewModelScope,
         state = _uiState,
         computeAnswers = { basis, intents ->
+            val currentTags = _uiState.value.tags
             intents.map {
                 LedgerQueryEngine.execute(
                     intent = it,
@@ -542,7 +556,9 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                     zoneId = ZoneId.systemDefault(),
                     nowEpochMs = System.currentTimeMillis(),
                     activeTimer = basis.timer,
-                    budgets = basis.budgets
+                    budgets = basis.budgets,
+                    tags = currentTags,
+                    goals = basis.goals
                 )
             }
         },
@@ -556,7 +572,10 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         // v1.0.13 (F4): nút Hủy chỉ có hiệu lực sau CancelArming.DEFAULT_ARM_MS kể từ lúc gửi (bấm đúp Gửi không tự hủy).
         cancelArming = CancelArming(),
         onChatInputConsumed = { settingsStore.saveChatInputDraft("") },
-        onChatTurnApplied = { question, appliedState -> recordChatTurnInHistory(question, appliedState) }
+        onChatTurnApplied = { question, appliedState ->
+            recordChatTurnInHistory(question, appliedState)
+            persistSharedConversationSnapshot(appliedState)
+        }
     )
 
     private val appUpdater = AppUpdateCoordinator(
@@ -591,6 +610,29 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         val restoredChatHistory = runCatching { settingsStore.loadChatHistory() }.getOrDefault(emptyList())
         val restoredProposals = runCatching { settingsStore.loadChatProposalsDraft() }.getOrDefault(emptyList())
             .map { d -> d.toEditableDraft() }
+        val restoredTagAssignments = runCatching { settingsStore.loadPendingTagAssignments() }.getOrDefault(emptyList())
+        val restoredConv = runCatching { settingsStore.loadChatConversationSnapshot() }.getOrNull()
+        val restoredPerms = runCatching { settingsStore.loadAiReadPermissions() }.getOrDefault(AiReadPermissions())
+        wallyIntelligence.restorePersistedSnapshot(restoredConv, emptyList(), restoredPerms)
+        val restoredClarifyAnswer = restoredConv?.clarificationQuestion?.takeIf {
+            restoredConv.pendingProposal != null && restoredProposals.isEmpty()
+        }?.let { q ->
+            ChatAnswer(
+                question = q,
+                headline = q,
+                lines = listOfNotNull(
+                    restoredConv.pendingProposal?.let { p ->
+                        buildString {
+                            append("Đang chuẩn bị: ").append(p.title).append(" · ").append(p.dateLocal)
+                            if (!p.tagName.isNullOrBlank()) append(" · Tag: ${p.tagName}")
+                        }
+                    }
+                ),
+                isClarification = true,
+                suggestions = restoredConv.clarificationSuggestions,
+                label = "Cần làm rõ lịch"
+            )
+        }
         val restoredTimerDraft = runCatching { settingsStore.loadTimerInputDraft() }.getOrDefault(TimerInputDraft())
         _uiState.update { state ->
             state.copy(
@@ -602,12 +644,15 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 chatInputText = restoredChatDraft,
                 chatHistory = restoredChatHistory,
                 proposals = restoredProposals,
+                pendingTagAssignments = restoredTagAssignments,
+                chatAnswer = restoredClarifyAnswer,
+                lastQueryContext = restoredConv?.lastQuery,
                 pendingManualDraft = restoredManualDraft,
                 aiPreferences = aiPrefs,
                 showAppIntro = !settingsStore.hasSeenAppIntro(),
                 focusPinEnabled = runCatching { settingsStore.isFocusPinEnabled() }.getOrDefault(false),
                 customization = runCatching { settingsStore.loadCustomizationSettings() }.getOrDefault(CustomizationSettings()),
-                aiReadPermissions = runCatching { settingsStore.loadAiReadPermissions() }.getOrDefault(AiReadPermissions()),
+                aiReadPermissions = restoredPerms,
                 localRules = runCatching { settingsStore.loadLocalRules() }.getOrDefault(emptyList()),
                 appUpdate = appUpdater.initialUiState(),
                 pausedTimer = runCatching { settingsStore.loadPausedTimer() }.getOrNull(),
@@ -637,6 +682,11 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch(safeHandler) {
             _uiState.map { it.proposals }.distinctUntilChanged().drop(1).collect { drafts ->
                 settingsStore.saveChatProposalsDraft(drafts.map { it.toSavedDraft() })
+            }
+        }
+        viewModelScope.launch(safeHandler) {
+            _uiState.map { it.pendingTagAssignments }.distinctUntilChanged().drop(1).collect { list ->
+                settingsStore.savePendingTagAssignments(list)
             }
         }
 
@@ -725,6 +775,37 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
 
     private var tickerJob: Job? = null
 
+    private fun buildClarificationChatAnswer(
+        conv: PersistedChatConversation?,
+        proposalsCount: Int
+    ): ChatAnswer? {
+        val q = conv?.clarificationQuestion?.takeIf { conv.pendingProposal != null && proposalsCount == 0 } ?: return null
+        return ChatAnswer(
+            question = q,
+            headline = q,
+            lines = listOfNotNull(
+                conv.pendingProposal?.let { p ->
+                    buildString {
+                        append("Đang chuẩn bị: ").append(p.title).append(" · ").append(p.dateLocal)
+                        if (!p.tagName.isNullOrBlank()) append(" · Tag: ${p.tagName}")
+                    }
+                }
+            ),
+            isClarification = true,
+            suggestions = conv.clarificationSuggestions,
+            label = "Cần làm rõ lịch"
+        )
+    }
+
+    private fun persistSharedConversationSnapshot(state: TimeWalletUiState = _uiState.value) {
+        val snap = wallyIntelligence.exportPersistedSnapshot(
+            perms = state.aiReadPermissions,
+            clarificationQuestion = state.chatAnswer?.takeIf { it.isClarification }?.headline,
+            clarificationSuggestions = state.chatAnswer?.takeIf { it.isClarification }?.suggestions.orEmpty()
+        )
+        settingsStore.saveChatConversationSnapshot(snap, immediate = true)
+    }
+
     private fun syncExternalHubState() {
         val persistedTimer = settingsStore.loadActiveTimer()
         val persistedPaused = runCatching { settingsStore.loadPausedTimer() }.getOrNull()
@@ -733,13 +814,42 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         val persistedTodoReport = runCatching {
             AiTodoEngine.deserializeReport(settingsStore.loadTodoAiAnalysisJson())
         }.getOrNull()
+        val persistedProposals = runCatching { settingsStore.loadChatProposalsDraft() }.getOrDefault(emptyList())
+            .map { d -> d.toEditableDraft() }
+        val persistedTagAssigns = runCatching { settingsStore.loadPendingTagAssignments() }.getOrDefault(emptyList())
+        val persistedHistory = runCatching { settingsStore.loadChatHistory() }.getOrDefault(emptyList())
+        val persistedConv = runCatching { settingsStore.loadChatConversationSnapshot() }.getOrNull()
+        val curSnap = _uiState.value
+        if (!curSnap.isAnalyzingChat) {
+            wallyIntelligence.restorePersistedSnapshot(persistedConv, curSnap.tags, curSnap.aiReadPermissions)
+        }
         _uiState.update { cur ->
+            val syncChat = !cur.isAnalyzingChat
+            val nextProposals = if (syncChat) persistedProposals else cur.proposals
+            val nextAssigns = if (syncChat) persistedTagAssigns else cur.pendingTagAssignments
+            val nextHistory = if (syncChat) persistedHistory else cur.chatHistory
+            val clarifyAnswer = if (syncChat) {
+                val curAns = cur.chatAnswer
+                when {
+                    curAns?.label == "Thử lại lưu" && nextProposals.isEmpty() -> null
+                    curAns?.label == "Chờ duyệt gắn Tag" && nextAssigns.isEmpty() -> null
+                    curAns == null -> buildClarificationChatAnswer(persistedConv, nextProposals.size)
+                    else -> curAns
+                }
+            } else {
+                cur.chatAnswer
+            }
             cur.copy(
                 activeTimer = persistedTimer,
                 pausedTimer = persistedPaused,
                 floatingAssistantEnabled = persistedFloating && android.provider.Settings.canDrawOverlays(getApplication()),
                 focusPinEnabled = persistedFocusPin,
-                todoAiReport = persistedTodoReport ?: cur.todoAiReport
+                todoAiReport = persistedTodoReport ?: cur.todoAiReport,
+                proposals = nextProposals,
+                pendingTagAssignments = nextAssigns,
+                chatHistory = nextHistory,
+                chatAnswer = clarifyAnswer,
+                lastQueryContext = persistedConv?.lastQuery ?: cur.lastQueryContext
             )
         }
         refreshTimerTick()
@@ -819,7 +929,10 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
     fun clearChatHistory() {
         wallyIntelligence.onChatCleared()
         settingsStore.saveChatHistory(emptyList(), immediate = true)
-        _uiState.update { it.copy(chatHistory = emptyList()) }
+        settingsStore.saveChatConversationSnapshot(null, immediate = true)
+        settingsStore.savePendingTagAssignments(emptyList(), immediate = true)
+        _uiState.update { it.copy(chatHistory = emptyList(), pendingTagAssignments = emptyList()) }
+        WallyActionController.notifyAllWidgets(getApplication())
         showToast("Đã xóa lịch sử trò chuyện với Wally.")
     }
 
@@ -927,7 +1040,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                     tagNameOf = { id -> tagMap[id] },
                     today = todayLocal,
                     nowEpochMs = nowMs,
-                    zone = zone
+                    zone = zone,
+                    activeTimer = activeTimer
                 )
                 val extras = Wally20Coordinator.computeAnalyticsExtras(records, todayStr, zone)
                 unified to extras
@@ -1022,24 +1136,13 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
      * Đồng bộ ngay lập tức khi ứng dụng quay lại từ khóa màn hình / chạy nền.
      */
     fun onAppResumed() {
+        syncExternalHubState()
         val persistedTimer = settingsStore.loadActiveTimer()
-        val persistedPaused = runCatching { settingsStore.loadPausedTimer() }.getOrNull()
-        val persistedFloating = runCatching { settingsStore.loadFloatingAssistantPrefs().enabled }.getOrDefault(false)
         val persistedFocusPin = runCatching { settingsStore.isFocusPinEnabled() }.getOrDefault(false)
-        _uiState.update { cur ->
-            cur.copy(
-                activeTimer = persistedTimer,
-                pausedTimer = persistedPaused,
-                floatingAssistantEnabled = persistedFloating && android.provider.Settings.canDrawOverlays(getApplication()),
-                focusPinEnabled = persistedFocusPin
-            )
-        }
         val nowMs = System.currentTimeMillis()
         reminderScheduler.syncReminders(_uiState.value.records, nowMs)
         reminderScheduler.syncFocusPin(persistedFocusPin, _uiState.value.records, persistedTimer, nowMs)
-        refreshTimerTick()
         recomputeStats(_uiState.value.records)
-        startTicker()
         WallyActionController.notifyAllWidgets(getApplication())
     }
 
@@ -1615,6 +1718,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
 
         // v1.0.6 (F-V105-04): chống bấm đúp bằng quyền sở hữu theo vé; sau "Hủy" lượt mới chạy ngay, lượt cũ không ghi gì.
         val snap = _uiState.value
+        val openDrafts = snap.proposals.map { it.toOpenSnapshot() }
         chatRunner.submit(text) {
             val plan = wallyIntelligence.prepareChatTurn(
                 userText = text,
@@ -1629,8 +1733,15 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 tasks = snap.tasks,
                 habits = snap.habits,
                 habitLogs = snap.habitLogs,
-                activeTimer = snap.activeTimer
+                activeTimer = snap.activeTimer,
+                openDrafts = openDrafts
             )
+            val pendingDraft = wallyIntelligence.currentConversationSnapshot(snap.aiReadPermissions)?.pendingProposal
+            val visibleCloudTags = if (
+                snap.aiReadPermissions.readLedger ||
+                snap.aiReadPermissions.readGoals ||
+                snap.aiReadPermissions.readTasks
+            ) snap.tags else emptyList()
             val rawOutcome = GeminiProposalClient.analyzeInput(
                 userText = text,
                 today = today,
@@ -1642,7 +1753,9 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 modelName = aiPrefs.modelName,
                 trustedHost = aiPrefs.trustedHost,
                 lastQuery = plan.effectiveLastQuery,
-                adaptiveContext = plan.adaptiveContext
+                adaptiveContext = plan.adaptiveContext,
+                activeTags = visibleCloudTags,
+                pendingDraft = pendingDraft
             )
             wallyIntelligence.finalizeChatTurn(
                 userText = text,
@@ -1651,10 +1764,27 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 perms = snap.aiReadPermissions,
                 records = snap.records,
                 activeTimer = snap.activeTimer,
-                zone = zone
+                zone = zone,
+                tags = snap.tags,
+                tasks = snap.tasks,
+                openDrafts = openDrafts
             )
         }
     }
+
+    private fun EditableProposalDraft.toOpenSnapshot(): com.timewallet.mvp.domain.usecase.OpenChatDraftSnapshot =
+        com.timewallet.mvp.domain.usecase.OpenChatDraftSnapshot(
+            id = id,
+            title = title,
+            categoryKey = categoryKey,
+            tagId = tagId,
+            dateLocal = dateLocal,
+            startLocal = startLocal.ifBlank { null },
+            endLocal = endLocal.ifBlank { null },
+            durationMinutes = durationMinutesText.trim().toIntOrNull(),
+            isFuturePlanned = isFuturePlanned,
+            taskId = taskId
+        )
 
     /** Nút "Hủy": ngắt yêu cầu đang chạy, bỏ kết quả muộn, giữ nguyên nội dung đã nhập. */
     fun cancelAnalysis() {
@@ -1690,6 +1820,11 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 proposals = state.proposals.map { if (it.id == proposalId) transform(it) else it }
             )
         }
+        val cur = _uiState.value
+        wallyIntelligence.syncOpenDrafts(cur.proposals.map { it.toOpenSnapshot() }, cur.aiReadPermissions, cur.tags)
+        settingsStore.saveChatProposalsDraft(cur.proposals.map { it.toSavedDraft() }, immediate = true)
+        persistSharedConversationSnapshot(cur)
+        WallyActionController.notifyAllWidgets(getApplication())
     }
 
     fun discardProposal(proposalId: String) {
@@ -1697,13 +1832,29 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             state.copy(
                 proposals = state.proposals.filterNot { it.id == proposalId },
                 expandedProposalId = if (state.expandedProposalId == proposalId) null else state.expandedProposalId,
-                chatAnswer = state.chatAnswer?.takeUnless { it.isTransactionStatus }
+                chatAnswer = state.chatAnswer?.takeUnless { it.isTransactionStatus || it.label == "Thử lại lưu" }
             )
         }
+        val cur = _uiState.value
+        wallyIntelligence.syncOpenDrafts(cur.proposals.map { it.toOpenSnapshot() }, cur.aiReadPermissions, cur.tags)
+        settingsStore.saveChatProposalsDraft(cur.proposals.map { it.toSavedDraft() }, immediate = true)
+        persistSharedConversationSnapshot(cur)
+        WallyActionController.notifyAllWidgets(getApplication())
     }
 
     fun clearAllProposals() {
-        _uiState.update { it.copy(proposals = emptyList(), expandedProposalId = null, chatAnswer = it.chatAnswer?.takeUnless { a -> a.isTransactionStatus }) }
+        _uiState.update {
+            it.copy(
+                proposals = emptyList(),
+                expandedProposalId = null,
+                chatAnswer = it.chatAnswer?.takeUnless { a -> a.isTransactionStatus || a.label == "Thử lại lưu" }
+            )
+        }
+        val cur = _uiState.value
+        wallyIntelligence.syncOpenDrafts(emptyList(), cur.aiReadPermissions, cur.tags)
+        settingsStore.saveChatProposalsDraft(emptyList(), immediate = true)
+        persistSharedConversationSnapshot(cur)
+        WallyActionController.notifyAllWidgets(getApplication())
     }
 
     fun confirmSingleProposal(proposalId: String) {
@@ -1718,6 +1869,24 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         val drafts = _uiState.value.proposals
         if (drafts.isEmpty()) return
         confirmProposalsList(drafts)
+    }
+
+    private fun handleProposalSaveFailure(message: String) {
+        _uiState.update { state ->
+            state.copy(
+                chatAnswer = ChatAnswer(
+                    question = "Lưu đề xuất",
+                    headline = "Lưu chưa thành công",
+                    lines = listOf(
+                        message,
+                        "Đề xuất của bạn vẫn được giữ nguyên (tên, ngày, giờ, Tag). Hãy kiểm tra rồi bấm ✓ Xác nhận để thử lại."
+                    ),
+                    isClarification = true,
+                    label = "Thử lại lưu"
+                )
+            )
+        }
+        showToast(message)
     }
 
     private fun confirmProposalsList(
@@ -1746,25 +1915,32 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             ) {
                 is BatchOverlapStep.Invalid -> {
                     val prefix = if (priorSavedCount > 0) "Đã lưu $priorSavedCount bản ghi trước đó; mục kế tiếp không hợp lệ: " else "Đã hủy lưu lô để bảo toàn dữ liệu: "
-                    showToast(prefix + step.message)
+                    handleProposalSaveFailure(prefix + step.message)
                 }
 
                 is BatchOverlapStep.ReadyAll -> {
                     val result = if (step.inputs.isEmpty()) {
                         ConfirmResult.Committed(0, step.skippedDuplicates)
                     } else {
-                        BatchConfirm.run(
-                            dao = ledgerDao,
-                            inputs = step.inputs,
-                            activeTimer = _uiState.value.activeTimer,
-                            readActiveTimer = { settingsStore.loadActiveTimer() },
-                            nowEpochMs = nowMs,
-                            zone = zone
-                        )
+                        try {
+                            BatchConfirm.run(
+                                dao = ledgerDao,
+                                inputs = step.inputs,
+                                activeTimer = _uiState.value.activeTimer,
+                                readActiveTimer = { settingsStore.loadActiveTimer() },
+                                nowEpochMs = nowMs,
+                                zone = zone
+                            )
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (t: Throwable) {
+                            CrashRecorder.record(t)
+                            ConfirmResult.Aborted("Lỗi lưu cục bộ — vui lòng thử lại.")
+                        }
                     }
                     when (result) {
-                        is ConfirmResult.Invalid -> showToast("Đã hủy lưu lô để bảo toàn dữ liệu: ${result.message}")
-                        is ConfirmResult.Aborted -> showToast("Đã hủy lưu lô: ${result.message}")
+                        is ConfirmResult.Invalid -> handleProposalSaveFailure("Đã hủy lưu lô để bảo toàn dữ liệu: ${result.message}")
+                        is ConfirmResult.Aborted -> handleProposalSaveFailure("Đã hủy lưu lô: ${result.message}")
                         is ConfirmResult.Committed -> {
                             val totalSaved = priorSavedCount + result.savedCount
                             val totalSkipped = priorSkippedDuplicates + result.skippedDuplicates +
@@ -1779,21 +1955,28 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                     var runningSaved = priorSavedCount
                     var runningSkipped = priorSkippedDuplicates + step.skippedDuplicates
                     if (step.safePrefix.isNotEmpty()) {
-                        val prefixRes = BatchConfirm.run(
-                            dao = ledgerDao,
-                            inputs = step.safePrefix,
-                            activeTimer = _uiState.value.activeTimer,
-                            readActiveTimer = { settingsStore.loadActiveTimer() },
-                            nowEpochMs = nowMs,
-                            zone = zone
-                        )
+                        val prefixRes = try {
+                            BatchConfirm.run(
+                                dao = ledgerDao,
+                                inputs = step.safePrefix,
+                                activeTimer = _uiState.value.activeTimer,
+                                readActiveTimer = { settingsStore.loadActiveTimer() },
+                                nowEpochMs = nowMs,
+                                zone = zone
+                            )
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (t: Throwable) {
+                            CrashRecorder.record(t)
+                            ConfirmResult.Aborted("Lỗi lưu cục bộ — vui lòng thử lại.")
+                        }
                         when (prefixRes) {
                             is ConfirmResult.Invalid -> {
-                                showToast("Đã hủy lưu lô để bảo toàn dữ liệu: ${prefixRes.message}")
+                                handleProposalSaveFailure("Đã hủy lưu lô để bảo toàn dữ liệu: ${prefixRes.message}")
                                 return@launch
                             }
                             is ConfirmResult.Aborted -> {
-                                showToast("Đã hủy lưu lô: ${prefixRes.message}")
+                                handleProposalSaveFailure("Đã hủy lưu lô: ${prefixRes.message}")
                                 return@launch
                             }
                             is ConfirmResult.Committed -> {
@@ -1882,7 +2065,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 chatHistory = nextHistory,
                 expandedProposalId = state.expandedProposalId?.takeIf { id -> remaining.any { it.id == id } },
                 // Thẻ trạng thái ("còn N đề xuất đang chờ") sẽ cũ ngay sau khi commit: xóa; chỉ toast do ứng dụng báo "Đã lưu" sau commit.
-                chatAnswer = state.chatAnswer?.takeUnless { it.isTransactionStatus },
+                chatAnswer = state.chatAnswer?.takeUnless { it.isTransactionStatus }?.takeUnless { it.label == "Thử lại lưu" },
                 requestNotificationPermissionNonce = if (needsReminderPermission) {
                     state.requestNotificationPermissionNonce + 1
                 } else {
@@ -1890,7 +2073,151 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 }
             )
         }
-        updatedHistorySnapshot?.let { settingsStore.saveChatHistory(it) }
+        updatedHistorySnapshot?.let { settingsStore.saveChatHistory(it, immediate = true) }
+        val afterCommit = _uiState.value
+        settingsStore.saveChatProposalsDraft(afterCommit.proposals.map { it.toSavedDraft() }, immediate = true)
+        wallyIntelligence.syncOpenDrafts(
+            drafts = afterCommit.proposals.map { it.toOpenSnapshot() },
+            perms = afterCommit.aiReadPermissions,
+            tags = afterCommit.tags
+        )
+        persistSharedConversationSnapshot(afterCommit)
+        WallyActionController.notifyAllWidgets(getApplication())
+    }
+
+    fun dismissTagAssignment(assignmentId: String) {
+        _uiState.update { state ->
+            val remaining = state.pendingTagAssignments.filterNot { it.id == assignmentId }
+            state.copy(
+                pendingTagAssignments = remaining,
+                chatAnswer = if (remaining.isEmpty()) state.chatAnswer?.takeUnless { it.label == "Chờ duyệt gắn Tag" } else state.chatAnswer
+            )
+        }
+        settingsStore.savePendingTagAssignments(_uiState.value.pendingTagAssignments, immediate = true)
+        WallyActionController.notifyAllWidgets(getApplication())
+    }
+
+    fun approveTagAssignment(assignmentId: String) {
+        val proposal = _uiState.value.pendingTagAssignments.firstOrNull { it.id == assignmentId } ?: return
+        val zone = ZoneId.systemDefault()
+        viewModelScope.launch(safeHandler) {
+            val outcome = ledgerDao.updateRecordTagTransactionally(
+                recordId = proposal.recordId,
+                newTagId = proposal.newTagId,
+                newCategoryKey = proposal.newCategoryKey
+            )
+            if (outcome != DbCommitOutcome.Saved) {
+                val msg = (outcome as? DbCommitOutcome.InvalidEntityRejected)?.reason
+                    ?: "Không thể cập nhật Tag cho phiên này."
+                showToast(msg)
+                return@launch
+            }
+            val nowMs = System.currentTimeMillis()
+            val updatedRecords = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
+            val snap = _uiState.value
+            val token = TagAssignmentUndoToken(
+                actionId = "undo_${proposal.id}",
+                recordId = proposal.recordId,
+                recordTitle = proposal.recordTitle,
+                previousTagId = proposal.previousTagId,
+                previousTagName = proposal.previousTagName,
+                previousCategoryKey = proposal.previousCategoryKey,
+                appliedTagId = proposal.newTagId,
+                appliedTagName = proposal.newTagName,
+                appliedCategoryKey = proposal.newCategoryKey,
+                affectedPeriodStart = proposal.affectedPeriodStart,
+                affectedPeriodEnd = proposal.affectedPeriodEnd,
+                affectedPeriodLabel = proposal.affectedPeriodLabel
+            )
+            val answer = WallyTagAssignmentEngine.buildRecalculatedChatAnswer(
+                token = token,
+                updatedRecords = updatedRecords,
+                tags = snap.tags,
+                budgets = snap.budgets,
+                goals = snap.goals,
+                activeTimer = snap.activeTimer,
+                zone = zone,
+                nowEpochMs = nowMs,
+                wasUndone = false
+            )
+            val confirmHm = LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+            var updatedHistory: List<ChatHistoryEntry> = emptyList()
+            _uiState.update { s ->
+                val remainingAssigns = s.pendingTagAssignments.filterNot { it.id == assignmentId }
+                val entry = ChatHistoryEntry(
+                    id = UUID.randomUUID().toString(),
+                    isUser = false,
+                    headline = answer.headline,
+                    lines = answer.lines,
+                    notes = answer.notes,
+                    timeText = confirmHm,
+                    label = answer.label
+                )
+                updatedHistory = (s.chatHistory + entry).takeLast(60)
+                s.copy(
+                    pendingTagAssignments = remainingAssigns,
+                    chatAnswer = answer,
+                    chatHistory = updatedHistory
+                )
+            }
+            settingsStore.savePendingTagAssignments(_uiState.value.pendingTagAssignments, immediate = true)
+            settingsStore.saveChatHistory(updatedHistory, immediate = true)
+            WallyActionController.notifyAllWidgets(getApplication())
+            showToast(answer.headline)
+        }
+    }
+
+    fun undoTagAssignment(token: TagAssignmentUndoToken) {
+        if (token.undone) return
+        val zone = ZoneId.systemDefault()
+        viewModelScope.launch(safeHandler) {
+            val outcome = ledgerDao.updateRecordTagTransactionally(
+                recordId = token.recordId,
+                newTagId = token.previousTagId,
+                newCategoryKey = token.previousCategoryKey
+            )
+            if (outcome != DbCommitOutcome.Saved) {
+                val msg = (outcome as? DbCommitOutcome.InvalidEntityRejected)?.reason
+                    ?: "Không thể hoàn tác cập nhật Tag."
+                showToast(msg)
+                return@launch
+            }
+            val nowMs = System.currentTimeMillis()
+            val updatedRecords = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
+            val snap = _uiState.value
+            val answer = WallyTagAssignmentEngine.buildRecalculatedChatAnswer(
+                token = token,
+                updatedRecords = updatedRecords,
+                tags = snap.tags,
+                budgets = snap.budgets,
+                goals = snap.goals,
+                activeTimer = snap.activeTimer,
+                zone = zone,
+                nowEpochMs = nowMs,
+                wasUndone = true
+            )
+            val undoHm = LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+            var updatedHistory: List<ChatHistoryEntry> = emptyList()
+            _uiState.update { s ->
+                val entry = ChatHistoryEntry(
+                    id = UUID.randomUUID().toString(),
+                    isUser = false,
+                    headline = answer.headline,
+                    lines = answer.lines,
+                    notes = answer.notes,
+                    timeText = undoHm,
+                    label = answer.label
+                )
+                updatedHistory = (s.chatHistory + entry).takeLast(60)
+                s.copy(
+                    chatAnswer = answer,
+                    chatHistory = updatedHistory
+                )
+            }
+            settingsStore.saveChatHistory(updatedHistory, immediate = true)
+            WallyActionController.notifyAllWidgets(getApplication())
+            showToast(answer.headline)
+        }
     }
 
     // ------------------- LUỒNG C: HISTORY, CHUYỂN DỰ KIẾN -> THỰC TẾ, SỬA & XÓA -------------------
@@ -2040,31 +2367,54 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    fun confirmCompleted() {
+    fun confirmCompleted(
+        overrideTagId: String? = null,
+        overrideTagSet: Boolean = false
+    ) {
         val record = _uiState.value.confirmingRecord ?: return
         val zone = ZoneId.systemDefault()
         val nowMs = System.currentTimeMillis()
+        val effectiveTagId = if (overrideTagSet) overrideTagId else record.tagId
+        val activeTag = effectiveTagId?.let { id -> _uiState.value.tags.firstOrNull { !it.isArchived && it.id == id } }
+        val effectiveCategoryKey = activeTag?.category?.key ?: record.category.key
         viewModelScope.launch(safeHandler) {
             val currentRecords = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
             applyConfirmationAction(
-                result = ConfirmationEngine.confirmCompleted(record, currentRecords, _uiState.value.activeTimer, nowMs, zone),
+                result = ConfirmationEngine.confirmCompleted(
+                    record = record,
+                    existingRecords = currentRecords,
+                    activeTimer = _uiState.value.activeTimer,
+                    nowEpochMs = nowMs,
+                    zoneId = zone,
+                    overrideTagId = effectiveTagId,
+                    overrideCategoryKey = effectiveCategoryKey
+                ),
                 closeConfirmOnSuccess = true
             )
         }
     }
 
-    fun confirmAdjusted(title: String, startHm: String, endHm: String) {
+    fun confirmAdjusted(
+        title: String,
+        startHm: String,
+        endHm: String,
+        newTagId: String? = null,
+        tagOverrideSet: Boolean = false
+    ) {
         val record = _uiState.value.confirmingRecord ?: return
         val zone = ZoneId.systemDefault()
         val nowMs = System.currentTimeMillis()
         val mins = (record.durationSeconds / 60L).toInt().coerceIn(1, 1440)
+        val effectiveTagId = if (tagOverrideSet) newTagId else record.tagId
+        val activeTag = effectiveTagId?.let { id -> _uiState.value.tags.firstOrNull { !it.isArchived && it.id == id } }
+        val effectiveCategoryKey = activeTag?.category?.key ?: record.category.key
         viewModelScope.launch(safeHandler) {
             val currentRecords = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
             applyConfirmationAction(
                 result = ConfirmationEngine.adjustRecord(
                     existing = record,
                     newTitle = title,
-                    newCategoryKey = record.category.key,
+                    newCategoryKey = effectiveCategoryKey,
                     newDateLocal = record.date,
                     newDurationMinutes = mins,
                     newStartHm = startHm,
@@ -2073,7 +2423,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                     existingRecords = currentRecords,
                     activeTimer = _uiState.value.activeTimer,
                     nowEpochMs = nowMs,
-                    zoneId = zone
+                    zoneId = zone,
+                    newTagId = effectiveTagId
                 ),
                 closeConfirmOnSuccess = true
             )
@@ -2336,19 +2687,24 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         newStartHm: String,
         newEndHm: String,
         allowFutureAsPlanned: Boolean,
-        newMarkedWaste: Boolean = existing.isMarkedWaste
+        newMarkedWaste: Boolean = existing.isMarkedWaste,
+        newTagId: String? = existing.tagId,
+        tagOverrideSet: Boolean = false
     ) {
         val zone = ZoneId.systemDefault()
         val nowMs = System.currentTimeMillis()
         val hasRange = newStartHm.trim().isNotEmpty() || newEndHm.trim().isNotEmpty()
         val mins = if (hasRange) null else newDurationMinutesText.trim().toIntOrNull()
+        val effectiveTagId = if (tagOverrideSet) newTagId else existing.tagId
+        val activeTag = effectiveTagId?.let { id -> _uiState.value.tags.firstOrNull { !it.isArchived && it.id == id } }
+        val effectiveCategoryKey = activeTag?.category?.key ?: newCategoryKey
 
         viewModelScope.launch(safeHandler) {
             val currentRecords = ledgerDao.getAllRecordsSnapshot().map { it.toDomain() }
             val result = ConfirmationEngine.adjustRecord(
                 existing = existing,
                 newTitle = newTitle,
-                newCategoryKey = newCategoryKey,
+                newCategoryKey = effectiveCategoryKey,
                 newDateLocal = newDateLocal,
                 newDurationMinutes = mins,
                 newStartHm = newStartHm,
@@ -2358,7 +2714,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                 activeTimer = _uiState.value.activeTimer,
                 nowEpochMs = nowMs,
                 zoneId = zone,
-                newMarkedWaste = newMarkedWaste
+                newMarkedWaste = newMarkedWaste,
+                newTagId = effectiveTagId
             )
             applyConfirmationAction(result = result, closeEditOnSuccess = true)
         }
@@ -3976,6 +4333,7 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
     // ------------------- WALLY 2.0: HUB NĂNG SUẤT & TÙY CHỈNH -------------------
 
     fun openWallyOverlay(hint: String? = null) {
+        syncExternalHubState()
         _uiState.update { it.copy(showWallyOverlay = true, wallyOverlayHint = hint) }
     }
 
@@ -4390,7 +4748,8 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
                     baseUrl = ai.baseUrl,
                     apiKey = ai.apiKey,
                     modelName = ai.modelName,
-                    trustedHost = ai.trustedHost
+                    trustedHost = ai.trustedHost,
+                    tags = s.tags
                 )
                 when (outcome) {
                     is com.timewallet.mvp.data.ai.WallyTodoAiPlanner.TodoPlanOutcome.CloudReady -> {
@@ -4760,7 +5119,19 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
         val next = transform(_uiState.value.aiReadPermissions)
         wallyIntelligence.onPermissionsChanged(next)
         settingsStore.saveAiReadPermissions(next, immediate = true)
-        _uiState.update { it.copy(aiReadPermissions = next) }
+        if (!next.readLedger) {
+            settingsStore.savePendingTagAssignments(emptyList(), immediate = true)
+            settingsStore.saveChatConversationSnapshot(null, immediate = true)
+        } else {
+            persistSharedConversationSnapshot(_uiState.value.copy(aiReadPermissions = next))
+        }
+        _uiState.update {
+            it.copy(
+                aiReadPermissions = next,
+                pendingTagAssignments = if (next.readLedger) it.pendingTagAssignments else emptyList()
+            )
+        }
+        WallyActionController.notifyAllWidgets(getApplication())
         showToast("Đã cập nhật quyền đọc dữ liệu cho AI.")
     }
 

@@ -1,6 +1,7 @@
 package com.timewallet.mvp.domain.usecase
 
 import com.timewallet.mvp.domain.model.AiReadPermissions
+import com.timewallet.mvp.domain.model.Tag
 import com.timewallet.mvp.domain.model.TimeCategory
 import java.text.Normalizer
 import java.time.DayOfWeek
@@ -36,7 +37,9 @@ data class ContextRouteDecision(
     val includeHabits: Boolean = false,
     val includeCoachSummary: Boolean = false,
     val includeContinuity: Boolean = false,
-    val reason: String
+    val reason: String,
+    val focusTag: Tag? = null,
+    val includeTagAssignmentCandidates: Boolean = false
 )
 
 /**
@@ -92,14 +95,12 @@ object AdaptiveContextRouter {
         perms: AiReadPermissions,
         today: LocalDate,
         nowTime: LocalTime,
-        nowEpochMs: Long
+        nowEpochMs: Long,
+        tags: List<Tag> = emptyList()
     ): ContextRouteDecision {
         val raw = userText.trim()
         if (raw.isEmpty()) {
             return ContextRouteDecision(ContextRouteMode.NONE, reason = "empty")
-        }
-        if (!perms.readLedger && !perms.readGoals && !perms.readTasks && !perms.readHabits) {
-            return ContextRouteDecision(ContextRouteMode.NONE, reason = "all_ai_permissions_disabled")
         }
         if (CancelCommandParser.parse(raw) != null || WallyTurnPolicy.isStatusQuestion(raw)) {
             return ContextRouteDecision(ContextRouteMode.NONE, reason = "local_control_or_status")
@@ -108,11 +109,23 @@ object AdaptiveContextRouter {
         val normalized = normalize(raw)
         val restored = VietnameseChatParser.restoreUnaccented(normalized)
 
-        val hasAdvisory = advisoryIntentRegex.containsMatchIn(restored) || advisoryIntentRegex.containsMatchIn(normalized)
         val validContinuity = conversationState?.takeIf { it.isValidFor(nowEpochMs, perms) }
-        val looksFollowUp = followUpPromptRegex.containsMatchIn(restored) || followUpPromptRegex.containsMatchIn(normalized)
+        val activePending = validContinuity?.pendingProposal
+        val matchedExplicitTag = TagRules.findExplicitMatchesInText(raw, tags).firstOrNull()
+        val schedulingNoTime = WallyConversationEngine.hasSchedulingIntentWithoutTime(raw)
+        val pendingFollowUp = WallyConversationEngine.looksLikeFollowUpToPendingDraft(raw, activePending, tags)
+        val tagAssignSessionReq = WallyTagAssignmentEngine.isExistingSessionTagRequest(raw, tags)
+
+        val hasAdvisory = advisoryIntentRegex.containsMatchIn(restored) ||
+            advisoryIntentRegex.containsMatchIn(normalized) ||
+            schedulingNoTime ||
+            pendingFollowUp ||
+            tagAssignSessionReq
+        val looksFollowUp = pendingFollowUp ||
+            followUpPromptRegex.containsMatchIn(restored) ||
+            followUpPromptRegex.containsMatchIn(normalized)
         val isPastPeriodOnly = Rx.uni("""(?<![\p{L}\p{N}])(?:hôm\s+qua|hôm\s+kia|tuần\s+trước|tháng\s+trước|\d{1,3}\s*ngày\s*(?:qua|trước))(?![\p{L}\p{N}])""").containsMatchIn(restored)
-        val hasTopicContinuity = validContinuity != null && validContinuity.isAdvisoryTopic && !isPastPeriodOnly
+        val hasTopicContinuity = validContinuity != null && validContinuity.hasAdvisoryTopic && !isPastPeriodOnly
 
         // Nếu không phải tư vấn và không phải nối tiếp một chủ đề tư vấn đang mở:
         // các câu ghi nhanh ("Đọc sách 30 phút") và hỏi số liệu đơn ("Hôm nay học bao nhiêu?") giữ payload tối giản.
@@ -126,22 +139,45 @@ object AdaptiveContextRouter {
                 hasDurationStatement -> "simple_duration_log"
                 else -> "plain_chat"
             }
-            return ContextRouteDecision(ContextRouteMode.NONE, reason = reason)
+            return ContextRouteDecision(ContextRouteMode.NONE, reason = reason, focusTag = matchedExplicitTag)
         }
 
         // Nếu có duration statement lẫn câu hỏi nhưng thực tế không có nhu cầu xếp lịch/tư vấn -> vẫn NONE.
         if (hasDurationStatement && !hasAdvisory && !(looksFollowUp && hasTopicContinuity)) {
-            return ContextRouteDecision(ContextRouteMode.NONE, reason = "explicit_activity_entry")
+            return ContextRouteDecision(ContextRouteMode.NONE, reason = "explicit_activity_entry", focusTag = matchedExplicitTag)
         }
 
-        val targetDate = resolveTargetDate(restored, today, validContinuity?.targetDate, nowTime)
+        val pendingDate = activePending?.dateLocal?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+        val targetDate = resolveTargetDate(restored, today, pendingDate ?: validContinuity?.targetDate, nowTime)
         val window = resolveWindow(restored, validContinuity?.dayWindow)
-        val category = detectCategory(restored) ?: if (looksFollowUp) validContinuity?.focusCategory else null
+        val focusTag = matchedExplicitTag ?: if (looksFollowUp) validContinuity?.focusTag else null
+        val category = matchedExplicitTag?.category
+            ?: detectCategory(restored)
+            ?: if (looksFollowUp) {
+                activePending?.categoryKey?.let { TimeCategory.fromKeyOrNull(it) } ?: validContinuity?.focusCategory
+            } else null
 
-        val wantSchedule = scheduleCueRegex.containsMatchIn(restored) || hasAdvisory || looksFollowUp
-        val wantGoals = goalCueRegex.containsMatchIn(restored) || hasAdvisory || category != null
-        val wantTasks = taskCueRegex.containsMatchIn(restored) || category == TimeCategory.WORK || hasAdvisory
-        val wantHabits = habitCueRegex.containsMatchIn(restored) || category == TimeCategory.HEALTH || (hasAdvisory && perms.readHabits)
+        if (!perms.readLedger && !perms.readGoals && !perms.readTasks && !perms.readHabits) {
+            return if (pendingFollowUp || schedulingNoTime) {
+                // Giữ Continuity & PendingProposal trong RAM ngay cả khi quyền đọc sổ cái tắt (zero-leak: không đọc DB/sổ cái).
+                ContextRouteDecision(
+                    mode = ContextRouteMode.ADAPTIVE,
+                    targetDate = targetDate,
+                    dayWindow = window,
+                    focusCategory = category,
+                    focusTag = focusTag,
+                    includeContinuity = validContinuity != null,
+                    reason = if (pendingFollowUp) "pending_clarification_continuity" else "scheduling_no_time"
+                )
+            } else {
+                ContextRouteDecision(ContextRouteMode.NONE, reason = "all_ai_permissions_disabled", focusTag = matchedExplicitTag)
+            }
+        }
+
+        val wantSchedule = !tagAssignSessionReq && (scheduleCueRegex.containsMatchIn(restored) || hasAdvisory || looksFollowUp)
+        val wantGoals = !tagAssignSessionReq && (goalCueRegex.containsMatchIn(restored) || (hasAdvisory && !pendingFollowUp) || (category != null && !pendingFollowUp))
+        val wantTasks = !tagAssignSessionReq && (taskCueRegex.containsMatchIn(restored) || category == TimeCategory.WORK || (hasAdvisory && !pendingFollowUp))
+        val wantHabits = !tagAssignSessionReq && (habitCueRegex.containsMatchIn(restored) || category == TimeCategory.HEALTH || (hasAdvisory && !pendingFollowUp && perms.readHabits))
 
         val includeGoals = perms.readGoals && wantGoals
         val includeScheduleGaps = perms.readLedger && wantSchedule
@@ -162,7 +198,15 @@ object AdaptiveContextRouter {
             includeHabits = includeHabits,
             includeCoachSummary = includeCoachSummary,
             includeContinuity = includeContinuity,
-            reason = if (looksFollowUp && hasTopicContinuity) "continuity_followup" else "advisory_or_planning"
+            reason = when {
+                tagAssignSessionReq -> "tag_assignment_existing_session"
+                pendingFollowUp -> "pending_clarification_continuity"
+                looksFollowUp && hasTopicContinuity -> "continuity_followup"
+                schedulingNoTime -> "scheduling_no_time"
+                else -> "advisory_or_planning"
+            },
+            focusTag = focusTag,
+            includeTagAssignmentCandidates = tagAssignSessionReq && perms.readLedger
         )
     }
 

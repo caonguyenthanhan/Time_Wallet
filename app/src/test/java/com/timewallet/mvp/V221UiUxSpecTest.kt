@@ -218,7 +218,8 @@ class V221UiUxSpecTest {
         assertTrue(profile.contains("Bắt đầu ngay"))
 
         val floating = File("src/main/java/com/timewallet/mvp/overlay/WallyFloatingService.kt").readText()
-        assertTrue(floating.contains("modelName = aiPrefs.modelName"))
+        val floatingSession = File("src/main/java/com/timewallet/mvp/overlay/WallyFloatingChatSession.kt").readText()
+        assertTrue(floatingSession.contains("modelName = data.aiPrefs.modelName"))
         assertTrue(floating.contains("Thu gọn") && floating.contains("Tắt nổi"))
 
         val theme = File("src/main/java/com/timewallet/mvp/ui/theme/Theme.kt").readText()

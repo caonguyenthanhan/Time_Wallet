@@ -2,10 +2,14 @@ package com.timewallet.mvp.data.ai
 
 import com.timewallet.mvp.data.local.AiPreferences
 import com.timewallet.mvp.domain.model.ActivityProposal
+import com.timewallet.mvp.domain.model.RawTagAssignmentIntent
+import com.timewallet.mvp.domain.model.Tag
 import com.timewallet.mvp.domain.model.TimeCategory
 import com.timewallet.mvp.domain.usecase.AdaptivePromptContext
 import com.timewallet.mvp.domain.usecase.LedgerValidator
 import com.timewallet.mvp.domain.usecase.ParseChatOutcome
+import com.timewallet.mvp.domain.usecase.PendingProposalContext
+import com.timewallet.mvp.domain.usecase.TagRules
 import com.timewallet.mvp.domain.usecase.VietnameseChatParser
 import com.timewallet.mvp.data.diagnostics.AiDiagnostics
 import com.timewallet.mvp.data.diagnostics.AiEvent
@@ -75,7 +79,7 @@ object GeminiProposalClient {
     const val SAFE_FALLBACK_WARNING_VI =
         "Không thể kết nối máy chủ AI. Hãy thử lại hoặc Ghi thủ công."
 
-    const val PROMPT_VERSION = "wally-prompt-8"
+    const val PROMPT_VERSION = "wally-prompt-10"
     const val TODO_PROMPT_VERSION = "wally-todo-1"
 
     // v1.0.13: 45 s overall (was 30 s). Observed gemini latency p50 ~8 s, p95 ~21 s, max ~34 s: 30 s timed out valid answers.
@@ -114,7 +118,9 @@ object GeminiProposalClient {
         nowMs: () -> Long = { System.nanoTime() / 1_000_000L },
         sleeper: suspend (Long) -> Unit = { delay(it) },
         lastQuery: QueryContext? = null,
-        adaptiveContext: AdaptivePromptContext? = null
+        adaptiveContext: AdaptivePromptContext? = null,
+        activeTags: List<Tag> = emptyList(),
+        pendingDraft: PendingProposalContext? = null
     ): ParseChatOutcome {
         // v1.0.9 (P0 F6): không guard ⇒ không gửi gì lên AI (không có kiểm tra an toàn cho kết quả trả về).
         GuardHealth.require()
@@ -184,7 +190,9 @@ object GeminiProposalClient {
                         baseUrl = cleanBaseUrl, apiKey = cleanKey,
                         modelName = modelName.trim().ifEmpty { AiPreferences.DEFAULT_AI_MODEL },
                         opener = connectionFactory, remainingMs = remaining, lastQuery = lastQuery,
-                        adaptiveContext = adaptiveContext
+                        adaptiveContext = adaptiveContext,
+                        activeTags = activeTags,
+                        pendingDraft = pendingDraft
                     )
                     return@withContext finish(outcome, 200)
                 } catch (e: CancellationException) {
@@ -223,7 +231,7 @@ object GeminiProposalClient {
         - Tổng độ dài phần chữ ĐỌC TRONG 5 GIÂY: tuyệt đối không viết đoạn văn 5–10 dòng.
         - "headline": đúng 1 câu ngắn tối đa 14 từ, đi thẳng vào bức tranh chính.
         - "highlights": 1–2 gạch đầu dòng ngắn (mỗi ý tối đa 16 từ), chỉ chọn tối đa 1–2 con số nổi bật nhất từ khối dữ liệu.
-        - "watchout": tối đa 1 câu ngắn (tối đa 16 từ, hoặc "") nêu điểm cần lưu ý (ví dụ phần chưa gắn Tag, chờ xác nhận, đối soát, gián đoạn).
+        - "watchout": tối đa 1 câu ngắn (tối đa 16 từ, hoặc "") nêu điểm cần lưu ý (ví dụ phần chờ xác nhận, đối soát, gián đoạn; chỉ nhắc phần chưa gắn Tag nếu trong dữ liệu đã có Tag cá nhân).
         - "actionItems": 1–2 bước hành động cụ thể: {"title":"<bắt đầu bằng động từ rõ ràng, tối đa 14 từ>","kind":"PLAN"|"TIMER"|"TAG"|"REFLECT","target":"<đúng tên Tag hoặc danh mục nếu có>","minutes":<số phút lấy ĐÚNG từ mục tiêu/phiên trong dữ liệu hoặc null>}. Chỉ đưa số phút đã có trong dữ liệu; nếu không chắc để null.
 
         QUY TẮC AN TOÀN BẮT BUỘC:
@@ -232,7 +240,7 @@ object GeminiProposalClient {
         3. Không phán xét. Giải trí, nghỉ ngơi có chủ đích hay đọc sách xen giữa KHÔNG phải lãng phí hay mất tập trung tiêu cực. Không dùng các từ như lười, lãng phí, thất bại, vô ích.
         4. Không khẳng định hay đoán nguyên nhân – kết quả, lý do, cảm xúc hay ý định của người dùng (ví dụ "để thư giãn", "vì mệt", "sau khi tập trung"). Thêm "có vẻ"/"có lẽ" KHÔNG làm cho lời đoán hợp lệ.
         5. Phân biệt rõ KẾ HOẠCH DỰ KIẾN, ĐANG DIỄN RA, CHỜ XÁC NHẬN, CẦN ĐỐI SOÁT, ĐÃ HỦY với THỰC TẾ ĐÃ XÁC NHẬN. Không coi phần chưa xác nhận là đã hoàn thành.
-        6. Nếu dữ liệu mỏng hoặc nhiều thời gian chưa gắn Tag, nói ngắn gọn mức đầy đủ của dữ liệu và nhận xét thận trọng.
+        6. Nếu dữ liệu mỏng hoặc nhiều thời gian chưa gắn Tag (CHỈ nhắc tới "chưa gắn Tag" khi danh sách Tag trong dữ liệu không trống; nếu người dùng chưa tạo Tag nào, tuyệt đối không nhắc "chưa gắn Tag"), nói ngắn gọn mức đầy đủ của dữ liệu và nhận xét thận trọng.
         7. Bạn không ghi, lưu, sửa hay xóa gì và không tự đặt mục tiêu; không nói "mình đã/sẽ ghi, lưu, tạo, đặt...". Được dùng "đã ghi nhận" để MÔ TẢ dữ liệu có sẵn.
         8. Trường "suggestions" (tùy chọn, tối đa 2) là đề xuất mục tiêu mới để người dùng tự quyết: {"targetType":"tag"|"category","target":"<đúng tên Tag hoặc khóa danh mục có trong dữ liệu>","kind":"MIN"|"MAX","period":"DAY"|"WEEK","minutes":<số nguyên>}.
         9. Chỉ trả về MỘT JSON object hợp lệ:
@@ -690,6 +698,8 @@ object GeminiProposalClient {
                  + Điền startLocal ("HH:mm"), endLocal ("HH:mm"), tính đúng durationSeconds.
                  + timeEvidence = "explicit_range", missingFields = []
             3. Danh mục "category" CHỈ ĐƯỢC nhận một trong các giá trị: $allowedCategories.
+            3b. TAG CÁ NHÂN ("tagName"): nếu NGỮ CẢNH có "Tag hiện có" và câu người dùng NÊU RÕ tên một Tag trong danh sách đó (dù tiêu đề rút gọn, ví dụ "luyện nghe IELTS" có title "Luyện nghe" vẫn phải điền "tagName":"IELTS") hoặc đang tiếp nối đề xuất gắn Tag đó, đặt "tagName":"<đúng tên Tag>"; nếu câu không nêu tên Tag rõ ràng hoặc mơ hồ (ví dụ "học tiếng Anh") thì đặt "tagName":null, tuyệt đối không suy đoán hoặc tự bịa Tag ngoài danh sách.
+            3c. GẮN / ĐỔI / BỎ TAG CHO PHIÊN ĐÃ LƯU ("tagAssignments"): nếu người dùng yêu cầu gắn, đổi hoặc bỏ Tag cho một phiên cũ đã ghi (ví dụ "gắn tag IELTS cho phiên Đọc tài liệu hôm qua", "đổi tag phiên 08:00 sáng nay thành IELTS", "bỏ tag khỏi phiên Luyện nghe hôm qua"), đặt proposals = [], trả về mảng "tagAssignments" gồm {"recordTitle":"<tên phiên người dùng nêu>","dateLocal":"YYYY-MM-DD" hoặc null,"startHm":"HH:mm" hoặc null,"tagName":"<tên Tag trong danh sách hoặc null nếu bỏ tag>"}. Chỉ đề xuất chờ người dùng duyệt, không nói đã cập nhật xong.
             4. Trường "needsConfirmation" LUÔN LUÔN là true. Bạn chỉ ĐỀ XUẤT; không bao giờ nói hay ngụ ý rằng dữ liệu đã được lưu.
             5. NGÀY TƯƠNG ĐỐI (tính theo "Ngày hiện tại" trong NGỮ CẢNH): "hôm qua"/"đêm qua" = ngày trước ngày hiện tại;
                "hôm kia" = 2 ngày trước; "ngày mai"/"mai" = ngày sau.
@@ -729,22 +739,27 @@ object GeminiProposalClient {
                KẾT THÚC BẰNG DẤU "?" (không dùng câu mệnh lệnh như "bạn nhắn lại giúp mình": ứng dụng chỉ hiển thị câu hỏi có dấu "?").
                Câu hỏi nêu rõ điều cần xác nhận và được nhắc lại ĐÚNG các con số người dùng vừa viết (ví dụ: "Bạn muốn ghi 45 phút hay 1 tiếng?",
                "Bạn muốn ghi 2 tiếng, đúng không?"); tuyệt đối không nêu con số nào người dùng chưa viết: ứng dụng bỏ lời đáp có số không có căn cứ.
+            8b. XẾP LỊCH NHIỀU LƯỢT: nếu người dùng yêu cầu xếp lịch ("Xếp buổi ôn IELTS ngày mai", "Bố trí tập gym tối nay") nhưng THIẾU GIỜ BẮT ĐẦU hoặc THỜI LƯỢNG:
+                KHÔNG tự bịa giờ; giữ proposals = [], queries = [], và đặt "reply" là MỘT câu hỏi ngắn kết thúc bằng dấu "?" gợi ý các giờ trống khả dụng có trong NGỮ CẢNH (nếu có) để hỏi giờ và thời lượng.
+                Nếu NGỮ CẢNH có "Đề xuất đang chờ hoàn thiện" và người dùng trả lời bổ sung hoặc đổi giờ/thời lượng/Tag ("20h, học 45 phút nhé", "đổi sang 19h30", "bỏ tag"): giữ nguyên ngày mục tiêu, tên việc và Tag hiện hành (trừ khi người dùng đổi hoặc yêu cầu bỏ), xuất ĐÚNG MỘT proposal hoàn chỉnh với timeEvidence = "explicit_range".
             9. CÂU HỎI SỐ LIỆU (ví dụ "hôm nay tôi dùng bao nhiêu giờ?", "so sánh tuần này với tuần trước"):
                đặt vào "queries"; ỨNG DỤNG sẽ tự tính số từ sổ cái. TUYỆT ĐỐI không tự tính, không bịa, không nêu bất kỳ con số thống kê nào
                trong "reply". Mỗi query: {"metric":"$allowedMetrics","startDate":"YYYY-MM-DD","endDate":"YYYY-MM-DD",
-               "category":null hoặc một danh mục ở quy tắc 3,"compareStartDate":null,"compareEndDate":null}.
+               "category":null hoặc một danh mục ở quy tắc 3,"tag":null hoặc tên Tag có trong NGỮ CẢNH,"compareStartDate":null,"compareEndDate":null}.
                Khoảng ngày tối đa 93 ngày. Dùng compareStartDate/compareEndDate cho câu so sánh hai kỳ. Tối đa 3 query.
-               Nếu NGỮ CẢNH có câu hỏi số liệu trước và người dùng hỏi nối tiếp ("còn tuần trước thì sao?"), dùng lại metric và danh mục đó.
+               Nếu NGỮ CẢNH có câu hỏi số liệu trước và người dùng hỏi nối tiếp ("còn tuần trước thì sao?"), dùng lại metric, danh mục và Tag đó.
+               Câu hỏi về khung giờ thường học/làm/tập hoặc thói quen giờ nào dùng metric "TYPICAL_WINDOW".
+               Nếu người dùng hỏi riêng một Tag (ví dụ IELTS) hoặc hỏi cả giờ học chung lẫn Tag đó, đặt "tag":"<tên Tag>" (và thêm 1 query theo danh mục nếu cần đối chiếu tổng nhóm).
                Câu hỏi về NGÂN SÁCH / mục tiêu ("ngân sách học tập còn bao nhiêu?", "tôi vượt mục tiêu chưa?"): dùng metric "BUDGET",
                startDate = endDate = ngày hiện tại, "category" là danh mục được hỏi hoặc null nếu hỏi chung. Chỉ MỘT lượt: ứng dụng tự tính
                từ ngân sách và sổ cái trên máy; bạn không cần và không được tự nêu mức còn lại hay phần trăm.
             10. TRÒ CHUYỆN: lời chào hoặc câu ngoài phạm vi thì trả lời ngắn (tối đa 2 câu) trong "reply" và để "proposals" và "queries" rỗng.
-                Không hứa những việc ứng dụng không làm (không xóa hay sửa dữ liệu đã lưu qua chat).
+                Không hứa những việc ứng dụng không làm (chỉ được đề xuất gắn/đổi/bỏ Tag qua "tagAssignments" theo quy tắc 3c để người dùng tự duyệt, không xóa hay tự sửa dữ liệu trực tiếp).
             11. "reply" ngắn gọn, tiếng Việt. KHÔNG chứa số liệu thống kê nào (kể cả số viết bằng chữ như "hai tiếng" và phần trăm) và
                 KHÔNG lặp lại con số nằm trong câu hỏi như thể đó là số liệu của người dùng (ngoại lệ duy nhất: câu hỏi lại ở quy tắc 8). Chỉ khi có đề xuất ghi mới được nhắc thời lượng
                 của đề xuất đó, viết bằng chữ số. KHÔNG bao giờ nói "đã ghi/lưu/sửa/xóa/hủy": chỉ ứng dụng mới báo thành công sau khi người dùng xác nhận.
             12. Chỉ trả về đúng một JSON object hợp lệ, ví dụ:
-            {"reply":"Mình đã tách 1 hoạt động, bạn xác nhận giúp nhé.","proposals":[{"title":"Học bài","category":"learn","durationSeconds":2700,"dateLocal":"YYYY-MM-DD","startLocal":null,"endLocal":null,"timeEvidence":"duration_only","missingFields":["startLocal","endLocal"],"needsConfirmation":true}],"queries":[]}
+            {"reply":"Mình đã tách 1 hoạt động, bạn xác nhận giúp nhé.","proposals":[{"title":"Học bài","category":"learn","tagName":null,"durationSeconds":2700,"dateLocal":"YYYY-MM-DD","startLocal":null,"endLocal":null,"timeEvidence":"duration_only","missingFields":["startLocal","endLocal"],"needsConfirmation":true}],"queries":[]}
         """.trimIndent()
     }
 
@@ -761,18 +776,35 @@ object GeminiProposalClient {
         today: LocalDate,
         currentTimeHm: String,
         timezoneId: String,
-        lastQuery: QueryContext? = null
+        lastQuery: QueryContext? = null,
+        activeTags: List<Tag> = emptyList(),
+        pendingDraft: PendingProposalContext? = null
     ): String {
         val previous = lastQuery?.let {
             "- Câu hỏi số liệu ngay trước: metric=${it.metric.name}, từ ${it.period.start} đến ${it.period.end}" +
-                (it.category?.let { c -> ", category=${c.key}" } ?: "")
+                (it.category?.let { c -> ", category=${c.key}" } ?: "") +
+                (it.tagName?.takeIf { t -> t.isNotBlank() }?.let { t -> ", tag=$t" } ?: "")
         } ?: "- Không có câu hỏi số liệu trước đó."
+        val activeTagList = activeTags.filter { !it.isArchived }
+        val tagsLine = if (activeTagList.isEmpty()) {
+            ""
+        } else {
+            "\n            - Tag hiện có: " + activeTagList.take(30).joinToString(", ") { "${it.name} (${it.category.key})" }
+        }
+        val pendingLine = if (pendingDraft == null) {
+            ""
+        } else {
+            val startText = pendingDraft.startLocal ?: "chưa có"
+            val durText = pendingDraft.durationMinutes?.let { "${it}p" } ?: "chưa có"
+            val tagText = pendingDraft.tagName ?: "không gắn"
+            "\n            - Đề xuất đang chờ hoàn thiện: title=\"${pendingDraft.title}\", category=${pendingDraft.categoryKey}, tag=$tagText, dateLocal=${pendingDraft.dateLocal}, start=$startText, duration=$durText"
+        }
         return """
             [NGỮ CẢNH — do ứng dụng cung cấp]
             - Ngày hiện tại (dateLocal): $today (${VietnameseCalendar.dayName(today.dayOfWeek)})
             - Giờ hiện tại (currentTime): $currentTimeHm
             - Múi giờ (timezone): $timezoneId
-            $previous
+            $previous$tagsLine$pendingLine
         """.trimIndent()
     }
 
@@ -795,8 +827,10 @@ object GeminiProposalClient {
         today: LocalDate,
         currentTimeHm: String,
         timezoneId: String,
-        lastQuery: QueryContext? = null
-    ): String = staticSystemPrompt + "\n\n" + buildDynamicContext(today, currentTimeHm, timezoneId, lastQuery)
+        lastQuery: QueryContext? = null,
+        activeTags: List<Tag> = emptyList(),
+        pendingDraft: PendingProposalContext? = null
+    ): String = staticSystemPrompt + "\n\n" + buildDynamicContext(today, currentTimeHm, timezoneId, lastQuery, activeTags, pendingDraft)
 
     private suspend fun callOpenAiCompatibleProposals(
         userText: String,
@@ -809,11 +843,13 @@ object GeminiProposalClient {
         opener: HttpOpener,
         remainingMs: Long,
         lastQuery: QueryContext? = null,
-        adaptiveContext: AdaptivePromptContext? = null
+        adaptiveContext: AdaptivePromptContext? = null,
+        activeTags: List<Tag> = emptyList(),
+        pendingDraft: PendingProposalContext? = null
     ): ParseChatOutcome {
         val currentTimeHm = nowTime.withSecond(0).withNano(0).format(hmFormatter)
         val userMessage = buildUserMessage(
-            buildDynamicContext(today, currentTimeHm, timezoneId, lastQuery),
+            buildDynamicContext(today, currentTimeHm, timezoneId, lastQuery, activeTags, pendingDraft),
             userText,
             adaptiveContext
         )
@@ -853,7 +889,8 @@ object GeminiProposalClient {
                 today = today,
                 nowTime = nowTime,
                 contextBackedMinutes = adaptiveContext?.backedMinutes ?: emptySet(),
-                usedAdaptiveContext = adaptiveContext != null
+                usedAdaptiveContext = adaptiveContext != null,
+                activeTags = activeTags
             ).copy(usage = AiUsageParser.parseBody(responseBody))
         } catch (e: CancellationException) {
             throw e
@@ -967,7 +1004,8 @@ object GeminiProposalClient {
         today: LocalDate,
         nowTime: LocalTime,
         contextBackedMinutes: Set<Int> = emptySet(),
-        usedAdaptiveContext: Boolean = false
+        usedAdaptiveContext: Boolean = false,
+        activeTags: List<Tag> = emptyList()
     ): ParseChatOutcome {
         // WALLY v1.0.6 (F-V105-08/R03): hợp đồng phản hồi chặt — một object trọn vẹn, đúng kiểu, không phần dư.
         val root = StrictJson.parseSingleObject(responseBody)
@@ -980,7 +1018,7 @@ object GeminiProposalClient {
                 ?: throw AiHttpException(AiFault.MALFORMED)
             val c = message.opt("content") as? String ?: throw AiHttpException(AiFault.MALFORMED) // null/số/mảng => hỏng
             StrictJson.extract(c)
-        } else if (root.has("proposals") || root.has("reply") || root.has("queries")) {
+        } else if (root.has("proposals") || root.has("reply") || root.has("queries") || root.has("tagAssignments")) {
             StrictJson.Extracted.Obj(root)
         } else {
             throw AiHttpException(AiFault.MALFORMED)
@@ -1074,12 +1112,27 @@ object GeminiProposalClient {
                 }
             } else false
 
+            val rawTagName = if (item.has("tagName") && !item.isNull("tagName")) {
+                item.optString("tagName", "").trim().takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+            } else null
+            val resolvedTag = if (activeTags.isEmpty()) {
+                null
+            } else {
+                TagRules.resolveProposalTag(
+                    title = title,
+                    rawInput = userText,
+                    tags = activeTags,
+                    proposedTagName = rawTagName,
+                    isSingleProposal = count <= 1
+                )
+            }
+
             proposals.add(
                 ActivityProposal(
                     id = "prop_${UUID.randomUUID()}",
                     rawInput = userText,
                     title = title,
-                    category = validCat,
+                    category = resolvedTag?.category?.key ?: validCat,
                     durationSeconds = effectiveDurationSeconds,
                     dateLocal = parsedDate.toString(),
                     startLocal = if (hasBothTimes) rawStart else null,
@@ -1087,7 +1140,9 @@ object GeminiProposalClient {
                     timeEvidence = if (hasBothTimes) "explicit_range" else "duration_only",
                     missingFields = if (hasBothTimes) emptyList() else listOf("startLocal", "endLocal"),
                     needsConfirmation = true,
-                    isFuturePlanned = isFutureDate || isFutureStartToday
+                    isFuturePlanned = isFutureDate || isFutureStartToday,
+                    tagId = resolvedTag?.id,
+                    tagName = resolvedTag?.name
                 )
             )
         }
@@ -1100,7 +1155,10 @@ object GeminiProposalClient {
             when (val r = AiQueryValidator.validate(
                 metric = str("metric"), startDate = str("startDate"), endDate = str("endDate"),
                 category = str("category"), compareStart = str("compareStartDate"), compareEnd = str("compareEndDate"),
-                today = today
+                today = today,
+                tag = str("tag"),
+                tags = activeTags,
+                userText = userText
             )) {
                 is AiQueryValidator.Result.Ok -> queries += r.intent
                 is AiQueryValidator.Result.Rejected -> warnings += "Bỏ qua một câu hỏi số liệu của AI: ${r.reason}"
@@ -1108,10 +1166,25 @@ object GeminiProposalClient {
         }
         if (qArr.length() > AiQueryValidator.MAX_QUERIES) warnings += "Chỉ xử lý tối đa ${AiQueryValidator.MAX_QUERIES} câu hỏi số liệu mỗi lần."
 
+        val rawTagAssignments = mutableListOf<RawTagAssignmentIntent>()
+        val taArr = parsedRoot.optJSONArray("tagAssignments") ?: JSONArray()
+        for (i in 0 until minOf(taArr.length(), 3)) {
+            val ta = taArr.optJSONObject(i) ?: continue
+            fun taStr(k: String): String? = if (ta.isNull(k)) null else ta.optString(k, "").trim().takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+            rawTagAssignments += RawTagAssignmentIntent(
+                recordTitle = taStr("recordTitle"),
+                dateLocal = taStr("dateLocal"),
+                startHm = taStr("startHm"),
+                tagName = taStr("tagName")
+            )
+        }
+
         val reply = if (parsedRoot.isNull("reply")) null else parsedRoot.optString("reply", "").takeIf { it.isNotBlank() }
         return finalizeOutcome(
             userText, proposals, warnings, reply, queries, today, nowTime,
-            contextBackedMinutes = contextBackedMinutes, usedAdaptiveContext = usedAdaptiveContext
+            contextBackedMinutes = contextBackedMinutes,
+            usedAdaptiveContext = usedAdaptiveContext,
+            rawTagAssignments = rawTagAssignments
         )
     }
 
@@ -1143,7 +1216,8 @@ object GeminiProposalClient {
         today: LocalDate,
         nowTime: LocalTime,
         contextBackedMinutes: Set<Int> = emptySet(),
-        usedAdaptiveContext: Boolean = false
+        usedAdaptiveContext: Boolean = false,
+        rawTagAssignments: List<RawTagAssignmentIntent> = emptyList()
     ): ParseChatOutcome {
         val guarded = AiProposalGuard.apply(userText, proposals, today, nowTime)
         val policyBlocked = guarded.proposals.isEmpty() && proposals.isNotEmpty()
@@ -1155,13 +1229,13 @@ object GeminiProposalClient {
             nowTime = nowTime,
             contextBackedMinutes = contextBackedMinutes
         )
-        val hasProposals = guarded.proposals.isNotEmpty()
+        val hasProposals = guarded.proposals.isNotEmpty() || rawTagAssignments.isNotEmpty()
         // F-V105-01 & V106-N1 (v1.0.8, V107-F2):
         // - Chính sách chỉ chặn đề xuất ghi; lời đáp đi kèm đề xuất bị chặn là lời đáp mồ côi nên bỏ.
         // - Hễ có đề xuất chờ xác nhận (RECORD **và MIXED**), ứng dụng tạo headline và trạng thái; lời đáp tự do của AI không bao giờ
         //   được hiển thị trước commit (khớp bất biến V108).
         val finalReply = if (policyBlocked || hasProposals) null else cleanReply
-        val surviving = !policyBlocked || queries.isNotEmpty()
+        val surviving = !policyBlocked || queries.isNotEmpty() || rawTagAssignments.isNotEmpty()
         return ParseChatOutcome(
             proposals = guarded.proposals,
             warnings = warnings + guarded.warnings + listOfNotNull(replyNote.takeUnless { policyBlocked }),
@@ -1172,7 +1246,8 @@ object GeminiProposalClient {
                 OutcomeSource.CLOUD, null, guarded.proposals.size, queries.size,
                 hasReply = !finalReply.isNullOrBlank(), guardBlocked = policyBlocked && !surviving
             ),
-            usedAdaptiveContext = usedAdaptiveContext
+            usedAdaptiveContext = usedAdaptiveContext,
+            rawTagAssignments = rawTagAssignments
         )
     }
 }

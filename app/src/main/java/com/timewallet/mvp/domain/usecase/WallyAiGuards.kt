@@ -1,6 +1,7 @@
 package com.timewallet.mvp.domain.usecase
 
 import com.timewallet.mvp.domain.model.ActivityProposal
+import com.timewallet.mvp.domain.model.Tag
 import com.timewallet.mvp.domain.model.TimeCategory
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -50,7 +51,10 @@ object AiQueryValidator {
         category: String?,
         compareStart: String?,
         compareEnd: String?,
-        today: LocalDate
+        today: LocalDate,
+        tag: String? = null,
+        tags: List<Tag> = emptyList(),
+        userText: String = ""
     ): Result {
         val m = QueryMetric.entries.firstOrNull { it.name.equals(metric?.trim(), ignoreCase = true) }
             ?: return Result.Rejected("Loại số liệu không hợp lệ.")
@@ -63,6 +67,18 @@ object AiQueryValidator {
             TimeCategory.fromKeyOrNull(it) ?: return Result.Rejected("Danh mục không hợp lệ.")
         }
 
+        val activeTags = tags.filter { !it.isArchived }
+        val cleanTagRaw = tag?.trim()?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+        val explicitByName = cleanTagRaw?.let { name ->
+            val key = TagRules.nameKey(name)
+            if (key.isEmpty()) null else activeTags.firstOrNull { it.nameKey == key }
+        }
+        val inferredFromQuestion = if (explicitByName == null && cleanTagRaw == null && userText.isNotBlank() && activeTags.isNotEmpty()) {
+            val matches = TagRules.findExplicitMatchesInText(userText, activeTags)
+            if (matches.size == 1) matches.first() else null
+        } else null
+        val resolvedTag = explicitByName ?: inferredFromQuestion
+
         val cs = parseDate(compareStart)
         val ce = parseDate(compareEnd)
         val compare = if (cs != null && ce != null) {
@@ -73,7 +89,16 @@ object AiQueryValidator {
             return Result.Rejected("Khoảng so sánh thiếu một đầu.")
         } else null
 
-        return Result.Ok(QueryIntent(m, period(s, e, today), cat, compare))
+        return Result.Ok(
+            QueryIntent(
+                metric = m,
+                period = period(s, e, today),
+                category = cat ?: resolvedTag?.category,
+                compareTo = compare,
+                tagId = resolvedTag?.id,
+                tagName = resolvedTag?.name ?: cleanTagRaw
+            )
+        )
     }
 }
 

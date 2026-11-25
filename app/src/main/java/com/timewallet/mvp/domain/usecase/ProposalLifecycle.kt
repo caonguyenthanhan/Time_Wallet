@@ -220,4 +220,32 @@ object ProposalLifecycle {
         epoch: AnalysisEpoch
     ): List<T>? =
         if (epoch.isCurrent(capturedEpoch)) (current + incoming).take(MAX_DRAFTS) else null
+
+    /**
+     * Cập nhật trực tiếp draft đang mở ([replacesDraftId]) hoặc nối thêm mới;
+     * giữ nguyên thứ tự và giới hạn [MAX_DRAFTS], trả null nếu epoch đã hết hiệu lực.
+     */
+    fun <T> mergeOrReplaceIfCurrent(
+        current: List<T>,
+        incoming: List<T>,
+        replacesDraftId: String?,
+        idOf: (T) -> String,
+        capturedEpoch: Int,
+        epoch: AnalysisEpoch
+    ): List<T>? {
+        if (!epoch.isCurrent(capturedEpoch)) return null
+        if (replacesDraftId == null || incoming.isEmpty()) {
+            return (current + incoming).take(MAX_DRAFTS)
+        }
+        val idx = current.indexOfFirst { idOf(it) == replacesDraftId }
+        if (idx < 0) return (current + incoming).take(MAX_DRAFTS)
+        val first = incoming.first()
+        val extra = incoming.drop(1)
+        val updated = current.toMutableList()
+        updated[idx] = first
+        if (extra.isNotEmpty()) {
+            updated.addAll(idx + 1, extra)
+        }
+        return updated.take(MAX_DRAFTS)
+    }
 }

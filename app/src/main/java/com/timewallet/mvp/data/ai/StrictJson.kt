@@ -108,7 +108,7 @@ internal object StrictJson {
     // ---------------------------------------------------------------- hình dạng (schema) chặt
 
     fun requireShape(root: JSONObject) {
-        if (!root.has("proposals") && !root.has("reply") && !root.has("queries")) malformed()
+        if (!root.has("proposals") && !root.has("reply") && !root.has("queries") && !root.has("tagAssignments")) malformed()
         if (root.has("reply")) {
             val r = root.get("reply")
             if (r != JSONObject.NULL && r !is String) malformed()
@@ -120,11 +120,18 @@ internal object StrictJson {
                 requireProposalItem(item)
             }
         }
+        arrayField(root, "tagAssignments")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val item = arr.get(i)
+                if (item !is JSONObject) malformed()
+                listOf("recordTitle", "dateLocal", "startHm", "tagName").forEach { stringOrNull(item, it) }
+            }
+        }
         arrayField(root, "queries")?.let { arr ->
             for (i in 0 until arr.length()) {
                 val item = arr.get(i)
                 if (item !is JSONObject) malformed()
-                listOf("metric", "startDate", "endDate", "category", "compareStartDate", "compareEndDate").forEach { stringOrNull(item, it) }
+                listOf("metric", "startDate", "endDate", "category", "tag", "compareStartDate", "compareEndDate").forEach { stringOrNull(item, it) }
             }
         }
     }
@@ -144,7 +151,7 @@ internal object StrictJson {
     }
 
     private fun requireProposalItem(o: JSONObject) {
-        listOf("title", "category", "dateLocal", "startLocal", "endLocal", "timeEvidence").forEach { stringOrNull(o, it) }
+        listOf("title", "category", "dateLocal", "startLocal", "endLocal", "timeEvidence", "tagName").forEach { stringOrNull(o, it) }
         if (o.has("durationSeconds")) {
             val d = o.get("durationSeconds")
             if (d !is Number) malformed()

@@ -47,8 +47,8 @@ android {
         applicationId = "com.timewallet.mvp"
         minSdk = 26
         targetSdk = 35
-        versionCode = 25
-        versionName = "2.2.2"
+        versionCode = 26
+        versionName = "2.2.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

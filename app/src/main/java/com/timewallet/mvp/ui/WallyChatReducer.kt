@@ -2,6 +2,7 @@ package com.timewallet.mvp.ui
 
 import com.timewallet.mvp.domain.model.ActiveTimerSession
 import com.timewallet.mvp.domain.model.CategoryTimeBudget
+import com.timewallet.mvp.domain.model.Goal
 import com.timewallet.mvp.domain.model.LedgerRecord
 import com.timewallet.mvp.domain.usecase.BatchRecordInput
 import com.timewallet.mvp.domain.usecase.ChatEvent
@@ -40,17 +41,19 @@ fun EditableProposalDraft.toBatchInput(): BatchRecordInput = BatchRecordInput(
  */
 object WallyChatReducer {
 
-    /** Kết quả tính trước (ngoài luồng chính) kèm sổ cái/timer/ngân sách đã dùng, để biết khi nào phải tính lại. */
+    /** Kết quả tính trước (ngoài luồng chính) kèm sổ cái/timer/ngân sách/mục tiêu đã dùng, để biết khi nào phải tính lại. */
     class Precomputed(
         val answers: List<QueryAnswer>,
         val basedOnRecords: List<LedgerRecord>,
         val basedOnTimer: ActiveTimerSession?,
         /** null = số liệu không phụ thuộc ngân sách. */
-        val basedOnBudgets: List<CategoryTimeBudget>? = null
+        val basedOnBudgets: List<CategoryTimeBudget>? = null,
+        val basedOnGoals: List<Goal>? = null
     ) {
         fun matches(state: TimeWalletUiState): Boolean =
             basedOnRecords === state.records && basedOnTimer == state.activeTimer &&
-                (basedOnBudgets == null || basedOnBudgets === state.budgets)
+                (basedOnBudgets == null || basedOnBudgets === state.budgets) &&
+                (basedOnGoals == null || basedOnGoals === state.goals)
     }
 
     /**
@@ -109,19 +112,27 @@ object WallyChatReducer {
             pendingDrafts = merged.size,
             allowAdvisoryCard = outcome.usedAdaptiveContext
         )
+        val nextTagAssignments = if (outcome.tagAssignmentProposals.isEmpty()) {
+            state.pendingTagAssignments
+        } else {
+            val newRecIds = outcome.tagAssignmentProposals.mapTo(HashSet()) { it.recordId }
+            state.pendingTagAssignments.filterNot { it.recordId in newRecIds } + outcome.tagAssignmentProposals
+        }
         return state.copy(
             isAnalyzingChat = false,
             proposals = merged,
+            pendingTagAssignments = nextTagAssignments,
             expandedProposalId = null,
             chatAnswer = card,
             lastQueryContext = outcome.queries.lastOrNull()
-                ?.let { QueryContext(it.metric, it.period, it.category) } ?: state.lastQueryContext,
+                ?.let { QueryContext(it.metric, it.period, it.category, it.tagId, it.tagName) } ?: state.lastQueryContext,
             chatInputText = if (outcome.proposals.isNotEmpty() || card != null) "" else state.chatInputText,
             chatFault = null,
             lastAnalysisSource = outcome.source,
             lastRequestId = outcome.requestId,
             chatPhase = ChatPhaseMachine.next(
-                state.chatPhase, ChatEvent.Result(outcome.proposals.size, null, hasAnswer = card != null)
+                state.chatPhase,
+                ChatEvent.Result(outcome.proposals.size + outcome.tagAssignmentProposals.size, null, hasAnswer = card != null)
             )
         )
     }

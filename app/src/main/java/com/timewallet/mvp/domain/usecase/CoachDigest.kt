@@ -60,6 +60,7 @@ object CoachDigestBuilder {
         val from = today.minusDays((n - 1).toLong())
         val todayStr = today.toString()
         val tagById = tags.associateBy { it.id }
+        val hasUserTags = tags.any { !it.isArchived }
 
         // 1) Gom thời gian đã diễn ra theo (ngày, đối tượng), phân tách trạng thái xác nhận, kế hoạch, gián đoạn, nghỉ/song song.
         data class Key(val date: LocalDate, val label: String, val category: TimeCategory)
@@ -141,7 +142,11 @@ object CoachDigestBuilder {
                 breakItems += "- $objLabel (${r.category.displayName}, ${d.format(dm)}): $bm phút [KHOẢNG NGHỈ XEN GIỮA CÓ CHỦ ĐÍCH]"
             }
 
-            val label = tag?.name ?: ("(chưa gắn Tag) " + r.category.displayName)
+            val label = tag?.name ?: if (hasUserTags) {
+                "(chưa gắn Tag) " + r.category.displayName
+            } else {
+                r.title.takeIf { it.isNotBlank() } ?: r.category.displayName
+            }
             var sliceDay = from
             while (!sliceDay.isAfter(today)) {
                 val daySec = LedgerAnalyticsCalculator.recordActualSecondsInDateRange(
@@ -204,9 +209,11 @@ object CoachDigestBuilder {
             else -> "Mọi ngày trong kỳ đều có ghi nhận."
         }
         sb.append("Độ đầy đủ: $coverage\n")
-        if (untaggedSeconds > 0) {
+        if (hasUserTags && untaggedSeconds > 0) {
             val m = mins(untaggedSeconds); allowedMinutes += m
             sb.append("Thời gian chưa gắn Tag trong kỳ: $m phút (không phân biệt được hoạt động cụ thể).\n")
+        } else if (!hasUserTags) {
+            sb.append("Người dùng chưa tạo Tag cá nhân nào: nhận xét dựa theo hoạt động và danh mục, không nhắc thiếu Tag.\n")
         }
 
         // 2) Mục tiêu đang áp dụng.
@@ -277,7 +284,12 @@ object CoachDigestBuilder {
         val totals = perKey.entries.groupBy { it.key.label }.mapValues { (_, es) -> es.sumOf { it.value } to es.first().key.category }
         if (totals.isEmpty()) sb.append("Hoạt động trong kỳ: chưa có.\n")
         else {
-            sb.append("Hoạt động trong kỳ (phút, theo Tag; danh mục trong ngoặc):\n")
+            val header = if (hasUserTags) {
+                "Hoạt động trong kỳ (phút, theo Tag; danh mục trong ngoặc):\n"
+            } else {
+                "Hoạt động trong kỳ (phút, theo hoạt động; danh mục trong ngoặc):\n"
+            }
+            sb.append(header)
             totals.entries.sortedByDescending { it.value.first }.take(MAX_TAG_LINES).forEach { (label, v) ->
                 val m = mins(v.first); allowedMinutes += m
                 sb.append("- $label (${v.second.displayName}): $m\n")

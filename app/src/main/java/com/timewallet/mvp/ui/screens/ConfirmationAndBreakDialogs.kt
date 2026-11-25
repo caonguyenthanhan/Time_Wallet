@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -74,7 +75,11 @@ fun ActivityConfirmationDialog(
     onAdjust: (title: String, startHm: String, endHm: String) -> Unit,
     onInterrupt: (actualEndHm: String) -> Unit,
     onContinue: (newEndHm: String) -> Unit,
-    onCancelActivity: () -> Unit
+    onCancelActivity: () -> Unit,
+    tags: List<com.timewallet.mvp.domain.model.Tag> = emptyList(),
+    tagSuggestions: List<com.timewallet.mvp.domain.model.Tag> = emptyList(),
+    onConfirmCompletedWithTag: ((tagId: String?) -> Unit)? = null,
+    onAdjustWithTag: ((title: String, startHm: String, endHm: String, tagId: String?) -> Unit)? = null
 ) {
     val zone = remember(record.timezone) { runCatching { ZoneId.of(record.timezone) }.getOrDefault(ZoneId.systemDefault()) }
     val hmFmt = remember { DateTimeFormatter.ofPattern("HH:mm") }
@@ -89,6 +94,8 @@ fun ActivityConfirmationDialog(
 
     var subMode by remember(record.id) { mutableStateOf("MAIN") } // MAIN | ADJUST | INTERRUPT | CONTINUE
     var editTitle by remember(record.id) { mutableStateOf(record.title) }
+    var selectedTagId by remember(record.id) { mutableStateOf(record.tagId) }
+    var tagQuery by remember(record.id) { mutableStateOf("") }
     var editStartHm by remember(record.id) { mutableStateOf(initStart) }
     var editEndHm by remember(record.id) { mutableStateOf(initEnd) }
     var earlyEndHm by remember(record.id) { mutableStateOf(nowHm) }
@@ -131,19 +138,52 @@ fun ActivityConfirmationDialog(
                         .padding(10.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+                    val tagPool = tags.filter { !it.isArchived }.ifEmpty { tagSuggestions.filter { !it.isArchived } }
+                    val selectedTag = selectedTagId?.let { id -> (tags + tagSuggestions).firstOrNull { it.id == id } }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        CategoryBadge(category = record.category, size = 28.dp)
+                        CategoryBadge(category = selectedTag?.category ?: record.category, size = 28.dp)
                         Text(record.title, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = WalletInk)
                     }
                     Text("Khung giờ: $rangeText · ${confState.labelVi}", fontSize = 12.sp, color = WalletMuted)
+                    if (selectedTag != null) {
+                        Text("Tag đang chọn: 🏷 ${selectedTag.name}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = WalletMintAccent)
+                    }
                     Text(
                         "Đã tính thực tế hiện tại: ${LedgerAnalyticsCalculator.formatHoursMinutesFromSeconds(actualElapsed)}",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = WalletMintAccent
+                    )
+                }
+
+                val tagPool = tags.filter { !it.isArchived }.ifEmpty { tagSuggestions.filter { !it.isArchived } }
+                if ((subMode == "MAIN" || subMode == "ADJUST") && (tagPool.isNotEmpty() || selectedTagId != null)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Tag cá nhân", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = WalletMuted)
+                        if (selectedTagId != null) {
+                            TextButton(
+                                onClick = { selectedTagId = null },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                            ) {
+                                Text("Bỏ Tag", fontSize = 11.5.sp, color = WalletDangerText, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                    TagPicker(
+                        suggestions = tagSuggestions.filter { !it.isArchived }.ifEmpty { tagPool.take(8) },
+                        allActiveTags = tagPool,
+                        selectedTagId = selectedTagId,
+                        query = tagQuery,
+                        onQueryChange = { tagQuery = it },
+                        onSelect = { picked -> selectedTagId = if (selectedTagId == picked) null else picked },
+                        onCreateClick = null
                     )
                 }
 
@@ -158,7 +198,13 @@ fun ActivityConfirmationDialog(
                         }
                         if (hasStarted) {
                             Button(
-                                onClick = onConfirmCompleted,
+                                onClick = {
+                                    if (onConfirmCompletedWithTag != null) {
+                                        onConfirmCompletedWithTag(selectedTagId)
+                                    } else {
+                                        onConfirmCompleted()
+                                    }
+                                },
                                 colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                             ) { Text("Xác nhận hoàn thành", fontWeight = FontWeight.Bold) }
@@ -215,7 +261,13 @@ fun ActivityConfirmationDialog(
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                             OutlinedButton(onClick = { subMode = "MAIN" }, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Quay lại") }
                             Button(
-                                onClick = { onAdjust(editTitle, editStartHm, editEndHm) },
+                                onClick = {
+                                    if (onAdjustWithTag != null) {
+                                        onAdjustWithTag(editTitle, editStartHm, editEndHm, selectedTagId)
+                                    } else {
+                                        onAdjust(editTitle, editStartHm, editEndHm)
+                                    }
+                                },
                                 colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White),
                                 modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                             ) { Text("Lưu điều chỉnh", fontWeight = FontWeight.Bold) }

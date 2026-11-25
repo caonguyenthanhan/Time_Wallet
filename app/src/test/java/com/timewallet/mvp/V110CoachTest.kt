@@ -172,6 +172,6 @@ class V110CoachTest {
             assertTrue("thiếu quy tắc: $it", p.contains(it, ignoreCase = true))
         }
         assertEquals("wally-coach-5", GeminiProposalClient.COACH_PROMPT_VERSION)
-        assertEquals("wally-prompt-8", GeminiProposalClient.PROMPT_VERSION)   // tách biệt với prompt chat
+        assertEquals("wally-prompt-10", GeminiProposalClient.PROMPT_VERSION)   // tách biệt với prompt chat
     }
 }

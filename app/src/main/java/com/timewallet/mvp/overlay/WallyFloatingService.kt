@@ -63,6 +63,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -105,19 +106,23 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.timewallet.mvp.MainActivity
 import com.timewallet.mvp.R
-import com.timewallet.mvp.data.ai.GeminiProposalClient
 import com.timewallet.mvp.data.local.BatchConfirm
 import com.timewallet.mvp.data.local.ConfirmResult
 import com.timewallet.mvp.data.local.TimeWalletDatabase
 import com.timewallet.mvp.data.local.TimerAndSettingsStore
 import com.timewallet.mvp.data.local.WallyActionController
-import com.timewallet.mvp.domain.model.ActivityProposal
+import com.timewallet.mvp.domain.model.TagAssignmentProposal
+import com.timewallet.mvp.domain.model.TagAssignmentUndoToken
 import com.timewallet.mvp.domain.model.ThemeModePreference
-import com.timewallet.mvp.domain.usecase.BatchRecordInput
+import com.timewallet.mvp.domain.model.TimeCategory
+import com.timewallet.mvp.domain.usecase.ChatHistoryEntry
 import com.timewallet.mvp.domain.usecase.CurrentWorkMode
-import com.timewallet.mvp.domain.usecase.OutcomeSource
+import com.timewallet.mvp.domain.usecase.LedgerAnalyticsCalculator
+import com.timewallet.mvp.domain.usecase.TagRules
 import com.timewallet.mvp.domain.usecase.TimeRange
 import com.timewallet.mvp.domain.usecase.WallyHubSnapshot
+import java.util.UUID
+import com.timewallet.mvp.ui.EditableProposalDraft
 import com.timewallet.mvp.ui.screens.walletClickable
 import com.timewallet.mvp.ui.theme.TimeWalletTheme
 import com.timewallet.mvp.ui.theme.WalletBg
@@ -156,12 +161,6 @@ private enum class QuickPanelDrawer {
     SCHEDULE,
     AI
 }
-
-private data class FloatingChatMsg(
-    val isUser: Boolean,
-    val text: String,
-    val badge: String? = null
-)
 
 private class WallyOverlayLifecycleOwner : LifecycleOwner, SavedStateRegistryOwner, ViewModelStoreOwner {
     private val lifecycleRegistry = LifecycleRegistry(this)
@@ -924,14 +923,15 @@ private fun FloatingQuickPanelCard(
                                         CurrentWorkMode.ACTIVE_TIMER -> WallyActionController.pauseActiveTimer(serviceContext)
                                         CurrentWorkMode.PAUSED_TIMER -> WallyActionController.resumePausedTimer(serviceContext)
                                         CurrentWorkMode.CURRENT_PLANNED -> WallyActionController.startTimerForTaskOrPlan(
-                                            serviceContext, cur.title, cur.category, taskId = cur.taskId
+                                            serviceContext, cur.title, cur.category, taskId = cur.taskId, tagId = cur.tagId
                                         )
                                         else -> {
                                             val topTodo = snapshot?.todoItems?.firstOrNull { !it.isDone }
                                             if (topTodo != null) {
                                                 WallyActionController.startTimerForTaskOrPlan(
                                                     serviceContext, topTodo.title, topTodo.category,
-                                                    taskId = topTodo.id, targetMinutes = topTodo.estimatedMinutes
+                                                    taskId = topTodo.id, targetMinutes = topTodo.estimatedMinutes,
+                                                    tagId = topTodo.tagId
                                                 )
                                             } else {
                                                 onOpenMainApp("focus", false)
@@ -1109,7 +1109,8 @@ private fun FloatingQuickPanelCard(
                                                     item.title,
                                                     item.category,
                                                     taskId = item.id,
-                                                    targetMinutes = item.estimatedMinutes
+                                                    targetMinutes = item.estimatedMinutes,
+                                                    tagId = item.tagId
                                                 )
                                                 onShowBanner(if (res is WallyActionController.ActionOutcome.Blocked) res.messageVi else null)
                                                 onReload()
@@ -1344,56 +1345,130 @@ private fun FloatingChatCard(
     onSwitchMode: (FloatingUiMode) -> Unit,
     onOpenMainApp: (tab: String, openChat: Boolean) -> Unit
 ) {
-    var inputText by remember { mutableStateOf("") }
-    var sending by remember { mutableStateOf(false) }
-    var messages by remember {
-        mutableStateOf(
-            listOf(
-                FloatingChatMsg(
-                    isUser = false,
-                    text = "Chào bạn! Hỏi tôi về lịch hôm nay, việc cần ưu tiên hoặc ghi nhanh hoạt động (mọi ghi chép đều cần bạn xác nhận)."
-                )
-            )
+    val session = remember { WallyFloatingChatSession() }
+    var snapshotData by remember { mutableStateOf<FloatingChatSnapshotData?>(null) }
+
+    val defaultGreeting = remember {
+        FloatingChatMsg(
+            isUser = false,
+            text = "Chào bạn! Hỏi tôi về lịch hôm nay, việc cần ưu tiên hoặc xếp lịch gắn Tag (mọi ghi chép đều cần bạn xác nhận)."
         )
     }
-    var pendingProposals by remember { mutableStateOf<List<ActivityProposal>>(emptyList()) }
+
+    var inputText by remember { mutableStateOf("") }
+    var sending by remember { mutableStateOf(false) }
+    var messages by remember { mutableStateOf(listOf(defaultGreeting)) }
+    var pendingProposals by remember { mutableStateOf<List<EditableProposalDraft>>(emptyList()) }
+    var pendingTagAssignments by remember { mutableStateOf<List<TagAssignmentProposal>>(emptyList()) }
+    var expandedTagDraftId by remember { mutableStateOf<String?>(null) }
+    var tagSearchQuery by remember(expandedTagDraftId) { mutableStateOf("") }
+    var confirmingDraftId by remember { mutableStateOf<String?>(null) }
+    var tagActionBusy by remember { mutableStateOf(false) }
+    val hubVersion by WallyActionController.hubStateVersion.collectAsState()
+
+    fun syncSharedStateFromStore(fresh: FloatingChatSnapshotData?) {
+        val store = TimerAndSettingsStore(serviceContext.applicationContext)
+        val persistedDrafts = session.loadPersistedDrafts(serviceContext)
+        val persistedTagAssigns = store.loadPendingTagAssignments()
+        val persistedConv = store.loadChatConversationSnapshot()
+        if (fresh != null) {
+            session.coordinator.restorePersistedSnapshot(persistedConv, fresh.tags, fresh.perms)
+        }
+        pendingProposals = persistedDrafts
+        pendingTagAssignments = persistedTagAssigns
+        val persistedHistory = store.loadChatHistory()
+        if (persistedHistory.isNotEmpty()) {
+            val mapped = persistedHistory.takeLast(14).map { h ->
+                FloatingChatMsg(
+                    isUser = h.isUser,
+                    text = buildString {
+                        append(h.headline)
+                        h.lines.forEach { append('\n').append("• ").append(it) }
+                        h.notes.forEach { append('\n').append(it) }
+                    },
+                    badge = h.label,
+                    isClarification = h.isClarification,
+                    suggestions = if (h.isClarification && h == persistedHistory.lastOrNull()) {
+                        persistedConv?.clarificationSuggestions.orEmpty()
+                    } else emptyList()
+                )
+            }
+            messages = WallyFloatingChatSession.mergeSyncedHistoryWithUndoTokens(mapped, messages)
+        } else if (persistedConv?.clarificationQuestion != null) {
+            messages = listOf(
+                defaultGreeting,
+                FloatingChatMsg(
+                    isUser = false,
+                    text = persistedConv.clarificationQuestion,
+                    badge = "Cần làm rõ lịch",
+                    isClarification = true,
+                    suggestions = persistedConv.clarificationSuggestions
+                )
+            )
+        }
+    }
+
+    LaunchedEffect(hubVersion) {
+        val fresh = runCatching { session.loadContextData(serviceContext) }.getOrNull()
+        snapshotData = fresh
+        if (!sending) {
+            syncSharedStateFromStore(fresh)
+        }
+    }
+
     val scope = rememberCoroutineScope()
+
+    fun buildHistoryEntryFromFloating(msg: FloatingChatMsg): ChatHistoryEntry = ChatHistoryEntry(
+        id = UUID.randomUUID().toString(),
+        isUser = msg.isUser,
+        headline = msg.text.lineSequence().firstOrNull().orEmpty(),
+        lines = msg.text.lineSequence().drop(1).map { it.removePrefix("• ").trim() }.filter { it.isNotEmpty() }.toList(),
+        timeText = LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")),
+        isClarification = msg.isClarification,
+        label = msg.badge ?: if (msg.isUser) "Wally đã xem ✓✓" else null
+    )
 
     fun sendQuery(rawQuery: String) {
         val text = rawQuery.trim()
         if (text.isEmpty() || sending) return
         sending = true
         inputText = ""
-        messages = messages + FloatingChatMsg(isUser = true, text = text)
+        val userMsg = FloatingChatMsg(isUser = true, text = text)
+        messages = (messages + userMsg).takeLast(14)
         scope.launch {
-            val store = TimerAndSettingsStore(serviceContext)
-            val aiPrefs = store.loadAiPreferences()
-            val outcome = GeminiProposalClient.analyzeInput(
+            val freshData = session.loadContextData(serviceContext)
+            snapshotData = freshData
+            val res = session.processTurn(
                 userText = text,
-                today = LocalDate.now(),
-                nowTime = LocalTime.now(),
-                timezoneId = ZoneId.systemDefault().id,
-                optInEnabled = aiPrefs.optInEnabled,
-                baseUrl = aiPrefs.baseUrl,
-                apiKey = aiPrefs.apiKey,
-                modelName = aiPrefs.modelName,
-                trustedHost = aiPrefs.trustedHost
+                currentDrafts = pendingProposals,
+                data = freshData
             )
-            val replyText = when {
-                outcome.source == OutcomeSource.NOT_CONFIGURED ->
-                    "Chưa bật/cấu hình API key Wally Cloud AI trong Cài đặt. Bạn có thể mở app để nhập API key hoặc dùng To-do nhanh ở Bảng điều khiển."
-                !outcome.reply.isNullOrBlank() -> outcome.reply
-                outcome.proposals.isNotEmpty() ->
-                    "Wally gợi ý ${outcome.proposals.size} hoạt động dưới đây — chạm ✓ Xác nhận để lưu vào Sổ cái."
-                outcome.warnings.isNotEmpty() -> outcome.warnings.first()
-                else -> GeminiProposalClient.SAFE_FALLBACK_WARNING_VI
+            res.replyMessage?.let { msg ->
+                messages = (messages + msg).takeLast(14)
             }
-            messages = (messages + FloatingChatMsg(
-                isUser = false,
-                text = replyText,
-                badge = if (outcome.source == OutcomeSource.CLOUD) "Wally AI" else null
-            )).takeLast(12)
-            pendingProposals = outcome.proposals
+            pendingProposals = res.updatedDrafts
+            if (res.tagAssignmentProposals.isNotEmpty()) {
+                val newIds = res.tagAssignmentProposals.mapTo(HashSet()) { it.recordId }
+                pendingTagAssignments = pendingTagAssignments.filterNot { it.recordId in newIds } + res.tagAssignmentProposals
+            }
+            if (expandedTagDraftId != null && pendingProposals.none { it.id == expandedTagDraftId }) {
+                expandedTagDraftId = null
+            }
+            val addedHistory = buildList {
+                if (res.outcome.fault == null) {
+                    add(buildHistoryEntryFromFloating(userMsg))
+                    res.replyMessage?.let { add(buildHistoryEntryFromFloating(it)) }
+                }
+            }
+            session.persistSharedState(
+                context = serviceContext,
+                drafts = pendingProposals,
+                pendingTagAssignments = pendingTagAssignments,
+                perms = freshData.perms,
+                clarificationQuestion = if (res.replyMessage?.isClarification == true) res.replyMessage.text else null,
+                clarificationSuggestions = if (res.replyMessage?.isClarification == true) res.replyMessage.suggestions else emptyList(),
+                newHistoryEntries = addedHistory
+            )
             sending = false
         }
     }
@@ -1402,12 +1477,12 @@ private fun FloatingChatCard(
     val isShortViewport = cfg.screenHeightDp <= 600
     val chatMaxWidthDp = (cfg.screenWidthDp - 20).coerceIn(288, 342).dp
     val chatMaxHeightDp = if (isShortViewport) {
-        286.dp
+        310.dp
     } else {
-        (cfg.screenHeightDp * 0.44f).coerceIn(270f, 360f).dp
+        (cfg.screenHeightDp * 0.50f).coerceIn(300f, 410f).dp
     }
     val chatListScroll = rememberScrollState()
-    LaunchedEffect(messages.size, pendingProposals.size) {
+    LaunchedEffect(messages.size, pendingProposals.size, pendingTagAssignments.size, expandedTagDraftId) {
         chatListScroll.animateScrollTo(chatListScroll.maxValue)
     }
 
@@ -1481,25 +1556,29 @@ private fun FloatingChatCard(
                 }
             }
 
+            val activeTags = snapshotData?.tags?.filter { !it.isArchived }.orEmpty()
             Column(
                 modifier = Modifier
                     .weight(1f, fill = false)
-                    .heightIn(min = if (isShortViewport) 68.dp else 96.dp, max = if (isShortViewport) 108.dp else 170.dp)
+                    .heightIn(min = if (isShortViewport) 72.dp else 108.dp, max = if (isShortViewport) 136.dp else 218.dp)
                     .verticalScroll(chatListScroll),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                messages.forEach { m ->
+                messages.forEachIndexed { msgIdx, m ->
                     Surface(
                         shape = RoundedCornerShape(13.dp),
                         color = if (m.isUser) WalletMintSoft else WalletSoftNeutral,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(modifier = Modifier.padding(8.dp)) {
+                        Column(
+                            modifier = Modifier.padding(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
                             if (!m.badge.isNullOrBlank()) {
                                 Text(
                                     text = "✦ ${m.badge}",
                                     fontSize = 10.sp,
-                                    color = WalletMintAccent,
+                                    color = if (m.isClarification) WalletWarningText else WalletMintAccent,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
@@ -1508,69 +1587,319 @@ private fun FloatingChatCard(
                                 fontSize = 12.sp,
                                 color = WalletInk
                             )
+                            val undoTok = m.undoToken
+                            if (undoTok != null && !undoTok.undone) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    FloatingPillButton(label = "↶ Hoàn tác", danger = true) {
+                                        if (tagActionBusy) return@FloatingPillButton
+                                        tagActionBusy = true
+                                        scope.launch {
+                                            try {
+                                                val undoMsg = session.undoTagAssignment(serviceContext, undoTok)
+                                                messages = (messages.mapIndexed { idx, item ->
+                                                    if (idx == msgIdx && item.undoToken != null) {
+                                                        item.copy(undoToken = item.undoToken.copy(undone = true))
+                                                    } else item
+                                                } + undoMsg).takeLast(14)
+                                                val fresh = session.loadContextData(serviceContext)
+                                                snapshotData = fresh
+                                                session.persistSharedState(
+                                                    context = serviceContext,
+                                                    drafts = pendingProposals,
+                                                    pendingTagAssignments = pendingTagAssignments,
+                                                    perms = fresh.perms,
+                                                    newHistoryEntries = listOf(buildHistoryEntryFromFloating(undoMsg))
+                                                )
+                                                onReload()
+                                            } finally {
+                                                tagActionBusy = false
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if (m.suggestions.isNotEmpty()) {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    m.suggestions.forEach { suggestion ->
+                                        FloatingPillButton(
+                                            label = suggestion,
+                                            accent = m.isClarification
+                                        ) {
+                                            sendQuery(suggestion)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
 
-                pendingProposals.forEach { prop ->
+                pendingTagAssignments.forEach { assign ->
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = WalletMintSoft,
                         border = BorderStroke(1.dp, WalletMintAccent),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
+                        Column(
                             modifier = Modifier.padding(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            verticalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = prop.title,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = WalletInk
-                                )
-                                Text(
-                                    text = "${prop.dateLocal} · ${prop.durationSeconds / 60L}p" +
-                                        if (prop.startLocal != null && prop.endLocal != null) " (${prop.startLocal}–${prop.endLocal})" else "",
-                                    fontSize = 10.sp,
-                                    color = WalletMuted
-                                )
-                            }
-                            FloatingPillButton(label = "✓ Xác nhận", accent = true) {
-                                scope.launch {
-                                    val db = TimeWalletDatabase.getInstance(serviceContext)
-                                    val store = TimerAndSettingsStore(serviceContext)
-                                    val input = BatchRecordInput(
-                                        id = prop.id,
-                                        source = "chat",
-                                        rawTitle = prop.title,
-                                        rawCategory = prop.category,
-                                        dateLocal = prop.dateLocal,
-                                        durationMinutes = (prop.durationSeconds / 60L).toInt().coerceAtLeast(1),
-                                        startHm = prop.startLocal,
-                                        endHm = prop.endLocal,
-                                        convertFutureToPlanned = prop.isFuturePlanned,
-                                        idempotencyKey = prop.id
-                                    )
-                                    val res = BatchConfirm.run(
-                                        dao = db.ledgerDao(),
-                                        inputs = listOf(input),
-                                        activeTimer = store.loadActiveTimer(),
-                                        readActiveTimer = { store.loadActiveTimer() },
-                                        nowEpochMs = System.currentTimeMillis(),
-                                        zone = ZoneId.systemDefault()
-                                    )
-                                    val notice = when (res) {
-                                        is ConfirmResult.Committed -> "✓ Đã ghi \"${prop.title}\" (${res.savedCount} mục)."
-                                        is ConfirmResult.Aborted -> "Không ghi được: ${res.message}"
-                                        is ConfirmResult.Invalid -> "Không hợp lệ: ${res.message}"
+                            Text(
+                                text = "Gắn Tag cho phiên đã lưu",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = WalletMintAccent
+                            )
+                            Text(
+                                text = assign.recordTitle,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = WalletInk
+                            )
+                            Text(
+                                text = "${assign.recordDateLocal} · ${assign.recordTimeLabel}\nTag: ${assign.previousTagName ?: "Chưa gắn"} → ${assign.newTagName ?: "Không gắn Tag"}",
+                                fontSize = 10.5.sp,
+                                color = WalletMuted
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                FloatingPillButton(label = "✕ Bỏ") {
+                                    val nextAssigns = pendingTagAssignments.filterNot { it.id == assign.id }
+                                    pendingTagAssignments = nextAssigns
+                                    snapshotData?.let { data ->
+                                        session.persistSharedState(serviceContext, pendingProposals, nextAssigns, data.perms)
                                     }
-                                    pendingProposals = pendingProposals.filterNot { it.id == prop.id }
-                                    messages = (messages + FloatingChatMsg(isUser = false, text = notice)).takeLast(12)
-                                    WallyActionController.notifyAllWidgets(serviceContext)
-                                    onReload()
+                                }
+                                Spacer(modifier = Modifier.weight(1f))
+                                FloatingPillButton(label = "✓ Duyệt gắn Tag", accent = true) {
+                                    if (tagActionBusy) return@FloatingPillButton
+                                    tagActionBusy = true
+                                    scope.launch {
+                                        try {
+                                            val resMsg = session.approveTagAssignment(serviceContext, assign)
+                                            val nextAssigns = pendingTagAssignments.filterNot { it.id == assign.id }
+                                            pendingTagAssignments = nextAssigns
+                                            messages = (messages + resMsg).takeLast(14)
+                                            val fresh = session.loadContextData(serviceContext)
+                                            snapshotData = fresh
+                                            session.persistSharedState(
+                                                context = serviceContext,
+                                                drafts = pendingProposals,
+                                                pendingTagAssignments = nextAssigns,
+                                                perms = fresh.perms,
+                                                newHistoryEntries = listOf(buildHistoryEntryFromFloating(resMsg))
+                                            )
+                                            onReload()
+                                        } finally {
+                                            tagActionBusy = false
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                pendingProposals.forEach { draft ->
+                    val draftTag = draft.tagId?.let { id -> activeTags.firstOrNull { it.id == id } }
+                    val cat = TimeCategory.fromKeyOrDefault(draft.categoryKey)
+                    val isTagOpen = expandedTagDraftId == draft.id
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = WalletMintSoft,
+                        border = BorderStroke(1.dp, WalletMintAccent),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = draft.title,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = WalletInk
+                                    )
+                                    Text(
+                                        text = buildString {
+                                            append("${cat.displayName} · ${draft.dateLocal} · ${draft.durationMinutes}p")
+                                            if (draft.startLocal.isNotBlank() && draft.endLocal.isNotBlank()) {
+                                                append(" (${draft.startLocal}–${draft.endLocal})")
+                                            }
+                                            if (draftTag != null) append(" · 🏷 ${draftTag.name}")
+                                        },
+                                        fontSize = 10.sp,
+                                        color = WalletMuted
+                                    )
+                                }
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                FloatingPillButton(
+                                    label = if (isTagOpen) "Đóng Tag" else (draftTag?.let { "🏷 ${it.name}" } ?: "+ Tag")
+                                ) {
+                                    expandedTagDraftId = if (isTagOpen) null else draft.id
+                                }
+                                FloatingPillButton(label = "✕") {
+                                    val data = snapshotData
+                                    val next = if (data != null) {
+                                        session.removeDraft(pendingProposals, draft.id, data.tags, data.perms)
+                                    } else {
+                                        pendingProposals.filterNot { it.id == draft.id }
+                                    }
+                                    pendingProposals = next
+                                    if (expandedTagDraftId == draft.id) expandedTagDraftId = null
+                                    if (data != null) {
+                                        session.persistSharedState(serviceContext, next, pendingTagAssignments, data.perms)
+                                    }
+                                }
+                                Spacer(modifier = Modifier.weight(1f))
+                                FloatingPillButton(
+                                    label = if (confirmingDraftId == draft.id) "Đang lưu…" else "✓ Xác nhận",
+                                    accent = true
+                                ) {
+                                    if (confirmingDraftId != null) return@FloatingPillButton
+                                    confirmingDraftId = draft.id
+                                    scope.launch {
+                                        try {
+                                            val db = TimeWalletDatabase.getInstance(serviceContext)
+                                            val store = TimerAndSettingsStore(serviceContext)
+                                            val freshData = session.loadContextData(serviceContext)
+                                            snapshotData = freshData
+                                            val input = session.buildConfirmInput(draft)
+                                            val res = try {
+                                                BatchConfirm.run(
+                                                    dao = db.ledgerDao(),
+                                                    inputs = listOf(input),
+                                                    activeTimer = freshData.activeTimer ?: store.loadActiveTimer(),
+                                                    readActiveTimer = { store.loadActiveTimer() },
+                                                    nowEpochMs = System.currentTimeMillis(),
+                                                    zone = ZoneId.systemDefault()
+                                                )
+                                            } catch (e: kotlinx.coroutines.CancellationException) {
+                                                throw e
+                                            } catch (_: Throwable) {
+                                                ConfirmResult.Aborted("Lỗi lưu cục bộ — vui lòng thử lại.")
+                                            }
+                                            val noticeMsg = when (res) {
+                                                is ConfirmResult.Committed -> {
+                                                    val next = session.removeDraft(
+                                                        pendingProposals, draft.id, freshData.tags, freshData.perms
+                                                    )
+                                                    pendingProposals = next
+                                                    if (expandedTagDraftId == draft.id) expandedTagDraftId = null
+                                                    val okMsg = FloatingChatMsg(
+                                                        isUser = false,
+                                                        text = "✓ Đã ghi \"${draft.title}\" (${res.savedCount} mục).",
+                                                        badge = "Đã lưu"
+                                                    )
+                                                    session.persistSharedState(
+                                                        context = serviceContext,
+                                                        drafts = next,
+                                                        pendingTagAssignments = pendingTagAssignments,
+                                                        perms = freshData.perms,
+                                                        newHistoryEntries = listOf(buildHistoryEntryFromFloating(okMsg))
+                                                    )
+                                                    okMsg
+                                                }
+                                                is ConfirmResult.Aborted -> FloatingChatMsg(
+                                                    isUser = false,
+                                                    text = "Lưu chưa thành công: ${res.message}\nĐề xuất \"${draft.title}\" vẫn được giữ nguyên (ngày/giờ/Tag) để bạn kiểm tra hoặc bấm ✓ Xác nhận lại.",
+                                                    badge = "Thử lại lưu",
+                                                    isClarification = true
+                                                )
+                                                is ConfirmResult.Invalid -> FloatingChatMsg(
+                                                    isUser = false,
+                                                    text = "Chưa thể lưu: ${res.message}\nĐề xuất \"${draft.title}\" vẫn được giữ nguyên — kiểm tra lại rồi bấm ✓ Xác nhận.",
+                                                    badge = "Kiểm tra lại",
+                                                    isClarification = true
+                                                )
+                                            }
+                                            messages = (messages + noticeMsg).takeLast(14)
+                                            WallyActionController.notifyAllWidgets(serviceContext)
+                                            onReload()
+                                        } finally {
+                                            confirmingDraftId = null
+                                        }
+                                    }
+                                }
+                            }
+                            if (isTagOpen) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(WalletCardBg)
+                                        .padding(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
+                                    if (activeTags.isEmpty()) {
+                                        Text(
+                                            text = "Chưa có Tag cá nhân.",
+                                            fontSize = 10.5.sp,
+                                            color = WalletMuted
+                                        )
+                                    } else {
+                                        if (activeTags.size > 4 || tagSearchQuery.isNotBlank()) {
+                                            OutlinedTextField(
+                                                value = tagSearchQuery,
+                                                onValueChange = { tagSearchQuery = it },
+                                                placeholder = { Text("Tìm Tag...", fontSize = 10.sp) },
+                                                singleLine = true,
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        }
+                                        val shownTags = TagRules.search(activeTags, tagSearchQuery, limit = 12)
+                                        FlowRow(
+                                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            if (draft.tagId != null) {
+                                                FloatingPillButton(label = "Bỏ Tag", danger = true) {
+                                                    snapshotData?.let { data ->
+                                                        val next = session.updateDraftTag(
+                                                            pendingProposals, draft.id, null, data.tags, data.perms
+                                                        )
+                                                        pendingProposals = next
+                                                        session.persistSharedState(serviceContext, next, pendingTagAssignments, data.perms)
+                                                    }
+                                                }
+                                            }
+                                            shownTags.forEach { t ->
+                                                FloatingPillButton(
+                                                    label = t.name,
+                                                    accent = draft.tagId == t.id
+                                                ) {
+                                                    snapshotData?.let { data ->
+                                                        val nextTag = if (draft.tagId == t.id) null else t.id
+                                                        val next = session.updateDraftTag(
+                                                            pendingProposals, draft.id, nextTag, data.tags, data.perms
+                                                        )
+                                                        pendingProposals = next
+                                                        session.persistSharedState(serviceContext, next, pendingTagAssignments, data.perms)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

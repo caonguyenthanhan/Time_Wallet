@@ -134,6 +134,45 @@ object WallyTurnPolicy {
         pendingDrafts: Int,
         allowAdvisoryCard: Boolean = false
     ): ChatAnswer? {
+        if (outcome.tagAssignmentProposals.isNotEmpty() && outcome.proposals.isEmpty() && outcome.queries.isEmpty()) {
+            return ChatAnswer(
+                question = question,
+                headline = "Đã đối chiếu phiên cần cập nhật Tag — kiểm tra rồi bấm ✓ Duyệt gắn Tag bên dưới.",
+                lines = outcome.tagAssignmentProposals.map { p ->
+                    val target = p.newTagName?.let { "Tag $it" } ?: "Bỏ Tag"
+                    "${p.recordTitle} (${p.recordDateLocal} ${p.recordTimeLabel}) → $target"
+                },
+                notes = outcome.warnings.distinct(),
+                isClarification = false,
+                label = "Chờ duyệt gắn Tag"
+            )
+        }
+        if (outcome.proposals.isEmpty() &&
+            outcome.tagAssignmentProposals.isEmpty() &&
+            outcome.queries.isEmpty() &&
+            outcome.clarificationSuggestions.isNotEmpty() &&
+            outcome.reply?.trim()?.endsWith("?") == true
+        ) {
+            return ChatAnswer(
+                question = question,
+                headline = outcome.reply.trim(),
+                lines = listOfNotNull(
+                    outcome.pendingClarification?.let { p ->
+                        buildString {
+                            append("Đang chuẩn bị: ")
+                            append(p.title)
+                            append(" · ")
+                            append(p.dateLocal)
+                            if (!p.tagName.isNullOrBlank()) append(" · Tag: ${p.tagName}")
+                        }
+                    }
+                ),
+                notes = outcome.warnings.distinct(),
+                isClarification = true,
+                suggestions = outcome.clarificationSuggestions,
+                label = if (outcome.pendingClarification != null) "Cần làm rõ lịch" else "Chọn phiên cần gắn Tag"
+            )
+        }
         val kind = classify(question, outcome.proposals.size, outcome.queries.size, pendingDrafts)
         return when (kind) {
             Kind.RECORD -> {
@@ -153,7 +192,34 @@ object WallyTurnPolicy {
                 WallyAnswerBuilder.build(question, reply, answers, outcome.warnings, proposalCount = 0)
             }
             Kind.TRANSACTION_CHAT -> statusCard(question, pendingDrafts, outcome.warnings, askBack = askBackOf(question, outcome.reply))
-            Kind.PLAIN_CHAT -> WallyAnswerBuilder.build(question, outcome.reply, answers, outcome.warnings, proposalCount = 0)
+            Kind.PLAIN_CHAT -> {
+                val base = WallyAnswerBuilder.build(question, outcome.reply, answers, outcome.warnings, proposalCount = 0)
+                val pending = outcome.pendingClarification
+                val isAskClarify = base != null &&
+                    outcome.proposals.isEmpty() &&
+                    outcome.queries.isEmpty() &&
+                    (pending != null || outcome.clarificationSuggestions.isNotEmpty()) &&
+                    outcome.reply?.trim()?.endsWith("?") == true
+                if (isAskClarify) {
+                    val contextLine = pending?.let { p ->
+                        buildString {
+                            append("Đang chuẩn bị: ")
+                            append(p.title)
+                            append(" · ")
+                            append(p.dateLocal)
+                            if (!p.tagName.isNullOrBlank()) append(" · Tag: ${p.tagName}")
+                        }
+                    }
+                    base.copy(
+                        isClarification = true,
+                        label = "Cần làm rõ lịch",
+                        lines = listOfNotNull(contextLine) + base.lines,
+                        suggestions = outcome.clarificationSuggestions.ifEmpty { base.suggestions }
+                    )
+                } else {
+                    base
+                }
+            }
         }
     }
 }

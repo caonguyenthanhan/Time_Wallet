@@ -62,8 +62,31 @@ interface LedgerDao {
         excludeId: String = ""
     ): LedgerRecordEntity?
 
+    @Query("SELECT * FROM ledger_records WHERE id = :id LIMIT 1")
+    suspend fun findById(id: String): LedgerRecordEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertInternal(entity: LedgerRecordEntity)
+
+    @Transaction
+    suspend fun updateRecordTagTransactionally(
+        recordId: String,
+        newTagId: String?,
+        newCategoryKey: String
+    ): DbCommitOutcome = LedgerConcurrencyGate.mutex.withLock {
+        val current = findById(recordId)
+            ?: return@withLock DbCommitOutcome.InvalidEntityRejected("Không tìm thấy phiên đã lưu để cập nhật Tag.")
+        if (current.status == "CANCELLED" || current.confirmationState == "CANCELLED") {
+            return@withLock DbCommitOutcome.InvalidEntityRejected("Không thể gắn Tag cho hoạt động đã hủy.")
+        }
+        upsertInternal(
+            current.copy(
+                tagId = newTagId,
+                category = newCategoryKey
+            )
+        )
+        DbCommitOutcome.Saved
+    }
 
     @Query("DELETE FROM ledger_records WHERE id = :id")
     suspend fun deleteById(id: String)

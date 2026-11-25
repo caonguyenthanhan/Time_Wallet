@@ -16,8 +16,8 @@ import java.util.Locale
  * vẫn kiểm chứng bộ phân tích như hồi quy. Phần parser có thể xóa ở một đợt dọn dẹp sau khi Owner đồng ý.
  */
 
-/** BUDGET (v1.0.6, R02): tiến độ ngân sách theo danh mục, tính bằng computeBudgetProgress chung với Tổng quan/Insights. */
-enum class QueryMetric { TOTAL, UNTIMED, PLANNED, TOP_CATEGORY, LEAST_CATEGORY, BREAKDOWN, BUDGET }
+/** BUDGET (v1.0.6, R02): tiến độ ngân sách theo danh mục, tính bằng computeBudgetProgress chung với Tổng quan/Insights; TYPICAL_WINDOW (v2.2.3): khung giờ thường thực hiện. */
+enum class QueryMetric { TOTAL, UNTIMED, PLANNED, TOP_CATEGORY, LEAST_CATEGORY, BREAKDOWN, BUDGET, TYPICAL_WINDOW }
 
 enum class QueryPeriodKind { DAY, WEEK, MONTH, ROLLING, DATE }
 
@@ -61,14 +61,18 @@ data class QueryIntent(
     val metric: QueryMetric,
     val period: QueryPeriod,
     val category: TimeCategory? = null,
-    val compareTo: QueryPeriod? = null
+    val compareTo: QueryPeriod? = null,
+    val tagId: String? = null,
+    val tagName: String? = null
 )
 
 /** Ngữ cảnh câu hỏi gần nhất, chỉ giữ trong RAM để hiểu câu hỏi nối tiếp ("còn tuần trước thì sao?"). */
 data class QueryContext(
     val metric: QueryMetric,
     val period: QueryPeriod,
-    val category: TimeCategory?
+    val category: TimeCategory?,
+    val tagId: String? = null,
+    val tagName: String? = null
 )
 
 sealed class ChatRoute {

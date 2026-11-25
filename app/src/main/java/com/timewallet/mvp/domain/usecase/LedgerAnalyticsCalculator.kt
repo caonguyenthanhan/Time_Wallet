@@ -5,6 +5,7 @@ import com.timewallet.mvp.domain.model.BudgetPeriod
 import com.timewallet.mvp.domain.model.CategoryTimeBudget
 import com.timewallet.mvp.domain.model.Goal
 import com.timewallet.mvp.domain.model.GoalKind
+import com.timewallet.mvp.domain.model.GoalPeriod
 import com.timewallet.mvp.domain.model.GoalTargetType
 import com.timewallet.mvp.domain.model.GoalVersionStatus
 import com.timewallet.mvp.domain.model.LedgerRecord
@@ -1259,37 +1260,21 @@ object LedgerAnalyticsCalculator {
             tagNameOf = { id -> tagById[id]?.name },
             today = endDate,
             nowEpochMs = nowEpochMs,
-            zone = zoneId
+            zone = zoneId,
+            activeTimer = activeTimer
         )
-        val goalItems = if (summaries.isNotEmpty()) {
-            summaries.mapNotNull { s ->
-                val p = s.progress ?: return@mapNotNull null
-                val tagCat = if (s.latest.targetType == GoalTargetType.TAG) tagById[s.latest.targetKey]?.category else null
-                val colorHex = when (s.latest.targetType) {
-                    GoalTargetType.TAG -> tagCat?.colorHex ?: 0xFF287BCBL
-                    GoalTargetType.CATEGORY -> TimeCategory.fromKeyOrDefault(s.latest.targetKey).colorHex
-                }
-                val untaggedCatSecs = if (p.usedSeconds == 0L && tagCat != null) (untaggedByCategory[tagCat] ?: 0L) else 0L
-                val hint = if (untaggedCatSecs > 0L && tagCat != null) {
-                    "Có ${formatCompactDurationSeconds(untaggedCatSecs)} ${tagCat.displayName} chưa gắn Tag \"${s.name}\""
-                } else {
-                    null
-                }
-                val math = GoalDisplayMath.from(p.usedSeconds, p.targetSeconds)
-                EfficiencyGoalItem(
-                    id = s.groupId,
-                    title = s.name,
-                    progressText = "${math.usedLabel} / ${math.targetLabel}",
-                    fraction = p.fraction,
-                    accentHex = colorHex,
-                    met = p.met,
-                    hintVi = hint
-                )
-            }.take(4)
-        } else {
-            val budgetList = weeklyInsights?.budgetProgressList
-                ?: computeBudgetProgress(budgets, records, zoneId, nowEpochMs, activeTimer)
-            budgetList.take(4).map { b ->
+        val coveredWeeklyMaxCategories = summaries
+            .filter {
+                it.latest.targetType == GoalTargetType.CATEGORY &&
+                    it.latest.kind == GoalKind.MAX &&
+                    it.latest.period == GoalPeriod.WEEK
+            }
+            .mapTo(HashSet()) { it.latest.targetKey }
+        val budgetList = weeklyInsights?.budgetProgressList
+            ?: computeBudgetProgress(budgets, records, zoneId, nowEpochMs, activeTimer)
+        val uncoveredBudgetItems = budgetList
+            .filter { b -> b.period != BudgetPeriod.WEEKLY || b.category.key !in coveredWeeklyMaxCategories }
+            .map { b ->
                 val combinedUsed = b.usedSeconds + b.untimedNoteSeconds
                 val usedLabel = if (combinedUsed <= 0L) "0p" else formatCompactDurationSeconds(combinedUsed)
                 EfficiencyGoalItem(
@@ -1298,10 +1283,34 @@ object LedgerAnalyticsCalculator {
                     progressText = "$usedLabel / ${formatCompactDurationSeconds(b.targetSeconds)}",
                     fraction = b.combinedProgressFraction,
                     accentHex = b.category.colorHex,
-                    met = combinedUsed >= b.targetSeconds
+                    met = !b.combinedIsExceeded
                 )
             }
+        val activeGoalCards = summaries.mapNotNull { s ->
+            val p = s.progress ?: return@mapNotNull null
+            val tagCat = if (s.latest.targetType == GoalTargetType.TAG) tagById[s.latest.targetKey]?.category else null
+            val colorHex = when (s.latest.targetType) {
+                GoalTargetType.TAG -> tagCat?.colorHex ?: 0xFF287BCBL
+                GoalTargetType.CATEGORY -> TimeCategory.fromKeyOrDefault(s.latest.targetKey).colorHex
+            }
+            val untaggedCatSecs = if (p.usedSeconds == 0L && tagCat != null) (untaggedByCategory[tagCat] ?: 0L) else 0L
+            val hint = if (untaggedCatSecs > 0L && tagCat != null) {
+                "Có ${formatCompactDurationSeconds(untaggedCatSecs)} ${tagCat.displayName} chưa gắn Tag \"${s.name}\""
+            } else {
+                null
+            }
+            val math = GoalDisplayMath.from(p.usedSeconds, p.targetSeconds)
+            EfficiencyGoalItem(
+                id = s.groupId,
+                title = s.name,
+                progressText = "${math.usedLabel} / ${math.targetLabel}",
+                fraction = p.fraction,
+                accentHex = colorHex,
+                met = p.met,
+                hintVi = hint
+            )
         }
+        val goalItems = (activeGoalCards + uncoveredBudgetItems).take(4)
 
         val totalGoal = days.sumOf { it.goalSeconds }
         val totalNeutral = days.sumOf { it.neutralSeconds }

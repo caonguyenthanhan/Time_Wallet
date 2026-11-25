@@ -1,5 +1,6 @@
 package com.timewallet.mvp.domain.usecase
 
+import com.timewallet.mvp.domain.model.ActiveTimerSession
 import com.timewallet.mvp.domain.model.Goal
 import com.timewallet.mvp.domain.model.GoalGroupState
 import com.timewallet.mvp.domain.model.GoalKind
@@ -130,7 +131,7 @@ object GoalRules {
         GoalTargetType.CATEGORY -> r.category.key == goal.targetKey
     }
 
-    /** Giây đã diễn ra của các bản ghi đạt điều kiện trong khoảng từ ngày `from` đến ngày `to` (cắt theo ngày lịch cho hoạt động qua nửa đêm). */
+    /** Giây đã diễn ra của các bản ghi đạt điều kiện (và đồng hồ đang chạy nếu có) trong khoảng từ ngày `from` đến ngày `to`. */
     fun usedSeconds(
         goalTargetType: GoalTargetType,
         goalTargetKey: String,
@@ -138,7 +139,8 @@ object GoalRules {
         from: LocalDate,
         to: LocalDate,
         nowEpochMs: Long,
-        zone: ZoneId
+        zone: ZoneId,
+        activeTimer: ActiveTimerSession? = null
     ): Long {
         var sum = 0L
         for (r in records) {
@@ -153,7 +155,31 @@ object GoalRules {
                 confirmedFinalOnly = false
             )
         }
+        sum += activeTimerSecondsInDateRange(goalTargetType, goalTargetKey, activeTimer, from, to, nowEpochMs, zone)
         return sum
+    }
+
+    private fun activeTimerSecondsInDateRange(
+        goalTargetType: GoalTargetType,
+        goalTargetKey: String,
+        activeTimer: ActiveTimerSession?,
+        from: LocalDate,
+        to: LocalDate,
+        nowEpochMs: Long,
+        zone: ZoneId
+    ): Long {
+        if (activeTimer == null || activeTimer.startedAtEpochMs >= nowEpochMs || to.isBefore(from)) return 0L
+        val matches = if (goalTargetType == GoalTargetType.TAG) {
+            activeTimer.tagId != null && activeTimer.tagId == goalTargetKey
+        } else {
+            activeTimer.categoryKey == goalTargetKey
+        }
+        if (!matches) return 0L
+        val winStartMs = from.atStartOfDay(zone).toInstant().toEpochMilli()
+        val winEndMs = to.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val cs = maxOf(activeTimer.startedAtEpochMs, winStartMs)
+        val ce = minOf(nowEpochMs, winEndMs)
+        return ((ce - cs) / 1000L).coerceAtLeast(0L)
     }
 
     /** Chỉ đếm phần thời gian thực tế ĐÃ XÁC NHẬN HOÀN THÀNH / ĐIỀU CHỈNH / GIÁN ĐOẠN (không tính PENDING / PLANNED / CANCELLED / DOING chưa chốt). */
@@ -183,9 +209,16 @@ object GoalRules {
     }
 
     /** Tiến độ của [goal] trong kỳ chứa [date]. */
-    fun progress(goal: Goal, records: List<LedgerRecord>, date: LocalDate, nowEpochMs: Long, zone: ZoneId): GoalProgress {
+    fun progress(
+        goal: Goal,
+        records: List<LedgerRecord>,
+        date: LocalDate,
+        nowEpochMs: Long,
+        zone: ZoneId,
+        activeTimer: ActiveTimerSession? = null
+    ): GoalProgress {
         val (from, to) = periodBounds(goal.period, date)
-        val used = usedSeconds(goal.targetType, goal.targetKey, records, from, to, nowEpochMs, zone)
+        val used = usedSeconds(goal.targetType, goal.targetKey, records, from, to, nowEpochMs, zone, activeTimer)
         return GoalProgress(goal, from.toString(), to.toString(), used, goal.targetSeconds)
     }
 
@@ -217,12 +250,13 @@ object GoalRules {
         today: LocalDate,
         nowEpochMs: Long,
         zone: ZoneId,
-        includeEnded: Boolean = false
+        includeEnded: Boolean = false,
+        activeTimer: ActiveTimerSession? = null
     ): List<Summary> = goals.groupBy { it.groupId }.mapNotNull { (gid, versions) ->
         val last = latest(versions) ?: return@mapNotNull null
         val st = groupState(versions)
         if (st == GoalGroupState.ENDED && !includeEnded) return@mapNotNull null
-        Summary(gid, displayName(last, tagNameOf), st, last, if (st == GoalGroupState.ACTIVE) progress(last, records, today, nowEpochMs, zone) else null)
+        Summary(gid, displayName(last, tagNameOf), st, last, if (st == GoalGroupState.ACTIVE) progress(last, records, today, nowEpochMs, zone, activeTimer) else null)
     }.sortedWith(compareBy<Summary>({ it.state.ordinal }, { it.name.lowercase() }))
 
     fun displayName(goal: Goal, tagNameOf: (String) -> String?): String = when (goal.targetType) {

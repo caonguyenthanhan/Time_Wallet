@@ -370,12 +370,16 @@ fun TimeWalletAppRoot(
     }
 
     // v1.1.0: tóm tắt mục tiêu (tiến độ do ứng dụng tính) và gợi ý Tag gần đây/thường dùng; tính lại khi sổ cái/Tag/mục tiêu đổi.
-    val goalSummaries = remember(state.goals, state.records, state.tags, state.todayDateLocal) {
+    val goalSummaries = remember(
+        state.goals, state.records, state.tags, state.activeTimer, state.todayDateLocal,
+        state.weeklyEfficiency, if (state.showGoals) state.timerElapsedSeconds else 0L
+    ) {
         val zone = ZoneId.systemDefault()
         GoalRules.summaries(
             goals = state.goals, records = state.records,
             tagNameOf = { id -> state.tags.firstOrNull { it.id == id }?.name },
-            today = LocalDate.now(zone), nowEpochMs = System.currentTimeMillis(), zone = zone
+            today = LocalDate.now(zone), nowEpochMs = System.currentTimeMillis(), zone = zone,
+            activeTimer = state.activeTimer
         )
     }
     val activeTags = remember(state.tags) { state.tags.filter { !it.isArchived } }
@@ -722,7 +726,7 @@ fun TimeWalletAppRoot(
         val popOnBubbleVisible = state.customization.enableAiAssistant && !modalBlockingPopOn && !state.floatingAssistantEnabled
         if (popOnBubbleVisible) {
             WallyPopOnBubble(
-                hasDrafts = state.proposals.isNotEmpty(),
+                hasDrafts = state.proposals.isNotEmpty() || state.pendingTagAssignments.isNotEmpty(),
                 bottomClearanceDp = if (state.showScheduleWorkspace) 14 else 70,
                 onClick = { viewModel.openWallyOverlay() }
             )
@@ -770,7 +774,21 @@ fun TimeWalletAppRoot(
             onAdjust = viewModel::confirmAdjusted,
             onInterrupt = viewModel::confirmInterrupted,
             onContinue = viewModel::confirmContinued,
-            onCancelActivity = viewModel::confirmCancelled
+            onCancelActivity = viewModel::confirmCancelled,
+            tags = activeTags,
+            tagSuggestions = tagSuggestions,
+            onConfirmCompletedWithTag = { tagId ->
+                viewModel.confirmCompleted(overrideTagId = tagId, overrideTagSet = true)
+            },
+            onAdjustWithTag = { title, startHm, endHm, tagId ->
+                viewModel.confirmAdjusted(
+                    title = title,
+                    startHm = startHm,
+                    endHm = endHm,
+                    newTagId = tagId,
+                    tagOverrideSet = true
+                )
+            }
         )
     }
 
@@ -806,7 +824,24 @@ fun TimeWalletAppRoot(
             },
             onDelete = { viewModel.deleteRecord(record.id) },
             onOpenConfirmation = { viewModel.confirmPlannedOrActiveRecord(record) },
-            todayDateLocal = state.todayDateLocal
+            todayDateLocal = state.todayDateLocal,
+            tagSuggestions = tagSuggestions,
+            allActiveTags = activeTags,
+            onSaveWithTag = { title, catKey, dateLocal, durationMinsText, startHm, endHm, allowPlanned, markedWaste, tagId ->
+                viewModel.saveEditedRecord(
+                    existing = record,
+                    newTitle = title,
+                    newCategoryKey = catKey,
+                    newDateLocal = dateLocal,
+                    newDurationMinutesText = durationMinsText,
+                    newStartHm = startHm,
+                    newEndHm = endHm,
+                    allowFutureAsPlanned = allowPlanned,
+                    newMarkedWaste = markedWaste,
+                    newTagId = tagId,
+                    tagOverrideSet = true
+                )
+            }
         )
     }
 
@@ -1053,7 +1088,13 @@ fun TimeWalletAppRoot(
             onCleanChatInput = viewModel::cleanChatInput,
             onCopyPromptToast = { viewModel.showToast("Đã sao chép prompt.") },
             onEditAndResubmitPrompt = viewModel::editAndResubmitChatPrompt,
-            onOpenAppIntro = viewModel::openAppIntro
+            onOpenAppIntro = viewModel::openAppIntro,
+            tags = activeTags,
+            tagSuggestions = tagSuggestions,
+            pendingTagAssignments = state.pendingTagAssignments,
+            onApproveTagAssignment = viewModel::approveTagAssignment,
+            onDismissTagAssignment = viewModel::dismissTagAssignment,
+            onUndoTagAssignment = viewModel::undoTagAssignment
         )
     }
 

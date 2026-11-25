@@ -986,7 +986,20 @@ fun EditRecordDialog(
     onOpenConfirmation: (() -> Unit)? = null,
     todayDateLocal: String = LocalDate.now().toString(),
     nowEpochMs: Long = System.currentTimeMillis(),
-    linkedTask: TaskItem? = null
+    linkedTask: TaskItem? = null,
+    tagSuggestions: List<Tag> = emptyList(),
+    allActiveTags: List<Tag> = emptyList(),
+    onSaveWithTag: ((
+        title: String,
+        categoryKey: String,
+        dateLocal: String,
+        durationMinutesText: String,
+        startHm: String,
+        endHm: String,
+        allowFutureAsPlanned: Boolean,
+        isMarkedWaste: Boolean,
+        tagId: String?
+    ) -> Unit)? = null
 ) {
     val zone = remember(record.timezone) {
         try {
@@ -1013,6 +1026,8 @@ fun EditRecordDialog(
 
     var title by remember(record.id) { mutableStateOf(record.title) }
     var categoryKey by remember(record.id) { mutableStateOf(record.category.key) }
+    var selectedTagId by remember(record.id) { mutableStateOf(record.tagId) }
+    var tagQuery by remember(record.id) { mutableStateOf("") }
     var dateLocal by remember(record.id) { mutableStateOf(record.date) }
     var durationMinutesText by remember(record.id) { mutableStateOf(record.durationMinutes.toString()) }
     var startHm by remember(record.id) { mutableStateOf(initialStart) }
@@ -1153,6 +1168,44 @@ fun EditRecordDialog(
                         onSelectCategory = { categoryKey = it }
                     )
 
+                    val tagPool = allActiveTags.ifEmpty { tagSuggestions }
+                    if (tagPool.isNotEmpty() || selectedTagId != null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Tag cá nhân",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = WalletMuted
+                            )
+                            if (selectedTagId != null) {
+                                TextButton(
+                                    onClick = { selectedTagId = null },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                ) {
+                                    Text("Bỏ Tag", fontSize = 11.5.sp, color = WalletDangerText, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                        TagPicker(
+                            suggestions = tagSuggestions.ifEmpty { tagPool.take(8) },
+                            allActiveTags = tagPool,
+                            selectedTagId = selectedTagId,
+                            query = tagQuery,
+                            onQueryChange = { tagQuery = it },
+                            onSelect = { picked ->
+                                val nextId = if (selectedTagId == picked) null else picked
+                                selectedTagId = nextId
+                                val pickedTag = tagPool.firstOrNull { it.id == nextId }
+                                if (pickedTag != null) categoryKey = pickedTag.category.key
+                            },
+                            onCreateClick = null
+                        )
+                    }
+
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(
                             value = dateLocal,
@@ -1243,16 +1296,30 @@ fun EditRecordDialog(
                     }
                     Button(
                         onClick = {
-                            onSave(
-                                title,
-                                categoryKey,
-                                dateLocal,
-                                durationMinutesText,
-                                startHm,
-                                endHm,
-                                allowPlanned,
-                                markedWaste && !allowPlanned
-                            )
+                            if (onSaveWithTag != null) {
+                                onSaveWithTag(
+                                    title,
+                                    categoryKey,
+                                    dateLocal,
+                                    durationMinutesText,
+                                    startHm,
+                                    endHm,
+                                    allowPlanned,
+                                    markedWaste && !allowPlanned,
+                                    selectedTagId
+                                )
+                            } else {
+                                onSave(
+                                    title,
+                                    categoryKey,
+                                    dateLocal,
+                                    durationMinutesText,
+                                    startHm,
+                                    endHm,
+                                    allowPlanned,
+                                    markedWaste && !allowPlanned
+                                )
+                            }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = WalletMint, contentColor = Color.White)
                     ) {
