@@ -760,7 +760,7 @@ object WallyConversationEngine {
     }
 
     private fun tokenizeAscii(norm: String): List<String> =
-        norm.split(' ', ',', ';', '.', '!', '?', '\n').map { it.trim() }.filter { it.isNotEmpty() }
+        norm.split(' ', ',', ';', '.', '!', '?', '(', ')', '[', ']', '–', '\n').map { it.trim() }.filter { it.isNotEmpty() }
 
     private fun hasPhrase(haystack: String, phrase: String): Boolean =
         (" $haystack ").contains(" $phrase ")

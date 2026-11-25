@@ -370,7 +370,10 @@ fun TimeWalletAppRoot(
     }
 
     // v1.1.0: tóm tắt mục tiêu (tiến độ do ứng dụng tính) và gợi ý Tag gần đây/thường dùng; tính lại khi sổ cái/Tag/mục tiêu đổi.
-    val goalSummaries = remember(state.goals, state.records, state.tags, state.activeTimer, state.todayDateLocal) {
+    val goalSummaries = remember(
+        state.goals, state.records, state.tags, state.activeTimer, state.todayDateLocal,
+        state.weeklyEfficiency, if (state.showGoals) state.timerElapsedSeconds else 0L
+    ) {
         val zone = ZoneId.systemDefault()
         GoalRules.summaries(
             goals = state.goals, records = state.records,

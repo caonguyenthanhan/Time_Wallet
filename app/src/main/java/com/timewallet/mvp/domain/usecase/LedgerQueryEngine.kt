@@ -182,7 +182,11 @@ object LedgerQueryEngine {
         // Thống nhất cả Goal mới và CategoryTimeBudget cũ chưa trùng trên cùng một phép tính với Thống kê/Mục tiêu.
         val allBudgets = LedgerAnalyticsCalculator.computeBudgetProgress(budgets, records, zoneId, nowEpochMs, activeTimer)
         val coveredWeeklyMaxCategories = activeGoals
-            .filter { it.latest.targetType == GoalTargetType.CATEGORY && it.latest.kind == GoalKind.MAX }
+            .filter {
+                it.latest.targetType == GoalTargetType.CATEGORY &&
+                    it.latest.kind == GoalKind.MAX &&
+                    it.latest.period == GoalPeriod.WEEK
+            }
             .mapTo(HashSet()) { it.latest.targetKey }
         val uncoveredBudgets = allBudgets.filter {
             it.period != com.timewallet.mvp.domain.model.BudgetPeriod.WEEKLY || it.category.key !in coveredWeeklyMaxCategories

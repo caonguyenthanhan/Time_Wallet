@@ -444,7 +444,9 @@ class WallyIntelligenceCoordinator(
         synchronized(lock) {
             val outcome = reconciled.outcome
             val base = if (conversationState.isValidFor(nowMs, perms)) conversationState else ConversationState.EMPTY
-            val newLastQuery = outcome.queries.lastOrNull()?.let { QueryContext(it.metric, it.period, it.category) } ?: base.lastQuery
+            val newLastQuery = outcome.queries.lastOrNull()?.let {
+                QueryContext(it.metric, it.period, it.category, it.tagId, it.tagName)
+            } ?: base.lastQuery
             val firstProposal = outcome.proposals.firstOrNull()
             val proposalTag = firstProposal?.tagId?.let { id -> tags.firstOrNull { !it.isArchived && it.id == id } }
             val queryTag = outcome.queries.lastOrNull()?.tagId?.let { id -> tags.firstOrNull { !it.isArchived && it.id == id } }

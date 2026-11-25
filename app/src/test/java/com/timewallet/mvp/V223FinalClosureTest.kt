@@ -514,4 +514,95 @@ class V223FinalClosureTest {
         assertTrue(strictParsed is StrictJson.Extracted.Obj)
         StrictJson.requireShape((strictParsed as StrictJson.Extracted.Obj).json)
     }
+
+    @Test
+    fun `review fixes preserve floating undo token across hub sync, keep query tag across turns, and disambiguate ISO chip offline`() {
+        val yesterday = today.minusDays(1)
+        val listeningTag = Tag(
+            id = "tag_listening",
+            name = "Listening",
+            nameKey = TagRules.nameKey("Listening"),
+            category = TimeCategory.LEARN,
+            archivedAt = null,
+            createdAt = nowMs - 86_400_000L,
+            updatedAt = nowMs - 86_400_000L
+        )
+        val recA = timedRec("recA", yesterday, "14:00", "15:30", TimeCategory.LEARN, "Đọc tài liệu", tagId = null)
+        val recB = timedRec("recB", yesterday, "19:00", "19:30", TimeCategory.LEARN, "Đọc tài liệu", tagId = null)
+
+        // P1 #1: syncSharedStateFromStore nạp lại ChatHistoryEntry (undoToken=null) vẫn phải giữ undoToken còn hiệu lực cho thẻ vừa duyệt
+        val token = TagAssignmentUndoToken(
+            actionId = "undo_sync_1",
+            recordId = recA.id,
+            recordTitle = recA.title,
+            previousTagId = ieltsTag.id,
+            previousTagName = ieltsTag.name,
+            previousCategoryKey = TimeCategory.LEARN.key,
+            appliedTagId = listeningTag.id,
+            appliedTagName = listeningTag.name,
+            appliedCategoryKey = TimeCategory.LEARN.key,
+            affectedPeriodStart = yesterday.toString(),
+            affectedPeriodEnd = today.toString(),
+            affectedPeriodLabel = "tuần này"
+        )
+        val liveUndoMsg = com.timewallet.mvp.overlay.FloatingChatMsg(
+            isUser = false,
+            text = "✓ Đã gắn tag Listening\n• Cập nhật Tag: IELTS → Listening",
+            badge = "Đã cập nhật & tính lại",
+            undoToken = token
+        )
+        val mappedFromStore = listOf(liveUndoMsg.copy(undoToken = null))
+        val synced = WallyFloatingChatSession.mergeSyncedHistoryWithUndoTokens(mappedFromStore, listOf(liveUndoMsg))
+        assertEquals(1, synced.size)
+        assertNotNull("Sau sync hub, nút Hoàn tác vẫn phải tồn tại", synced.single().undoToken)
+        assertFalse(synced.single().undoToken!!.undone)
+
+        // P2 #4b: Hoàn tác khi đổi từ Tag A (IELTS) -> Tag B (Listening) phải tính lại tổng của Tag A đã khôi phục
+        val swappedBack = WallyTagAssignmentEngine.buildRecalculatedChatAnswer(
+            token = token,
+            updatedRecords = listOf(recA.copy(tagId = ieltsTag.id), recB),
+            tags = listOf(ieltsTag, listeningTag),
+            budgets = emptyList(),
+            goals = emptyList(),
+            activeTimer = null,
+            zone = zone,
+            nowEpochMs = nowMs,
+            wasUndone = true
+        )
+        assertTrue("Hoàn tác đổi Tag phải hiện tổng của Tag IELTS được khôi phục: ${swappedBack.lines}", swappedBack.lines.any { it.contains("IELTS") })
+
+        // P2 #2: Chạm chip phân biệt "(YYYY-MM-DD HH:mm–HH:mm ...)" dù Cloud AI không trả tagAssignments vẫn chốt đúng 1 phiên
+        val chipRes = WallyTagAssignmentEngine.resolve(
+            userText = "Gắn tag IELTS cho \"Đọc tài liệu\" ($yesterday 14:00–15:30 (1h 30p))",
+            rawIntents = emptyList(),
+            perms = AiReadPermissions(),
+            records = listOf(recA, recB),
+            tags = listOf(ieltsTag, listeningTag),
+            today = today,
+            zone = zone
+        )
+        assertTrue(chipRes is com.timewallet.mvp.domain.usecase.TagAssignmentResolution.Single)
+        assertEquals("recA", (chipRes as com.timewallet.mvp.domain.usecase.TagAssignmentResolution.Single).proposal.recordId)
+
+        // P1 #2: Coordinator giữ tagId/tagName của query trước & dynamic context có tag=<name>
+        val coord = WallyIntelligenceCoordinator { nowMs }
+        val perms = AiReadPermissions()
+        val weekPeriod = com.timewallet.mvp.domain.usecase.QueryPeriod(today.minusDays(2), today, "tuần này", com.timewallet.mvp.domain.usecase.QueryPeriodKind.WEEK)
+        val qIntent = com.timewallet.mvp.domain.usecase.QueryIntent(
+            metric = QueryMetric.TOTAL,
+            period = weekPeriod,
+            category = TimeCategory.LEARN,
+            tagId = ieltsTag.id,
+            tagName = ieltsTag.name
+        )
+        val turnQ = runBlocking {
+            val p1 = coord.prepareChatTurn("Tuần này học IELTS bao lâu?", today, LocalTime.of(11, 30), zone, perms, null, listOf(recA.copy(tagId = ieltsTag.id)), listOf(ieltsTag), emptyList(), emptyList(), emptyList(), emptyList(), null)
+            coord.finalizeChatTurn("Tuần này học IELTS bao lâu?", p1, ParseChatOutcome(emptyList(), emptyList(), queries = listOf(qIntent), source = OutcomeSource.CLOUD), perms, listOf(recA.copy(tagId = ieltsTag.id)), null, zone, listOf(ieltsTag))
+            coord.prepareChatTurn("Còn tuần trước thì sao?", today, LocalTime.of(11, 31), zone, perms, null, listOf(recA.copy(tagId = ieltsTag.id)), listOf(ieltsTag), emptyList(), emptyList(), emptyList(), emptyList(), null)
+        }
+        assertEquals(ieltsTag.id, turnQ.effectiveLastQuery?.tagId)
+        assertEquals(ieltsTag.name, turnQ.effectiveLastQuery?.tagName)
+        val dyn = GeminiProposalClient.buildDynamicContext(today, "11:31", zone.id, lastQuery = turnQ.effectiveLastQuery, activeTags = listOf(ieltsTag))
+        assertTrue("Dynamic context phải mang tag=IELTS: $dyn", dyn.contains("tag=IELTS"))
+    }
 }

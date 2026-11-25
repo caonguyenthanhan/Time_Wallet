@@ -133,7 +133,7 @@ class V1013PromptDeadlineTest {
 
     // ---------- prompt-6/7: quy tắc tổng quát, không chép câu của bộ đánh giá ----------
     @Test
-    fun `prompt-8 keeps the rules of prompt-6_7 plus cross-midnight UC-15 and ambiguity guard without copying live catalogue`() {
+    fun `prompt-10 keeps the rules of prompt-6_7 plus cross-midnight UC-15 and ambiguity guard without copying live catalogue`() {
         assertEquals("wally-prompt-10", GeminiProposalClient.PROMPT_VERSION)
         val s = GeminiProposalClient.staticSystemPrompt
         assertTrue(s.contains("7c. GIỜ BẮT ĐẦU RỒI ĐẾN ĐỘ DÀI") && s.contains("7d. ĐỘNG TỪ NGHE NHƯ LỆNH NHƯNG LÀ TÊN VIỆC"))

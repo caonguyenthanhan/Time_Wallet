@@ -121,13 +121,16 @@ object WallyTagAssignmentEngine {
         val targetTag: Tag? = if (wantClear) {
             null
         } else {
+            val fromUser = TagRules.findExplicitMatchesInText(userText, activeTags).firstOrNull()
             val fromRaw = firstRaw?.tagName?.trim()?.takeIf { it.isNotEmpty() }?.let { rawName ->
                 val k = TagRules.nameKey(rawName)
                 activeTags.firstOrNull { it.nameKey == k }
                     ?: TagRules.findExplicitMatchesInText(rawName, activeTags).firstOrNull()
+            }?.takeIf { candidate ->
+                TagRules.findExplicitMatchesInText(userText, listOf(candidate)).isNotEmpty() ||
+                    normalizeAscii(userText).contains(candidate.nameKey)
             }
-            val fromUser = TagRules.findExplicitMatchesInText(userText, activeTags).firstOrNull()
-            fromRaw ?: fromUser ?: return TagAssignmentResolution.NotFound(
+            fromUser ?: fromRaw ?: return TagAssignmentResolution.NotFound(
                 if (activeTags.isEmpty()) {
                     "Bạn chưa tạo Tag nào. Hãy tạo Tag trong Cài đặt › Quản lý Tag trước."
                 } else {
@@ -250,7 +253,11 @@ object WallyTagAssignmentEngine {
         val periodStart = runCatching { LocalDate.parse(token.affectedPeriodStart) }.getOrDefault(LocalDate.now(zone))
         val periodEnd = runCatching { LocalDate.parse(token.affectedPeriodEnd) }.getOrDefault(periodStart.plusDays(6))
         val queryPeriod = QueryPeriod(periodStart, periodEnd, token.affectedPeriodLabel, QueryPeriodKind.WEEK)
-        val targetTagIdForQuery = if (wasUndone) (token.appliedTagId ?: token.previousTagId) else (token.appliedTagId ?: token.previousTagId)
+        val targetTagIdForQuery = if (wasUndone) {
+            token.previousTagId ?: token.appliedTagId
+        } else {
+            token.appliedTagId ?: token.previousTagId
+        }
         val targetTag = targetTagIdForQuery?.let { id -> tags.firstOrNull { !it.isArchived && it.id == id } }
 
         val updatedTotals = if (targetTag != null) {
@@ -353,12 +360,22 @@ object WallyTagAssignmentEngine {
         }
     }
 
-    private fun resolveExplicitPastOrPresentDate(norm: String, today: LocalDate): LocalDate? = when {
-        norm.contains("hom kia") -> today.minusDays(2)
-        norm.contains("hom qua") || norm.contains("dem qua") -> today.minusDays(1)
-        norm.contains("hom nay") || norm.contains("sang nay") || norm.contains("trua nay") ||
-            norm.contains("chieu nay") || norm.contains("toi nay") -> today
-        else -> null
+    private fun resolveExplicitPastOrPresentDate(norm: String, today: LocalDate): LocalDate? {
+        norm.split(' ', '(', ')', '[', ']', ',', ';', '\n')
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.length == 10 && it[4] == '-' && it[7] == '-' }
+            .forEach { tok ->
+                val parsed = runCatching { LocalDate.parse(tok) }.getOrNull()
+                if (parsed != null && !parsed.isAfter(today)) return parsed
+            }
+        return when {
+            norm.contains("hom kia") -> today.minusDays(2)
+            norm.contains("hom qua") || norm.contains("dem qua") -> today.minusDays(1)
+            norm.contains("hom nay") || norm.contains("sang nay") || norm.contains("trua nay") ||
+                norm.contains("chieu nay") || norm.contains("toi nay") -> today
+            else -> null
+        }
     }
 
     private fun normalizeAscii(s: String): String {

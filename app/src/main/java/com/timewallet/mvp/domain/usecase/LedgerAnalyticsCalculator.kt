@@ -5,6 +5,7 @@ import com.timewallet.mvp.domain.model.BudgetPeriod
 import com.timewallet.mvp.domain.model.CategoryTimeBudget
 import com.timewallet.mvp.domain.model.Goal
 import com.timewallet.mvp.domain.model.GoalKind
+import com.timewallet.mvp.domain.model.GoalPeriod
 import com.timewallet.mvp.domain.model.GoalTargetType
 import com.timewallet.mvp.domain.model.GoalVersionStatus
 import com.timewallet.mvp.domain.model.LedgerRecord
@@ -1263,7 +1264,11 @@ object LedgerAnalyticsCalculator {
             activeTimer = activeTimer
         )
         val coveredWeeklyMaxCategories = summaries
-            .filter { it.latest.targetType == GoalTargetType.CATEGORY && it.latest.kind == GoalKind.MAX }
+            .filter {
+                it.latest.targetType == GoalTargetType.CATEGORY &&
+                    it.latest.kind == GoalKind.MAX &&
+                    it.latest.period == GoalPeriod.WEEK
+            }
             .mapTo(HashSet()) { it.latest.targetKey }
         val budgetList = weeklyInsights?.budgetProgressList
             ?: computeBudgetProgress(budgets, records, zoneId, nowEpochMs, activeTimer)

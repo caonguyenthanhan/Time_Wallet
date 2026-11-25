@@ -828,8 +828,14 @@ class TimeWalletViewModel(application: Application) : AndroidViewModel(applicati
             val nextProposals = if (syncChat) persistedProposals else cur.proposals
             val nextAssigns = if (syncChat) persistedTagAssigns else cur.pendingTagAssignments
             val nextHistory = if (syncChat) persistedHistory else cur.chatHistory
-            val clarifyAnswer = if (syncChat && cur.chatAnswer == null) {
-                buildClarificationChatAnswer(persistedConv, nextProposals.size)
+            val clarifyAnswer = if (syncChat) {
+                val curAns = cur.chatAnswer
+                when {
+                    curAns?.label == "Thử lại lưu" && nextProposals.isEmpty() -> null
+                    curAns?.label == "Chờ duyệt gắn Tag" && nextAssigns.isEmpty() -> null
+                    curAns == null -> buildClarificationChatAnswer(persistedConv, nextProposals.size)
+                    else -> curAns
+                }
             } else {
                 cur.chatAnswer
             }

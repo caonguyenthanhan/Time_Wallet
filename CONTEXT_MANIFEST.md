@@ -1,15 +1,15 @@
 # CONTEXT_MANIFEST.md
-Cập nhật lần cuối: 2026-11-25T13:15:00+07:00
+Cập nhật lần cuối: 2026-11-25T16:20:00+07:00
 
 ## Core (luôn nạp vào context)
 - `.agents/` — Quy tắc dự án (`AGENTS.md`, `rules/link-ecosystem.md`)
 - `.gitignore`, `.repomixignore` — Bộ lọc tệp build, output QA, `reference/`, media promo, design vector nguồn lớn, `docs/archive` & tệp tạm
-- `README.md` — Trang giới thiệu sản phẩm trực quan cho `Wally — Time Wallet` (trỏ bản phát hành công khai gần nhất `v2.2.2`)
+- `README.md` — Trang giới thiệu sản phẩm trực quan cho `Wally — Time Wallet v2.2.3` (`versionCode 26`)
 - `docs/ARCHITECTURE_AND_PRIVACY.md` — Kiến trúc 4 lớp, Room v8, bảo mật Keystore/Permissions, kết quả kiểm chứng candidate `v2.2.3` (`versionCode 26`) & hướng dẫn build
 - `promo-video/` — Mã nguồn bố cục HyperFrames (`index.html`, `compositions/*.html`, `SPEC.md`, `STORYLINES.md`, `REVIEW.md`)
 - `Time_Wallet_MVP/` — Đặc tả MVP & HTML Prototype gốc
 - `ai_test/` — Script kiểm thử gateway (`test_foza_ai.ts`, đọc `FOZA_API_KEY` từ biến môi trường; KHÔNG xóa dù có chuỗi `_test`)
-- `app/` — Mã nguồn Kotlin/Compose `v2.2.3` (`versionCode 26`, `wally-prompt-10`): `WallyConversationEngine`, `WallyTagAssignmentEngine`, `WallyIntelligenceCoordinator`, `WallyFloatingChatSession`, `WallyDataStoryEngine`, `LedgerAnalyticsCalculator`, `TaskHabitEngine`, `ConfirmationEngine`, `TimelineFeedEngine`, `WallyHomeWidgetProvider` & `WallyHomeWidgetService`, `WallyFloatingService`, `AiTodoEngine`, `WallyHubSnapshotEngine`, `WallyActionController`, `WallyTodoAiPlanner`, `AiProviderPreset`, `AppUpdateContract`, `GitHubReleaseUpdateChannel`, Room schema `v8` (`MIGRATION_7_8`), `src/screenshotTest` (`15/15` pass) & bộ test JVM (`720` cases: `716` pass, `4` live-eval skipped)
+- `app/` — Mã nguồn Kotlin/Compose `v2.2.3` (`versionCode 26`, `wally-prompt-10`): `WallyConversationEngine`, `WallyTagAssignmentEngine`, `WallyIntelligenceCoordinator`, `WallyFloatingChatSession`, `WallyDataStoryEngine`, `LedgerAnalyticsCalculator`, `TaskHabitEngine`, `ConfirmationEngine`, `TimelineFeedEngine`, `WallyHomeWidgetProvider` & `WallyHomeWidgetService`, `WallyFloatingService`, `AiTodoEngine`, `WallyHubSnapshotEngine`, `WallyActionController`, `WallyTodoAiPlanner`, `AiProviderPreset`, `AppUpdateContract`, `GitHubReleaseUpdateChannel`, Room schema `v8` (`MIGRATION_7_8`), `src/screenshotTest` (`15/15` pass) & bộ test JVM (`721` cases: `717` pass, `4` live-eval skipped)
 - `build.gradle.kts`, `settings.gradle.kts`, `gradle/`, `gradle.properties`
 - Tài liệu đặc tả & phát hành khác: `SPEC_TIME_WALLET_WALLY.md`, `SPEC_WALLY_UI_UX-v221.md`, `WALLY_TECHNICAL_SPEC.md`, `WALLY_V210_CANDIDATE.md`, `WALLY_V200_CANDIDATE.md`, `WALLY_V120_PRODUCTION_CANDIDATE.md`, `WALLY_V110_PLAN.md`, `WALLY_V110_CLOSURE_DIGEST.md`, `WALLY_OWNER_CHECKLIST_V110.md`
 

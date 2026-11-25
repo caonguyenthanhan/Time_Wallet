@@ -459,4 +459,26 @@ class WallyFloatingChatSession(
         isFuturePlanned = isFuturePlanned,
         taskId = taskId
     )
+
+    companion object {
+        /** Giữ lại token Hoàn tác còn hiệu lực khi nạp lại lịch sử chia sẻ sau persistSharedState. */
+        fun mergeSyncedHistoryWithUndoTokens(
+            mapped: List<FloatingChatMsg>,
+            existing: List<FloatingChatMsg>
+        ): List<FloatingChatMsg> {
+            val activeUndoByText = existing
+                .filter { it.undoToken != null && !it.undoToken.undone }
+                .associateBy { it.text }
+            if (activeUndoByText.isEmpty()) return mapped.takeLast(14)
+            val attached = mapped.map { item ->
+                val tok = activeUndoByText[item.text]?.undoToken
+                if (tok != null) item.copy(undoToken = tok) else item
+            }
+            val attachedTexts = attached.mapTo(HashSet()) { it.text }
+            val extra = existing.filter {
+                it.undoToken != null && !it.undoToken.undone && it.text !in attachedTexts
+            }
+            return (attached + extra).takeLast(14)
+        }
+    }
 }

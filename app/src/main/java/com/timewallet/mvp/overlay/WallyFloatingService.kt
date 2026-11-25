@@ -1362,6 +1362,8 @@ private fun FloatingChatCard(
     var pendingTagAssignments by remember { mutableStateOf<List<TagAssignmentProposal>>(emptyList()) }
     var expandedTagDraftId by remember { mutableStateOf<String?>(null) }
     var tagSearchQuery by remember(expandedTagDraftId) { mutableStateOf("") }
+    var confirmingDraftId by remember { mutableStateOf<String?>(null) }
+    var tagActionBusy by remember { mutableStateOf(false) }
     val hubVersion by WallyActionController.hubStateVersion.collectAsState()
 
     fun syncSharedStateFromStore(fresh: FloatingChatSnapshotData?) {
@@ -1391,14 +1393,7 @@ private fun FloatingChatCard(
                     } else emptyList()
                 )
             }
-            val currentUndoMsgs = messages.filter { it.undoToken != null && !it.undoToken.undone }
-            messages = if (currentUndoMsgs.isNotEmpty()) {
-                val lastH = mapped.lastOrNull()?.text
-                val extraUndo = currentUndoMsgs.filter { u -> u.text != lastH }
-                (mapped + extraUndo).takeLast(14)
-            } else {
-                mapped
-            }
+            messages = WallyFloatingChatSession.mergeSyncedHistoryWithUndoTokens(mapped, messages)
         } else if (persistedConv?.clarificationQuestion != null) {
             messages = listOf(
                 defaultGreeting,
@@ -1599,23 +1594,29 @@ private fun FloatingChatCard(
                                     horizontalArrangement = Arrangement.End
                                 ) {
                                     FloatingPillButton(label = "↶ Hoàn tác", danger = true) {
+                                        if (tagActionBusy) return@FloatingPillButton
+                                        tagActionBusy = true
                                         scope.launch {
-                                            val undoMsg = session.undoTagAssignment(serviceContext, undoTok)
-                                            messages = (messages.mapIndexed { idx, item ->
-                                                if (idx == msgIdx && item.undoToken != null) {
-                                                    item.copy(undoToken = item.undoToken.copy(undone = true))
-                                                } else item
-                                            } + undoMsg).takeLast(14)
-                                            val fresh = session.loadContextData(serviceContext)
-                                            snapshotData = fresh
-                                            session.persistSharedState(
-                                                context = serviceContext,
-                                                drafts = pendingProposals,
-                                                pendingTagAssignments = pendingTagAssignments,
-                                                perms = fresh.perms,
-                                                newHistoryEntries = listOf(buildHistoryEntryFromFloating(undoMsg))
-                                            )
-                                            onReload()
+                                            try {
+                                                val undoMsg = session.undoTagAssignment(serviceContext, undoTok)
+                                                messages = (messages.mapIndexed { idx, item ->
+                                                    if (idx == msgIdx && item.undoToken != null) {
+                                                        item.copy(undoToken = item.undoToken.copy(undone = true))
+                                                    } else item
+                                                } + undoMsg).takeLast(14)
+                                                val fresh = session.loadContextData(serviceContext)
+                                                snapshotData = fresh
+                                                session.persistSharedState(
+                                                    context = serviceContext,
+                                                    drafts = pendingProposals,
+                                                    pendingTagAssignments = pendingTagAssignments,
+                                                    perms = fresh.perms,
+                                                    newHistoryEntries = listOf(buildHistoryEntryFromFloating(undoMsg))
+                                                )
+                                                onReload()
+                                            } finally {
+                                                tagActionBusy = false
+                                            }
                                         }
                                     }
                                 }
@@ -1680,21 +1681,27 @@ private fun FloatingChatCard(
                                 }
                                 Spacer(modifier = Modifier.weight(1f))
                                 FloatingPillButton(label = "✓ Duyệt gắn Tag", accent = true) {
+                                    if (tagActionBusy) return@FloatingPillButton
+                                    tagActionBusy = true
                                     scope.launch {
-                                        val resMsg = session.approveTagAssignment(serviceContext, assign)
-                                        val nextAssigns = pendingTagAssignments.filterNot { it.id == assign.id }
-                                        pendingTagAssignments = nextAssigns
-                                        messages = (messages + resMsg).takeLast(14)
-                                        val fresh = session.loadContextData(serviceContext)
-                                        snapshotData = fresh
-                                        session.persistSharedState(
-                                            context = serviceContext,
-                                            drafts = pendingProposals,
-                                            pendingTagAssignments = nextAssigns,
-                                            perms = fresh.perms,
-                                            newHistoryEntries = listOf(buildHistoryEntryFromFloating(resMsg))
-                                        )
-                                        onReload()
+                                        try {
+                                            val resMsg = session.approveTagAssignment(serviceContext, assign)
+                                            val nextAssigns = pendingTagAssignments.filterNot { it.id == assign.id }
+                                            pendingTagAssignments = nextAssigns
+                                            messages = (messages + resMsg).takeLast(14)
+                                            val fresh = session.loadContextData(serviceContext)
+                                            snapshotData = fresh
+                                            session.persistSharedState(
+                                                context = serviceContext,
+                                                drafts = pendingProposals,
+                                                pendingTagAssignments = nextAssigns,
+                                                perms = fresh.perms,
+                                                newHistoryEntries = listOf(buildHistoryEntryFromFloating(resMsg))
+                                            )
+                                            onReload()
+                                        } finally {
+                                            tagActionBusy = false
+                                        }
                                     }
                                 }
                             }
@@ -1765,64 +1772,73 @@ private fun FloatingChatCard(
                                     }
                                 }
                                 Spacer(modifier = Modifier.weight(1f))
-                                FloatingPillButton(label = "✓ Xác nhận", accent = true) {
+                                FloatingPillButton(
+                                    label = if (confirmingDraftId == draft.id) "Đang lưu…" else "✓ Xác nhận",
+                                    accent = true
+                                ) {
+                                    if (confirmingDraftId != null) return@FloatingPillButton
+                                    confirmingDraftId = draft.id
                                     scope.launch {
-                                        val db = TimeWalletDatabase.getInstance(serviceContext)
-                                        val store = TimerAndSettingsStore(serviceContext)
-                                        val freshData = session.loadContextData(serviceContext)
-                                        snapshotData = freshData
-                                        val input = session.buildConfirmInput(draft)
-                                        val res = try {
-                                            BatchConfirm.run(
-                                                dao = db.ledgerDao(),
-                                                inputs = listOf(input),
-                                                activeTimer = freshData.activeTimer ?: store.loadActiveTimer(),
-                                                readActiveTimer = { store.loadActiveTimer() },
-                                                nowEpochMs = System.currentTimeMillis(),
-                                                zone = ZoneId.systemDefault()
-                                            )
-                                        } catch (e: kotlinx.coroutines.CancellationException) {
-                                            throw e
-                                        } catch (_: Throwable) {
-                                            ConfirmResult.Aborted("Lỗi lưu cục bộ — vui lòng thử lại.")
-                                        }
-                                        val noticeMsg = when (res) {
-                                            is ConfirmResult.Committed -> {
-                                                val next = session.removeDraft(
-                                                    pendingProposals, draft.id, freshData.tags, freshData.perms
+                                        try {
+                                            val db = TimeWalletDatabase.getInstance(serviceContext)
+                                            val store = TimerAndSettingsStore(serviceContext)
+                                            val freshData = session.loadContextData(serviceContext)
+                                            snapshotData = freshData
+                                            val input = session.buildConfirmInput(draft)
+                                            val res = try {
+                                                BatchConfirm.run(
+                                                    dao = db.ledgerDao(),
+                                                    inputs = listOf(input),
+                                                    activeTimer = freshData.activeTimer ?: store.loadActiveTimer(),
+                                                    readActiveTimer = { store.loadActiveTimer() },
+                                                    nowEpochMs = System.currentTimeMillis(),
+                                                    zone = ZoneId.systemDefault()
                                                 )
-                                                pendingProposals = next
-                                                if (expandedTagDraftId == draft.id) expandedTagDraftId = null
-                                                val okMsg = FloatingChatMsg(
-                                                    isUser = false,
-                                                    text = "✓ Đã ghi \"${draft.title}\" (${res.savedCount} mục).",
-                                                    badge = "Đã lưu"
-                                                )
-                                                session.persistSharedState(
-                                                    context = serviceContext,
-                                                    drafts = next,
-                                                    pendingTagAssignments = pendingTagAssignments,
-                                                    perms = freshData.perms,
-                                                    newHistoryEntries = listOf(buildHistoryEntryFromFloating(okMsg))
-                                                )
-                                                okMsg
+                                            } catch (e: kotlinx.coroutines.CancellationException) {
+                                                throw e
+                                            } catch (_: Throwable) {
+                                                ConfirmResult.Aborted("Lỗi lưu cục bộ — vui lòng thử lại.")
                                             }
-                                            is ConfirmResult.Aborted -> FloatingChatMsg(
-                                                isUser = false,
-                                                text = "Lưu chưa thành công: ${res.message}\nĐề xuất \"${draft.title}\" vẫn được giữ nguyên (ngày/giờ/Tag) để bạn kiểm tra hoặc bấm ✓ Xác nhận lại.",
-                                                badge = "Thử lại lưu",
-                                                isClarification = true
-                                            )
-                                            is ConfirmResult.Invalid -> FloatingChatMsg(
-                                                isUser = false,
-                                                text = "Chưa thể lưu: ${res.message}\nĐề xuất \"${draft.title}\" vẫn được giữ nguyên — kiểm tra lại rồi bấm ✓ Xác nhận.",
-                                                badge = "Kiểm tra lại",
-                                                isClarification = true
-                                            )
+                                            val noticeMsg = when (res) {
+                                                is ConfirmResult.Committed -> {
+                                                    val next = session.removeDraft(
+                                                        pendingProposals, draft.id, freshData.tags, freshData.perms
+                                                    )
+                                                    pendingProposals = next
+                                                    if (expandedTagDraftId == draft.id) expandedTagDraftId = null
+                                                    val okMsg = FloatingChatMsg(
+                                                        isUser = false,
+                                                        text = "✓ Đã ghi \"${draft.title}\" (${res.savedCount} mục).",
+                                                        badge = "Đã lưu"
+                                                    )
+                                                    session.persistSharedState(
+                                                        context = serviceContext,
+                                                        drafts = next,
+                                                        pendingTagAssignments = pendingTagAssignments,
+                                                        perms = freshData.perms,
+                                                        newHistoryEntries = listOf(buildHistoryEntryFromFloating(okMsg))
+                                                    )
+                                                    okMsg
+                                                }
+                                                is ConfirmResult.Aborted -> FloatingChatMsg(
+                                                    isUser = false,
+                                                    text = "Lưu chưa thành công: ${res.message}\nĐề xuất \"${draft.title}\" vẫn được giữ nguyên (ngày/giờ/Tag) để bạn kiểm tra hoặc bấm ✓ Xác nhận lại.",
+                                                    badge = "Thử lại lưu",
+                                                    isClarification = true
+                                                )
+                                                is ConfirmResult.Invalid -> FloatingChatMsg(
+                                                    isUser = false,
+                                                    text = "Chưa thể lưu: ${res.message}\nĐề xuất \"${draft.title}\" vẫn được giữ nguyên — kiểm tra lại rồi bấm ✓ Xác nhận.",
+                                                    badge = "Kiểm tra lại",
+                                                    isClarification = true
+                                                )
+                                            }
+                                            messages = (messages + noticeMsg).takeLast(14)
+                                            WallyActionController.notifyAllWidgets(serviceContext)
+                                            onReload()
+                                        } finally {
+                                            confirmingDraftId = null
                                         }
-                                        messages = (messages + noticeMsg).takeLast(14)
-                                        WallyActionController.notifyAllWidgets(serviceContext)
-                                        onReload()
                                     }
                                 }
                             }

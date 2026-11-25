@@ -782,7 +782,8 @@ object GeminiProposalClient {
     ): String {
         val previous = lastQuery?.let {
             "- Câu hỏi số liệu ngay trước: metric=${it.metric.name}, từ ${it.period.start} đến ${it.period.end}" +
-                (it.category?.let { c -> ", category=${c.key}" } ?: "")
+                (it.category?.let { c -> ", category=${c.key}" } ?: "") +
+                (it.tagName?.takeIf { t -> t.isNotBlank() }?.let { t -> ", tag=$t" } ?: "")
         } ?: "- Không có câu hỏi số liệu trước đó."
         val activeTagList = activeTags.filter { !it.isArchived }
         val tagsLine = if (activeTagList.isEmpty()) {
