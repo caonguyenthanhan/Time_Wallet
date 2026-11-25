@@ -408,6 +408,7 @@ object WallyContextEngine {
                 com.timewallet.mvp.domain.model.GoalTargetType.CATEGORY -> activeGoal.targetKey
             }
             val progress = GoalRules.progress(activeGoal, records, today, nowEpochMs, zone, activeTimer = activeTimer)
+            val math = GoalDisplayMath.from(progress.usedSeconds, activeGoal.targetSeconds)
             val (pStart, pEnd) = GoalRules.periodBounds(activeGoal.period, today)
             val confSec = GoalRules.confirmedUsedSeconds(
                 activeGoal.targetType, activeGoal.targetKey, records, pStart, pEnd, nowEpochMs, zone
@@ -417,11 +418,11 @@ object WallyContextEngine {
                 categoryKey = categoryKey,
                 kind = activeGoal.kind,
                 period = activeGoal.period,
-                targetMinutes = mins(activeGoal.targetSeconds),
-                usedMinutes = mins(progress.usedSeconds),
+                targetMinutes = math.targetMinutes.toInt(),
+                usedMinutes = math.usedMinutes.toInt(),
                 confirmedMinutes = mins(confSec),
-                remainingMinutes = mins(progress.remainingSeconds),
-                overMinutes = mins(progress.overSeconds)
+                remainingMinutes = math.remainingMinutes.toInt(),
+                overMinutes = math.overMinutes.toInt()
             )
         }
         return result.sortedWith(

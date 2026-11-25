@@ -235,8 +235,9 @@ object LedgerQueryEngine {
                 val periodVi = if (s.latest.period == GoalPeriod.DAY) "ngày" else "tuần"
                 val statusVi = when {
                     s.latest.kind == GoalKind.MIN && p.met -> "đã đạt mục tiêu"
-                    s.latest.kind == GoalKind.MIN -> "còn thiếu ${math.remainingLabel}"
-                    p.overSeconds > 0L -> "vượt ${fmt(p.overSeconds)}"
+                    s.latest.kind == GoalKind.MIN && math.remainingMinutes > 0L -> "còn thiếu ${math.remainingLabel}"
+                    s.latest.kind == GoalKind.MIN -> "còn thiếu < 1p"
+                    p.overSeconds > 0L -> if (math.overMinutes > 0L) "vượt ${math.overLabel}" else "vượt < 1p"
                     else -> "còn lại ${math.remainingLabel}"
                 }
                 "Mục tiêu ${s.name} (${math.targetLabel}/$periodVi): đã ghi nhận ${math.usedLabel}, $statusVi."
@@ -279,8 +280,9 @@ object LedgerQueryEngine {
         val sign = if (s.latest.kind == GoalKind.MIN) "≥ " else "≤ "
         val status = when {
             s.latest.kind == GoalKind.MIN && p.met -> "Đạt mục tiêu"
-            s.latest.kind == GoalKind.MIN -> "Còn thiếu ${math.remainingLabel}"
-            p.overSeconds > 0L -> "Vượt ${fmt(p.overSeconds)}"
+            s.latest.kind == GoalKind.MIN && math.remainingMinutes > 0L -> "Còn thiếu ${math.remainingLabel}"
+            s.latest.kind == GoalKind.MIN -> "Còn thiếu < 1p"
+            p.overSeconds > 0L -> if (math.overMinutes > 0L) "Vượt ${math.overLabel}" else "Vượt < 1p"
             else -> "Còn ${math.remainingLabel}"
         }
         return "${cat.emoji} ${s.name}: ${math.usedLabel} / $sign${math.targetLabel}$periodSuffix — $status"
